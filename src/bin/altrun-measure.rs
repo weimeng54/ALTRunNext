@@ -2,6 +2,7 @@
 //! Desktop pixels are compared with a stable reference of each target's own
 //! results control. Report intervals/upper bounds, never claim hardware present
 //! timestamps, physical keyboard latency, IME coverage, or a complete gate pass.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #[cfg(windows)]
 mod windows {
     use std::{
@@ -500,8 +501,7 @@ mod windows {
         }
     }
 
-    pub fn run() -> Result<(), String> {
-        let args: Vec<_> = std::env::args().collect();
+    pub fn run(args: Vec<String>) -> Result<(), String> {
         let value = |name: &str| {
             args.iter()
                 .position(|a| a == name)
@@ -630,8 +630,79 @@ mod windows {
 
 fn main() {
     #[cfg(windows)]
-    if let Err(message) = windows::run() {
+    if let Err(message) = local_or_cli() {
         eprintln!("Measurement not accepted: {message}");
         std::process::exit(2);
     }
+}
+
+// The desktop tool launches an executable without arguments. This local-only
+// sidecar starts the two test processes on the same desktop as the original.
+// It neither switches desktops nor installs a service or scheduled task.
+#[cfg(windows)]
+fn local_or_cli() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        return windows::run(args);
+    }
+    let exe = std::env::current_exe().map_err(|_| "Cannot locate test instrument")?;
+    let folder = exe.parent().ok_or("Missing test folder")?;
+    if !folder.to_string_lossy().to_ascii_lowercase().starts_with("d:\\") {
+        return Err("Local test session must stay on D:".into());
+    }
+    let status = folder.join("session-status.txt");
+    let result = run_local_session(folder);
+    let text = match &result {
+        Ok(()) => "Observations saved; performance gate remains pending.".to_string(),
+        Err(error) => format!("Measurement not accepted: {error}"),
+    };
+    std::fs::write(status, text).map_err(|_| "Cannot save session status")?;
+    result
+}
+
+#[cfg(windows)]
+fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
+    let bytes = std::fs::read(folder.join("altrun-measure.session.txt"))
+        .map_err(|_| "No explicit local test session profile")?;
+    if bytes.len() > 4096 {
+        return Err("Invalid local test profile size".into());
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| "Profile must be UTF-8")?;
+    let lines: Vec<_> = text.lines().collect();
+    if lines.len() != 3 || lines[0] != "ALTRUN-LOCAL-TEST-AUTOEXEC-OFF" {
+        return Err("Profile must explicitly confirm original auto-execute is off".into());
+    }
+    let original: u32 = lines[1].parse().map_err(|_| "Invalid original PID")?;
+    let data = std::path::Path::new(lines[2]);
+    if !data.is_absolute() || !lines[2].to_ascii_lowercase().starts_with("d:\\") {
+        return Err("Private test data must stay on D:".into());
+    }
+    struct Probe(std::process::Child);
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let child = Probe(
+        std::process::Command::new(folder.join("altrun-probe.exe"))
+            .arg("--data")
+            .arg(data)
+            .spawn()
+            .map_err(|_| "Cannot start local prototype")?,
+    );
+    // Startup readiness is outside all measured intervals.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    windows::run(vec![
+        "altrun-measure".into(),
+        "--original-pid".into(),
+        original.to_string(),
+        "--probe-pid".into(),
+        child.0.id().to_string(),
+        "--confirm-original-auto-execute-off".into(),
+        "--output".into(),
+        folder.join("session-result.json").to_string_lossy().into(),
+        "--rounds".into(),
+        "3".into(),
+    ])
 }
