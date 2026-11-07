@@ -16,6 +16,8 @@ const ID_LIST: usize = 1002;
 const HOTKEY: i32 = 17001;
 const SHOW: u32 = WM_APP + 1;
 const QUIT: u32 = WM_APP + 2;
+// SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
+const STATIC_CENTER: u32 = 0x00000001;
 
 struct State {
     entries: Vec<Entry>,
@@ -209,7 +211,7 @@ pub fn run()->Result<(),String> {
         let dpi=GetDpiForWindow(hwnd).max(96) as i32;
         let font=CreateFontW(-scaled(13,dpi),0,0,0,400,0,0,0,DEFAULT_CHARSET as u32,OUT_DEFAULT_PRECIS as u32,CLIP_DEFAULT_PRECIS as u32,CLEARTYPE_QUALITY as u32,0,wide("Microsoft YaHei UI").as_ptr());
         let control=|class_name:&str,style:u32,x,y,width,height,id:usize|CreateWindowExW(0,wide(class_name).as_ptr(),wide("").as_ptr(),WS_CHILD|WS_VISIBLE|style,scaled(x,dpi),scaled(y,dpi),scaled(width,dpi),scaled(height,dpi),hwnd,id as HMENU,instance,std::ptr::null());
-        let title=control("STATIC",SS_CENTER as u32,5,3,410,22,1000);
+        let title=control("STATIC",STATIC_CENTER,5,3,410,22,1000);
         let edit=control("EDIT",WS_BORDER|ES_AUTOHSCROLL as u32,5,27,410,25,ID_EDIT);
         let list=control("LISTBOX",LBS_NOTIFY as u32|LBS_OWNERDRAWFIXED as u32|LBS_NODATA as u32|LBS_NOINTEGRALHEIGHT as u32,5,54,410,120,ID_LIST);
         let command=control("EDIT",ES_AUTOHSCROLL as u32|ES_READONLY as u32,7,178,406,20,1003);

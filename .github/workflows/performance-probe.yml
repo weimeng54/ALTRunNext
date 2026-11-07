@@ -38,20 +38,23 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           rustc -Vv
-          cargo generate-lockfile
+          cargo fetch --locked
           if ($LASTEXITCODE -ne 0) {
             Remove-Item "$env:USERPROFILE/.cargo/config.toml"
-            cargo generate-lockfile
+            cargo fetch --locked
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: Unit tests (performance gate logic)
-        run: cargo test --locked
       - name: Formatting
+        if: always()
         shell: pwsh
         run: |
           cargo fmt --all
           git diff --binary -- src tests | Out-File -Encoding utf8NoBOM rustfmt.patch
           cargo fmt --all --check
+      - name: Evidence gate tests
+        run: python -m unittest discover -s tests -p test_performance_gate.py -v
+      - name: Unit tests (performance gate logic)
+        run: cargo test --locked
       - name: Lints
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Release build
