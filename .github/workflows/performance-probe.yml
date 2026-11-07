@@ -51,10 +51,10 @@ jobs:
           cargo fmt --all
           git diff --binary -- src tests | Out-File -Encoding utf8NoBOM rustfmt.patch
           cargo fmt --all --check
-      - name: Evidence gate tests
-        run: python -m unittest discover -s tests -p test_performance_gate.py -v
       - name: Unit tests (performance gate logic)
         run: cargo test --locked
+      - name: Evidence gate tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Lints
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Release build

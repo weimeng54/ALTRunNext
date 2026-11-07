@@ -1,7 +1,12 @@
 use altrun_probe::{Entry, advance, parse_entries, search};
 
 fn entry(alias: &str, frequency: i64) -> Entry {
-    Entry { alias: alias.into(), name: "test".into(), command: "notepad.exe".into(), frequency }
+    Entry {
+        alias: alias.into(),
+        name: "test".into(),
+        command: "notepad.exe".into(),
+        frequency,
+    }
 }
 
 #[test]
@@ -20,7 +25,12 @@ fn invalid_dataset_is_rejected_instead_of_silently_losing_commands() {
 
 #[test]
 fn search_uses_alias_and_original_frequency_position_length_score() {
-    let entries = vec![entry("xnote", 0), entry("notepad", 7), entry("note", 0), entry("note", 0)];
+    let entries = vec![
+        entry("xnote", 0),
+        entry("notepad", 7),
+        entry("note", 0),
+        entry("note", 0),
+    ];
     assert_eq!(search(&entries, "NOTE"), vec![2, 3, 1, 0]);
     assert_eq!(search(&entries, ""), vec![1, 0, 2, 3]);
     assert_eq!(search(&entries, "notepad-is-longer"), Vec::<usize>::new());
