@@ -48,6 +48,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          cargo fmt --all
+          git diff --binary -- src tests | Out-File -Encoding utf8NoBOM rustfmt.patch
           cargo fmt --all --check
       - name: Unit tests (performance gate logic)
         run: cargo test --locked
@@ -61,10 +63,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/altrun-probe.exe dist/
+          Copy-Item target/x86_64-pc-windows-msvc/release/*.exe dist/
           Copy-Item Cargo.lock dist/
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
-          Get-FileHash dist/altrun-probe.exe -Algorithm SHA256 | Select-Object Algorithm,Hash | ConvertTo-Json | Set-Content dist/SHA256.json
+          @(Get-ChildItem dist/*.exe | ForEach-Object { @{Name=$_.Name;Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -72,4 +74,5 @@ jobs:
           path: |
             dist/
             Cargo.lock
+            rustfmt.patch
           retention-days: 3
