@@ -47,7 +47,11 @@ jobs:
       - name: Unit tests (performance gate logic)
         run: cargo test --locked
       - name: Formatting
-        run: cargo fmt --all --check
+        shell: pwsh
+        run: |
+          cargo fmt --all
+          git diff --binary -- src tests | Out-File -Encoding utf8NoBOM rustfmt.patch
+          cargo fmt --all --check
       - name: Lints
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Release build
@@ -61,8 +65,11 @@ jobs:
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
           Get-FileHash dist/altrun-probe.exe -Algorithm SHA256 | Select-Object Algorithm,Hash | ConvertTo-Json | Set-Content dist/SHA256.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: success()
+        if: always()
         with:
           name: altrun-probe-${{ github.sha }}
-          path: dist/
+          path: |
+            dist/
+            Cargo.lock
+            rustfmt.patch
           retention-days: 3

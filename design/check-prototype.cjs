@@ -58,4 +58,3 @@ const pass=s=>cases.push(s);
     console.log(JSON.stringify({passed:cases.length,cases,layoutChecks:layout.length,errors},null,2));
   }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
-
