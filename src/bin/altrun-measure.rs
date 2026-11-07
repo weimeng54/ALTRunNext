@@ -647,7 +647,11 @@ fn local_or_cli() -> Result<(), String> {
     }
     let exe = std::env::current_exe().map_err(|_| "Cannot locate test instrument")?;
     let folder = exe.parent().ok_or("Missing test folder")?;
-    if !folder.to_string_lossy().to_ascii_lowercase().starts_with("d:\\") {
+    if !folder
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .starts_with("d:\\")
+    {
         return Err("Local test session must stay on D:".into());
     }
     let status = folder.join("session-status.txt");
