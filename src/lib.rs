@@ -81,5 +81,19 @@ pub fn advance(selected: usize, length: usize, delta: isize) -> usize {
 
 #[cfg(windows)]
 pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
-    Ok(std::path::PathBuf::from("notepad.exe"))
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+    let mut buffer = vec![0_u16; 512];
+    loop {
+        let size = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+        if size == 0 {
+            return Err("Cannot resolve the Windows system directory".into());
+        }
+        if size as usize >= buffer.len() {
+            buffer.resize(size as usize + 1, 0);
+            continue;
+        }
+        let directory = std::ffi::OsString::from_wide(&buffer[..size as usize]);
+        return Ok(std::path::PathBuf::from(directory).join("notepad.exe"));
+    }
 }

@@ -160,8 +160,11 @@ fn launch_selected() {
     });
     // Real command parsing belongs after the performance gate. Until then only
     // the explicit safe notepad test is allowed. Imported commands never run.
-    if allow && cmd.as_deref() == Some("notepad.exe") {
-        let _ = std::process::Command::new("notepad.exe").spawn();
+    if allow
+        && cmd.as_deref() == Some("notepad.exe")
+        && let Ok(path) = altrun_probe::safe_notepad_path()
+    {
+        let _ = std::process::Command::new(path).spawn();
     }
     let hwnd = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
     unsafe {
@@ -260,6 +263,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 if selected >= 0 {
                     STATE.with(|c| c.borrow_mut().as_mut().unwrap().selected = selected as usize);
                     update_selection();
+                    let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
+                    unsafe {
+                        SetFocus(edit);
+                    }
                 }
             }
             if id == ID_LIST && code == LBN_DBLCLK as usize {

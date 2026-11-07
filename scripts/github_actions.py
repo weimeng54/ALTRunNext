@@ -61,7 +61,12 @@ def sync():
     """
     def git(*args):
         return subprocess.check_output(['git',*args])
+    branch=git('symbolic-ref','--quiet','--short','HEAD').decode().strip()
+    if branch!='codex/performance-spike':
+        raise RuntimeError('wrong branch: sync is restricted to codex/performance-spike')
     head=git('rev-parse','HEAD').decode().strip()
+    if git('rev-parse','refs/heads/codex/performance-spike').decode().strip()!=head:
+        raise RuntimeError('wrong branch HEAD identity')
     remote=request('git/ref/heads/codex/performance-spike')['object']['sha']
     if remote==head:
         print(json.dumps({'synced':head,'transport':'already-up-to-date'}));return
@@ -112,6 +117,8 @@ def sync():
             raise RuntimeError('Remote commit hash mismatch beyond date/message terminator metadata; branch was not changed')
         written=subprocess.check_output(['git','hash-object','-t','commit','-w','--stdin'],input=normalized).decode().strip()
         if written!=commit:raise RuntimeError('Local canonical commit mismatch')
+    if git('symbolic-ref','--quiet','--short','HEAD').decode().strip()!=branch or git('rev-parse','HEAD').decode().strip()!=head:
+        raise RuntimeError('Local branch changed during upload; remote branch was not updated')
     request('git/refs/heads/codex/performance-spike',data={'sha':commit,'force':False},method='PATCH')
     if normalized is not None:
         subprocess.run(['git','update-ref','refs/heads/codex/performance-spike',commit,head],check=True)
