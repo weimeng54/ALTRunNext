@@ -48,8 +48,6 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          cargo fmt --all
-          git diff --binary -- src tests | Out-File -Encoding utf8NoBOM rustfmt.patch
           cargo fmt --all --check
       - name: Unit tests (performance gate logic)
         run: cargo test --locked
@@ -74,5 +72,4 @@ jobs:
           path: |
             dist/
             Cargo.lock
-            rustfmt.patch
           retention-days: 3
