@@ -1,0 +1,186 @@
+<div id="altrun-design" aria-label="ALTRun 界面原型">
+  <style>
+    #altrun-design{--ar-bg:light-dark(#f5f7fa,#191d24);--ar-surface:light-dark(#ffffff,#222730);--ar-text:light-dark(#202a36,#ecf0f5);--ar-muted:light-dark(#596779,#abb7c8);--ar-line:light-dark(#d8dfe8,#424c5a);--ar-blue:light-dark(#275fa8,#94bfff);--ar-select:light-dark(#e8f0fc,#2c3d56);--ar-danger:light-dark(#aa3434,#ffaaaa);--ar-ok:light-dark(#256347,#9adbb6);--ar-radius:6px;--ar-row:20px;color:var(--ar-text);font:14px/1.5 'Segoe UI Variable','Microsoft YaHei UI','Segoe UI',sans-serif;color-scheme:light dark;max-width:1024px;margin:auto}
+    #altrun-design *{box-sizing:border-box}#altrun-design [hidden]{display:none!important}
+    #altrun-design button,#altrun-design input,#altrun-design select,#altrun-design textarea{font:inherit;color:inherit}
+    #altrun-design button{cursor:pointer}#altrun-design button:disabled{cursor:default;opacity:.5}
+    #altrun-design button:focus-visible,#altrun-design input:focus-visible,#altrun-design select:focus-visible,#altrun-design textarea:focus-visible{outline:2px solid var(--ar-blue);outline-offset:3px}
+    #altrun-design button:hover:not(:disabled){filter:brightness(.95)}
+    #altrun-design .ar-preview-nav{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding:0 96px 14px 0}
+    #altrun-design .ar-preview-nav .ar-theme{margin-left:auto}
+    #altrun-design .ar-preview-nav button{border:0;background:transparent;color:var(--ar-muted);padding:7px 10px;border-radius:6px}
+    #altrun-design .ar-preview-nav button[aria-pressed=true]{background:var(--ar-select);color:var(--ar-blue)}
+    #altrun-design .ar-stage{background:var(--ar-bg);border:1px solid var(--ar-line);border-radius:var(--ar-radius);padding:24px;min-height:560px;position:relative}
+    #altrun-design .ar-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:26px;flex-wrap:wrap}
+    #altrun-design .ar-brand{font-family:'Bahnschrift','Segoe UI',sans-serif;letter-spacing:2px;font-size:15px;font-weight:600}
+    #altrun-design .ar-brand span{color:var(--ar-blue)}#altrun-design .ar-sub{color:var(--ar-muted);font-size:12px;margin-left:12px;letter-spacing:0;font-family:'Microsoft YaHei UI',sans-serif;font-weight:400}
+    #altrun-design .ar-theme{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ar-muted)}
+    #altrun-design .ar-theme select{padding:4px 6px;border:1px solid var(--ar-line);background:var(--ar-surface);border-radius:5px}
+    #altrun-design .ar-launcher{max-width:640px;margin:12px auto 0;background:var(--ar-surface);border:1px solid var(--ar-line);border-radius:var(--ar-radius);box-shadow:0 10px 26px #00000012;overflow:clip}
+    #altrun-design .ar-searchbox{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--ar-line)}
+    #altrun-design .ar-search-mark{color:var(--ar-blue);font:25px 'Consolas',monospace;flex-shrink:0}
+    #altrun-design .ar-searchbox input{border:0;background:transparent;min-width:0;flex:1;font-size:20px;padding:4px 0;outline-offset:5px}
+    #altrun-design .ar-plain{border:0;background:transparent;padding:5px 7px;color:var(--ar-muted);border-radius:5px}
+    #altrun-design .ar-section-label{display:flex;justify-content:space-between;color:var(--ar-muted);font-size:12px;padding:12px 20px 7px}
+    #altrun-design .ar-results{padding:0 8px 8px;min-height:224px}
+    #altrun-design .ar-result{width:100%;border:0;background:transparent;text-align:left;display:grid;grid-template-columns:25px 38px 1fr auto;gap:10px;align-items:center;min-height:var(--ar-row);padding:7px 12px;border-radius:6px;position:relative}
+    #altrun-design .ar-result[aria-current=true]{background:var(--ar-select)}
+    #altrun-design .ar-result[aria-current=true]:before{content:'';position:absolute;width:3px;height:26px;left:0;border-radius:3px;background:var(--ar-blue)}
+    #altrun-design .ar-number{font:12px 'Consolas',monospace;color:var(--ar-muted)}
+    #altrun-design .ar-app-icon{width:32px;height:32px;border:1px solid var(--ar-line);border-radius:7px;display:grid;place-items:center;font:13px 'Consolas',monospace;background:var(--ar-bg);color:var(--ar-blue)}
+    #altrun-design .ar-result-title{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}#altrun-design .ar-alias{font:14px 'Consolas',monospace;color:var(--ar-blue)}
+    #altrun-design .ar-detail{display:block;color:var(--ar-muted);font-size:12px;overflow-wrap:anywhere}
+    #altrun-design .ar-kind{font-size:11px;color:var(--ar-muted);white-space:nowrap}
+    #altrun-design .ar-command{padding:9px 20px;border-top:1px solid var(--ar-line);font:12px/1.6 'Consolas',monospace;color:var(--ar-muted);overflow-wrap:anywhere;min-height:39px}
+    #altrun-design .ar-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 14px;border-top:1px solid var(--ar-line);font-size:11px;color:var(--ar-muted)}
+    #altrun-design kbd{font:11px 'Consolas',monospace;border:1px solid var(--ar-line);border-radius:4px;padding:1px 4px;background:var(--ar-bg)}
+    #altrun-design .ar-empty{padding:48px 18px;text-align:center;color:var(--ar-muted)}
+    #altrun-design .ar-empty strong{display:block;color:var(--ar-text);font-weight:500;margin-bottom:6px}
+    #altrun-design .ar-btn{border:1px solid var(--ar-line);background:var(--ar-surface);border-radius:6px;padding:7px 12px;white-space:nowrap}
+    #altrun-design .ar-primary{background:var(--ar-blue);border-color:var(--ar-blue);color:light-dark(#ffffff,#14263e)}
+    #altrun-design .ar-danger{color:var(--ar-danger)}#altrun-design .ar-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    #altrun-design h2{font-size:20px;line-height:1.4;font-weight:600;margin:0}#altrun-design h3{font-size:15px;font-weight:600;margin:0 0 12px}
+    #altrun-design p{margin:6px 0 16px;color:var(--ar-muted)}
+    #altrun-design .ar-toolbar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+    #altrun-design .ar-manager{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px}
+    #altrun-design .ar-panel{background:var(--ar-surface);border:1px solid var(--ar-line);border-radius:8px;padding:18px;min-width:0}
+    #altrun-design .ar-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;min-width:0}
+    #altrun-design .ar-field>span{font-size:12px;font-weight:500}
+    #altrun-design .ar-input{width:100%;min-width:0;background:var(--ar-surface);border:1px solid var(--ar-line);border-radius:5px;padding:8px 10px}
+    #altrun-design textarea{resize:none;min-height:76px;overflow-wrap:anywhere}
+    #altrun-design .ar-filter{display:flex;gap:4px;align-items:center;flex:1;min-width:160px}
+    #altrun-design .ar-filter input{flex:1}
+    #altrun-design table{border-collapse:collapse;width:100%;text-align:left;font-size:13px;table-layout:fixed;color:var(--ar-text)}
+    #altrun-design th{font-weight:500;color:var(--ar-muted);font-size:12px}#altrun-design th,#altrun-design td{padding:10px 8px;border-bottom:1px solid var(--ar-line);overflow-wrap:anywhere}
+    #altrun-design th:first-child{width:64px}#altrun-design th:last-child{width:84px}
+    #altrun-design .ar-edit-link{border:0;background:transparent;color:var(--ar-blue);padding:0;text-align:left}
+    #altrun-design .ar-table-note{font-size:12px;color:var(--ar-muted);padding-top:12px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+    #altrun-design .ar-help{font-size:12px;color:var(--ar-muted);margin:6px 0 14px;overflow-wrap:anywhere}
+    #altrun-design .ar-error{font-size:12px;color:var(--ar-danger);min-height:18px;margin-bottom:12px}
+    #altrun-design .ar-settings{display:grid;grid-template-columns:150px minmax(0,1fr);gap:26px}
+    #altrun-design .ar-sidebar{display:flex;flex-direction:column;gap:4px}
+    #altrun-design .ar-sidebar button{background:transparent;border:0;border-radius:6px;padding:10px 12px;text-align:left;color:var(--ar-muted)}
+    #altrun-design .ar-sidebar button[aria-pressed=true]{background:var(--ar-select);color:var(--ar-blue)}
+    #altrun-design .ar-setting-row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid var(--ar-line)}
+    #altrun-design .ar-setting-row>span{min-width:0}#altrun-design .ar-setting-row small{display:block;color:var(--ar-muted);font-size:12px;margin-top:3px}
+    #altrun-design .ar-setting-row input[type=checkbox]{accent-color:var(--ar-blue);width:18px;height:18px;flex-shrink:0}
+    #altrun-design .ar-setting-row select{max-width:180px;min-width:0;padding:6px;border:1px solid var(--ar-line);background:var(--ar-surface);border-radius:5px}
+    #altrun-design .ar-hotkey{font:13px 'Consolas',monospace;padding:7px 12px;background:var(--ar-bg);border:1px solid var(--ar-line);border-radius:5px;white-space:nowrap}
+    #altrun-design .ar-import{max-width:740px;margin:auto}
+    #altrun-design .ar-import-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:20px 0}
+    #altrun-design .ar-import-summary span{font:24px 'Bahnschrift','Segoe UI',sans-serif;display:block}#altrun-design .ar-import-summary small{color:var(--ar-muted);font-size:12px}
+    #altrun-design .ar-report{padding:10px 0 18px;border-top:1px solid var(--ar-line);border-bottom:1px solid var(--ar-line);margin-bottom:16px}
+    #altrun-design .ar-report div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;flex-wrap:wrap}#altrun-design .ar-report code{font:12px 'Consolas',monospace;overflow-wrap:anywhere}
+    #altrun-design .ar-status{min-height:25px;margin-top:16px;font-size:12px;color:var(--ar-ok);overflow-wrap:anywhere}
+    #altrun-design dialog{background:var(--ar-surface);color:var(--ar-text);border:1px solid var(--ar-line);border-radius:12px;padding:24px;width:min(440px,calc(100% - 32px));max-height:85vh;overflow:auto}
+    #altrun-design dialog::backdrop{background:#00000055}#altrun-design dialog .ar-actions{justify-content:flex-end;margin-top:20px}
+    #altrun-design .ar-badge{font-size:11px;padding:2px 6px;border:1px solid var(--ar-line);border-radius:4px;color:var(--ar-muted)}
+    #altrun-design .ar-form-note{font-size:11px;color:var(--ar-muted);margin-top:18px}
+    #altrun-design *{scrollbar-width:thin;scrollbar-color:var(--ar-line) var(--ar-bg)}
+    #altrun-design ::-webkit-scrollbar{width:10px;height:10px}#altrun-design ::-webkit-scrollbar-track{background:var(--ar-bg)}#altrun-design ::-webkit-scrollbar-thumb{background:var(--ar-line);border:2px solid var(--ar-bg);border-radius:5px}
+    @media(max-width:740px){#altrun-design .ar-manager{grid-template-columns:1fr}#altrun-design .ar-stage{padding:16px}#altrun-design .ar-settings{grid-template-columns:1fr;gap:16px}#altrun-design .ar-sidebar{flex-direction:row;flex-wrap:wrap}#altrun-design .ar-top{margin-bottom:16px}#altrun-design .ar-kind{display:none}}
+    @media(max-width:440px){#altrun-design .ar-stage{padding:12px}#altrun-design .ar-searchbox{padding:14px 12px;gap:8px}#altrun-design .ar-result{grid-template-columns:18px 1fr;gap:7px}#altrun-design .ar-app-icon{display:none}#altrun-design .ar-section-label{padding:12px}#altrun-design .ar-sub{display:none}#altrun-design .ar-setting-row{align-items:flex-start}#altrun-design .ar-setting-row select{max-width:120px}#altrun-design .ar-panel{padding:12px}#altrun-design .ar-preview-nav{padding-right:80px}#altrun-design .ar-preview-nav button{padding:7px}#altrun-design .ar-import-summary{gap:8px}}
+    @media(pointer:coarse){#altrun-design button{min-height:44px}#altrun-design input,#altrun-design select,#altrun-design textarea{font-size:16px}}
+    @media(prefers-reduced-motion:reduce){#altrun-design *{animation:none!important;transition:none!important}}
+    @media(forced-colors:active){#altrun-design *{scrollbar-color:auto}#altrun-design .ar-result[aria-current=true]{outline:2px solid Highlight}}
+    #altrun-design .ar-stage[data-active=launcher]{background:transparent;border:0;padding:8px 0;min-height:0}
+    #altrun-design .ar-stage[data-active=launcher]>.ar-top{display:none}
+    #altrun-design .ar-launcher{max-width:420px;margin:0 auto;border-radius:var(--ar-radius);box-shadow:0 3px 12px #00000010;padding:5px}
+    #altrun-design .ar-selected-heading{display:grid;grid-template-columns:24px minmax(0,1fr) 48px;align-items:center;min-height:24px;gap:4px;padding:0 3px 4px}
+    #altrun-design .ar-selected-name{text-align:center;font-size:13px;font-weight:500;color:var(--ar-blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #altrun-design .ar-window-action{border:0;background:transparent;color:var(--ar-muted);padding:0;min-height:22px;line-height:22px;font-size:12px}
+    #altrun-design .ar-window-actions{display:flex;gap:4px;justify-content:flex-end}
+    #altrun-design .ar-searchbox{position:relative;gap:4px;padding:0 4px;border:1px solid var(--ar-line);border-radius:3px;min-height:28px;background:var(--ar-bg)}
+    #altrun-design .ar-searchbox input{font-size:14px;line-height:20px;padding:2px 0;min-width:0;width:100%}
+    #altrun-design .ar-operation-hint{position:absolute;right:24px;max-width:65%;font-size:11px;color:var(--ar-muted);white-space:nowrap;pointer-events:none;overflow:hidden;text-overflow:ellipsis}
+    #altrun-design .ar-searchbox .ar-plain{padding:0 3px;min-height:22px}
+    #altrun-design .ar-results{min-height:0;padding:3px 0}
+    #altrun-design .ar-result{grid-template-columns:26px 116px minmax(0,1fr);gap:0;min-height:var(--ar-row);padding:0 4px;border-radius:2px;font-size:13px;line-height:20px}
+    #altrun-design .ar-result[aria-current=true]:before{height:14px;width:2px}
+    #altrun-design .ar-result .ar-number{font-size:12px;white-space:pre}
+    #altrun-design .ar-result .ar-alias{font-size:13px;color:var(--ar-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 7px;border-left:1px solid var(--ar-line)}
+    #altrun-design .ar-result .ar-result-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:8px;border-left:1px solid var(--ar-line)}
+    #altrun-design .ar-command{display:block;width:100%;border:0;border-top:1px solid var(--ar-line);border-radius:0;background:transparent;padding:3px 4px 0;font:12px/18px 'Consolas','Microsoft YaHei UI',sans-serif;color:var(--ar-muted);height:23px;min-height:0;white-space:nowrap;outline-offset:0}
+    #altrun-design .ar-empty{padding:12px 6px;font-size:12px}
+    #altrun-design .ar-empty strong{margin-bottom:3px}
+    #altrun-design .ar-form-note.ar-launcher-note{font-size:11px;text-align:center;margin-top:12px}
+    #altrun-design .ar-stage[data-active=launcher]>.ar-status:empty{display:none}
+    @media(max-width:440px){#altrun-design .ar-result{grid-template-columns:24px 96px minmax(0,1fr)}#altrun-design .ar-preview-nav .ar-theme{margin-left:0}}
+    @media(pointer:coarse){#altrun-design .ar-result{min-height:32px}#altrun-design .ar-searchbox{min-height:36px}}
+  </style>
+  <nav class="ar-preview-nav" aria-label="原型页面">
+    <button type="button" data-view="launcher" aria-pressed="true">启动面板</button>
+    <button type="button" data-view="manager" aria-pressed="false">命令管理</button>
+    <button type="button" data-view="settings" aria-pressed="false">偏好设置</button>
+    <button type="button" data-view="migration" aria-pressed="false">旧版迁移</button>
+    <label class="ar-theme">外观<select id="ar-theme" aria-label="原型外观"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+  </nav>
+  <div class="ar-stage" data-active="launcher">
+    <header class="ar-top"><div class="ar-brand">ALT<span>RUN</span></div></header>
+    <section data-screen="launcher" aria-label="启动面板">
+      <div class="ar-launcher" aria-label="紧凑启动窗口">
+        <div class="ar-selected-heading"><button class="ar-window-action ar-optional-tool" data-goto="manager" aria-label="快捷项管理" hidden>☷</button><span class="ar-selected-name" id="ar-selected-name" style="grid-column:2">我的电脑</span><div class="ar-window-actions"><button class="ar-window-action ar-optional-tool" data-goto="settings" aria-label="配置" hidden>⚙</button><button class="ar-window-action ar-optional-tool" id="ar-hide" aria-label="隐藏面板" hidden>×</button></div></div>
+        <div class="ar-searchbox"><input id="ar-query" aria-label="输入快捷字" autocomplete="off" spellcheck="false"><span id="ar-operation-hint" class="ar-operation-hint">按 Enter 或空格执行</span><button id="ar-clear" class="ar-plain" aria-label="清空搜索" hidden>×</button></div>
+        <div id="ar-results" class="ar-results" aria-label="命令结果"></div>
+        <input id="ar-command" class="ar-command" readonly aria-label="当前 CMD 命令行">
+      </div>
+      <div class="ar-form-note ar-launcher-note">交互演示 · 仅模拟执行</div>
+    </section>
+    <section data-screen="manager" aria-label="命令管理" hidden>
+      <div class="ar-toolbar"><div><h2>命令管理</h2><p style="margin-bottom:0">熟悉的快捷字，整理得更清楚。</p></div><div class="ar-actions"><button class="ar-btn" id="ar-validate">检查失效项</button><button class="ar-btn ar-primary" id="ar-new">添加命令</button></div></div>
+      <div class="ar-manager"><div class="ar-panel"><div class="ar-filter" style="margin-bottom:12px"><input class="ar-input" id="ar-filter" aria-label="筛选命令" placeholder="筛选快捷字、名称或路径"><button id="ar-filter-clear" class="ar-plain" aria-label="清空筛选" hidden>×</button></div><table><thead><tr><th>快捷字</th><th>名称与命令</th><th>操作</th></tr></thead><tbody id="ar-table"></tbody></table><div class="ar-table-note"><span id="ar-table-count"></span><span>演示数据 · 编辑仅保留在本次预览</span></div></div>
+      <form id="ar-editor" class="ar-panel" novalidate aria-label="命令编辑器"><h3 id="ar-editor-heading">编辑命令</h3><label class="ar-field"><span>快捷字</span><input class="ar-input" id="ar-alias" autocomplete="off" aria-describedby="ar-edit-error"></label><label class="ar-field"><span>名称</span><input class="ar-input" id="ar-name" autocomplete="off" aria-describedby="ar-edit-error"></label><label class="ar-field"><span>命令或路径</span><textarea class="ar-input" id="ar-cmd" style="resize:none" rows="3" aria-describedby="ar-edit-error"></textarea></label><label class="ar-field"><span>参数处理</span><select class="ar-input" id="ar-encoding"><option value="none">无参数</option><option value="raw">原样传入</option><option value="url">旧版 URL 编码</option><option value="utf8">UTF-8 URL 编码</option></select></label><div class="ar-help"><code>%p</code> 替换输入参数，<code>%c</code> 替换剪贴板。相对路径以便携目录为基准。</div><div class="ar-error" id="ar-edit-error" role="alert"></div><div class="ar-actions"><button class="ar-btn ar-primary" type="submit">保存命令</button><button class="ar-btn" type="button" id="ar-cancel-edit">取消</button><button class="ar-plain ar-danger" type="button" id="ar-delete">删除</button></div></form></div>
+    </section>
+    <section data-screen="settings" aria-label="偏好设置" hidden>
+      <div class="ar-toolbar"><div><h2>偏好设置</h2><p style="margin-bottom:0">让操作习惯延续下来。</p></div><span class="ar-badge">预览设置</span></div>
+      <div class="ar-settings"><nav class="ar-sidebar" aria-label="设置分类"><button data-category="general" aria-pressed="true">常规</button><button data-category="keyboard" aria-pressed="false">键盘与匹配</button><button data-category="appearance" aria-pressed="false">外观</button><button data-category="data" aria-pressed="false">兼容与数据</button></nav><div class="ar-panel">
+        <div data-settings="general"><h3>常规</h3><label class="ar-setting-row"><span>开机启动<small>登录 Windows 后在托盘待命</small></span><input type="checkbox" checked></label><label class="ar-setting-row"><span>显示托盘图标<small>从托盘打开面板和设置</small></span><input type="checkbox" checked></label><label class="ar-setting-row"><span>添加到“发送到”<small>从文件资源管理器添加快捷项</small></span><input type="checkbox" checked></label><label class="ar-setting-row"><span>执行后隐藏面板<small>保留常驻，下一次立即呼出</small></span><input type="checkbox" checked></label></div>
+        <div data-settings="keyboard" hidden><h3>键盘与匹配</h3><div class="ar-setting-row"><span>主呼出热键<small>沿用原版默认值</small></span><span class="ar-hotkey">Alt + R</span></div><div class="ar-setting-row"><span>次呼出热键</span><span class="ar-hotkey">Pause</span></div><label class="ar-setting-row"><span>匹配模式<small>导入后保留旧版排序与匹配设置</small></span><select aria-label="匹配模式"><option>旧版兼容</option><option>增强搜索（可选）</option></select></label><label class="ar-setting-row"><span>数字快捷执行<small>数字顺序：1 至 9，再到 0</small></span><input type="checkbox" checked></label><label class="ar-setting-row"><span>唯一匹配时立即执行<small>中文输入法组词时不会触发</small></span><input type="checkbox"></label></div>
+        <div data-settings="appearance" hidden><h3>外观</h3><label class="ar-setting-row"><span>列表行高<small>单行显示编号、快捷字与名称</small></span><select id="ar-density"><option value="20">紧凑 · 20 DIP</option><option value="24">舒适 · 24 DIP</option></select></label><label class="ar-setting-row"><span>显示命令行<small>底部显示选中项的 CMD 内容</small></span><input id="ar-show-command" type="checkbox" checked></label><label class="ar-setting-row"><span>显示操作提示<small>在输入框内显示原版快捷键提示</small></span><input id="ar-show-hint" type="checkbox" checked></label><label class="ar-setting-row"><span>显示工具按钮<small>顶部显示管理、配置和隐藏按钮；默认隐藏</small></span><input id="ar-show-tools" type="checkbox"></label><label class="ar-setting-row"><span>系统主题<small>可在预览上方切换浅色与深色</small></span><span class="ar-badge">同步预览</span></label><label class="ar-setting-row"><span>弹出音效<small>默认关闭，可导入旧版偏好</small></span><input type="checkbox"></label></div>
+        <div data-settings="data" hidden><h3>兼容与数据</h3><div class="ar-setting-row"><span>数据位置<small>便携模式，配置保存在程序目录</small></span><span class="ar-badge">Data</span></div><div class="ar-setting-row"><span>导入旧版配置<small>原文件保持不变，迁移前展示检查报告</small></span><button class="ar-btn" data-goto="migration">查看导入</button></div><div class="ar-setting-row"><span>本地备份<small>每次配置修改前保留上一版本</small></span><span class="ar-badge">已启用</span></div><div class="ar-setting-row"><span>联网更新<small>默认手动检查</small></span><span class="ar-badge">手动</span></div></div>
+      </div></div>
+    </section>
+    <section data-screen="migration" aria-label="旧版迁移向导" hidden><div class="ar-import"><h2>把熟悉的 ALTRun 带过来</h2><p>预览旧配置的迁移结果，再决定是否导入。</p><div class="ar-panel"><label class="ar-field"><span>旧版目录（示例）</span><input class="ar-input" value="D:\Tools\ALTRun" readonly></label><div class="ar-import-summary"><div><span>128</span><small>可导入命令</small></div><div><span>3</span><small>需要检查</small></div><div><span>0</span><small>原文件修改</small></div></div><div class="ar-report"><div><span>快捷字、参数与使用频率</span><span style="color:var(--ar-ok)">保留</span></div><div><span>字体、热键与窗口偏好</span><span style="color:var(--ar-ok)">转换</span></div><div><span>失效路径 <code>D:\OldTools</code></span><span class="ar-danger">2 项待检查</span></div><div><span>外部工具 <code>WinCtl.exe</code></span><span class="ar-danger">1 项待检查</span></div></div><label class="ar-setting-row" style="border:0;padding-top:0"><span>待检查项保持停用<small>保留原始命令文本，导入后可逐项修复</small></span><input id="ar-import-disable" type="checkbox" checked></label><div class="ar-actions"><button class="ar-btn ar-primary" id="ar-import">模拟导入 128 项</button><button class="ar-btn" data-goto="launcher">暂不导入</button></div><div class="ar-form-note">迁移报告为设计示例，尚未扫描本机文件。</div></div></div></section>
+    <div id="ar-status" class="ar-status" role="status" aria-live="polite"></div>
+  </div>
+  <dialog id="ar-param-dialog" aria-labelledby="ar-param-title"><form id="ar-param-form" novalidate><h3 id="ar-param-title">输入参数</h3><p id="ar-param-desc"></p><label class="ar-field"><span>参数</span><input class="ar-input" id="ar-param" autocomplete="off" aria-describedby="ar-param-error"></label><div id="ar-param-error" class="ar-error" role="alert"></div><div class="ar-help" id="ar-param-preview"></div><div class="ar-actions"><button class="ar-btn" type="button" id="ar-param-cancel">取消</button><button class="ar-btn ar-primary" type="submit">模拟执行</button></div></form></dialog>
+  <dialog id="ar-discard-dialog" aria-labelledby="ar-discard-title"><h3 id="ar-discard-title">放弃未保存的修改？</h3><p>当前编辑内容尚未保存，放弃后将恢复为上一次保存的内容。</p><div class="ar-actions"><button class="ar-btn" id="ar-discard-cancel" autofocus>继续编辑</button><button class="ar-btn ar-danger" id="ar-discard-confirm">放弃修改</button></div></dialog>
+  <script>
+  (()=>{
+    const root=document.getElementById('altrun-design');const $=s=>root.querySelector(s);const $$=s=>[...root.querySelectorAll(s)];
+    let commands=[{id:1,alias:'Computer',name:'我的电脑',cmd:'::{20D04FE0-3AEA-1069-A2D8-08002B30309D}',type:'文件夹',encoding:'none'},{id:2,alias:'Explorer',name:'资源管理器',cmd:'explorer.exe /e,::{20D04FE0-3AEA-1069-A2D8-08002B30309D}',type:'应用',encoding:'none'},{id:3,alias:'MyDocument',name:'我的文档',cmd:'explorer.exe',type:'文件夹',encoding:'none'},{id:4,alias:'notepad',name:'记事本',cmd:'notepad',type:'应用',encoding:'none'},{id:5,alias:'mspaint',name:'画图',cmd:'mspaint',type:'应用',encoding:'none'},{id:6,alias:'cmd',name:'命令提示符',cmd:'cmd /k %p',type:'参数命令',encoding:'raw'},{id:7,alias:'Calc',name:'计算器',cmd:'calc',type:'应用',encoding:'none'},{id:8,alias:'b',name:'百度搜索',cmd:'http://www.baidu.com/s?wd=%p',type:'参数命令',encoding:'url'},{id:9,alias:'g',name:'Google 搜索',cmd:'http://www.google.com/search?q=%p',type:'参数命令',encoding:'utf8'},{id:10,alias:'Reg',name:'注册表编辑器',cmd:'regedt32',type:'应用',encoding:'none'}];
+    let selection=0,current=[],editingId=1,baseline='',composing=false,paramCommand=null,returnFocus=null,pendingDiscard=null,currentView='launcher',lastDeleted=null;
+    const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const status=s=>{$('#ar-status').textContent=s;};
+    function showView(view){currentView=view;$('.ar-stage').dataset.active=view;$$('[data-screen]').forEach(e=>e.hidden=e.dataset.screen!==view);$$('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));status('');if(view==='launcher')$('#ar-query').focus();}
+    function fields(){return {alias:$('#ar-alias').value.trim(),name:$('#ar-name').value.trim(),cmd:$('#ar-cmd').value.trim(),encoding:$('#ar-encoding').value};}
+    function dirty(){return JSON.stringify(fields())!==baseline;}
+    function guarded(action){if(currentView==='manager'&&dirty()){pendingDiscard=action;$('#ar-discard-dialog').showModal();}else action();}
+    function edit(id){editingId=id;const c=commands.find(c=>c.id===id)||{alias:'',name:'',cmd:'',encoding:'none'};$('#ar-editor-heading').textContent=id?'编辑命令':'添加命令';$('#ar-alias').value=c.alias;$('#ar-name').value=c.name;$('#ar-cmd').value=c.cmd;$('#ar-encoding').value=c.encoding;$('#ar-delete').disabled=!id;$('#ar-edit-error').textContent='';$$('#ar-editor input,#ar-editor textarea').forEach(e=>e.removeAttribute('aria-invalid'));baseline=JSON.stringify(fields());}
+    function updateSelected(){const c=current[selection];$('#ar-selected-name').textContent=c?(c.type==='文件夹'?'['+c.name+']':c.name):'';$('#ar-command').value=c?'CMD='+c.cmd:'';$('#ar-operation-hint').textContent=c?'按 Alt+'+((selection+1)%10)+' 或 Ctrl+'+((selection+1)%10)+' 执行':'按 Enter 添加快捷项';$('#ar-operation-hint').hidden=!$('#ar-show-hint').checked||$('#ar-query').value.length>=6;}
+    function select(i){if(!current.length)return;selection=(i+current.length)%current.length;$$('.ar-result').forEach((b,j)=>b.setAttribute('aria-current',String(j===selection)));updateSelected();}
+    function renderResults(){const q=$('#ar-query').value.trim().toLowerCase();current=commands.filter(c=>c.alias.toLowerCase().includes(q)).slice(0,10);$('#ar-clear').hidden=!q;selection=0;$('#ar-results').innerHTML=current.length?current.map((c,i)=>`<button class="ar-result" data-command="${c.id}" aria-current="${i===0}" aria-label="${esc(c.alias+' '+c.name)}"><span class="ar-number">${c.encoding==='none'?' ':'*'}${(i+1)%10}</span><span class="ar-alias">${esc(c.alias)}</span><span class="ar-result-name">${esc(c.name)}</span></button>`).join(''):`<div class="ar-empty"><strong>没有匹配的快捷项</strong><button class="ar-plain" id="ar-empty-add">添加快捷项</button></div>`;updateSelected();}
+    function renderTable(){const q=$('#ar-filter').value.trim().toLowerCase();const list=commands.filter(c=>(c.alias+' '+c.name+' '+c.cmd).toLowerCase().includes(q));$('#ar-filter-clear').hidden=!q;$('#ar-table').innerHTML=list.length?list.map(c=>`<tr><td><code class="ar-alias">${esc(c.alias)}</code></td><td>${esc(c.name)}<span class="ar-detail">${esc(c.cmd)}</span></td><td><button class="ar-edit-link" data-edit="${c.id}" aria-label="编辑${esc(c.name)}">编辑</button></td></tr>`).join(''):'<tr><td colspan="3">没有匹配项，请清空筛选或添加命令。</td></tr>';$('#ar-table-count').textContent=`显示 ${list.length} 项，共 ${commands.length} 项`;}
+    function execute(c,trigger){if(!c)return;returnFocus=trigger||$('#ar-query');if(c.encoding!=='none'){paramCommand=c;$('#ar-param-title').textContent=c.name;$('#ar-param-desc').textContent='输入参数后预览要执行的命令。';$('#ar-param').value='';$('#ar-param-error').textContent='';$('#ar-param').removeAttribute('aria-invalid');$('#ar-param-preview').textContent=c.cmd;$('#ar-param-dialog').showModal();$('#ar-param').focus();}else status(`模拟打开：${c.name}。本机未执行任何命令。`);}
+    root.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.view)guarded(()=>showView(b.dataset.view));if(b.dataset.goto)guarded(()=>showView(b.dataset.goto));if(b.dataset.edit)guarded(()=>{edit(Number(b.dataset.edit));$('#ar-alias').focus();});if(b.dataset.command){select(current.findIndex(c=>c.id===Number(b.dataset.command)));$('#ar-query').focus();}if(b.id==='ar-empty-add'){showView('manager');edit(null);$('#ar-alias').value=$('#ar-query').value;$('#ar-name').focus();}});
+    $('#ar-results').addEventListener('dblclick',e=>{const b=e.target.closest('[data-command]');if(b)execute(commands.find(c=>c.id===Number(b.dataset.command)),$('#ar-query'));});
+    $('#ar-results').addEventListener('auxclick',e=>{const b=e.target.closest('[data-command]');if(b&&e.button===1){e.preventDefault();execute(commands.find(c=>c.id===Number(b.dataset.command)),$('#ar-query'));}});
+    $('#ar-query').addEventListener('compositionstart',()=>composing=true);$('#ar-query').addEventListener('compositionend',()=>{composing=false;renderResults();});$('#ar-query').addEventListener('input',()=>{if(!composing)renderResults();});
+    $('#ar-query').addEventListener('keydown',e=>{if(e.isComposing||composing||e.keyCode===229)return;if(e.altKey&&e.key.toLowerCase()==='s'){e.preventDefault();showView('manager');return;}if(e.altKey&&e.key.toLowerCase()==='c'){e.preventDefault();showView('settings');return;}if((e.altKey||e.ctrlKey)&&/^[0-9]$/.test(e.key)){e.preventDefault();const i=e.key==='0'?9:Number(e.key)-1;if(current[i]){select(i);execute(current[i]);}return;}if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='Tab'){e.preventDefault();select(selection+(e.key==='ArrowUp'||e.shiftKey?-1:1));}if(e.key==='Enter'||e.key===' '){e.preventDefault();if(current[selection])execute(current[selection]);else if(e.key==='Enter')$('#ar-empty-add')?.click();}if(e.key==='Escape'){e.preventDefault();if(e.target.value){e.target.value='';renderResults();}else status('模拟隐藏面板；再次点击输入框可继续体验。');}});
+    $('#ar-clear').onclick=()=>{$('#ar-query').value='';renderResults();$('#ar-query').focus();};$('#ar-filter').oninput=renderTable;$('#ar-filter-clear').onclick=()=>{$('#ar-filter').value='';renderTable();$('#ar-filter').focus();};
+    $('#ar-new').onclick=()=>guarded(()=>{edit(null);$('#ar-alias').focus();});$('#ar-cancel-edit').onclick=()=>guarded(()=>{edit(editingId);status('已取消编辑。');});
+    $('#ar-editor').onsubmit=e=>{e.preventDefault();const f=fields();const bad=!f.alias?'ar-alias':!f.name?'ar-name':!f.cmd?'ar-cmd':commands.some(c=>c.id!==editingId&&c.alias.toLowerCase()===f.alias.toLowerCase())?'ar-alias':null;if(bad){$('#ar-edit-error').textContent=bad==='ar-alias'&&f.alias?'快捷字已存在，请使用其他快捷字。':'请填写快捷字、名称和命令。';$('#'+bad).setAttribute('aria-invalid','true');$('#'+bad).focus();return;}let c=commands.find(c=>c.id===editingId);if(c)Object.assign(c,f);else{c={id:Math.max(0,...commands.map(c=>c.id))+1,...f,icon:'>_',type:f.encoding==='none'?'命令':'参数命令'};commands.push(c);}c.type=f.encoding==='none'?'命令':'参数命令';edit(c.id);renderTable();renderResults();status('已保存到本次预览。关闭预览后不会保留。');};
+    $('#ar-delete').onclick=()=>guarded(()=>{const c=commands.find(c=>c.id===editingId);if(!c)return;lastDeleted={command:c,index:commands.indexOf(c)};commands=commands.filter(x=>x.id!==c.id);edit(commands[0]?.id||null);renderTable();renderResults();status('已从预览中删除“'+c.name+'”。');const undo=document.createElement('button');undo.className='ar-plain';undo.textContent='撤销删除';undo.onclick=()=>{if(!lastDeleted)return;commands.splice(lastDeleted.index,0,lastDeleted.command);edit(lastDeleted.command.id);lastDeleted=null;renderTable();renderResults();status('已恢复命令。');};$('#ar-status').append(undo);});
+    $('#ar-validate').onclick=()=>status('示例检查：10 个原版常见快捷项；未访问磁盘。正式版会异步检查并列出失效项。');
+    $$('[data-category]').forEach(b=>b.onclick=()=>{$$('[data-settings]').forEach(p=>p.hidden=p.dataset.settings!==b.dataset.category);$$('[data-category]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));});
+    $('#ar-theme').onchange=e=>{root.style.colorScheme=e.target.value==='auto'?'light dark':e.target.value;};$('#ar-density').onchange=e=>root.style.setProperty('--ar-row',e.target.value+'px');$('#ar-show-command').onchange=e=>$('#ar-command').hidden=!e.target.checked;$('#ar-show-hint').onchange=updateSelected;$('#ar-show-tools').onchange=e=>$$('.ar-optional-tool').forEach(b=>b.hidden=!e.target.checked);$('#ar-hide').onclick=()=>status('模拟隐藏面板；原型保留显示以便继续查看。');
+    $$('[data-settings] input[type=checkbox],[data-settings] select').forEach(e=>e.addEventListener('change',()=>status('已更新预览设置；未修改 Windows 或本机配置。')));
+    $('#ar-import').onclick=()=>{status('模拟迁移完成：128 项已准备导入，3 项保持停用。未扫描或修改任何文件。');};$('#ar-import-disable').onchange=e=>{$('#ar-import').disabled=!e.target.checked;status(e.target.checked?'':'需要先检查冲突；本原型仅演示“停用后导入”路径。');};
+    $('#ar-param').oninput=e=>{if(paramCommand)$('#ar-param-preview').textContent=paramCommand.cmd.replace('%p',encodeURIComponent(e.target.value));};
+    $('#ar-param-form').onsubmit=e=>{e.preventDefault();if(!$('#ar-param').value.trim()){$('#ar-param-error').textContent='请输入参数后再执行。';$('#ar-param').setAttribute('aria-invalid','true');$('#ar-param').focus();return;}$('#ar-param-dialog').close();returnFocus?.focus();status('模拟执行：'+paramCommand.name+'。未打开浏览器或启动程序。');};$('#ar-param-cancel').onclick=()=>{$('#ar-param-dialog').close();returnFocus?.focus();};
+    $('#ar-discard-cancel').onclick=()=>{$('#ar-discard-dialog').close();pendingDiscard=null;};$('#ar-discard-confirm').onclick=()=>{$('#ar-discard-dialog').close();const go=pendingDiscard;pendingDiscard=null;edit(editingId);go?.();};
+    edit(1);renderTable();renderResults();
+    if(globalThis.Tweak){const appearance={radius:6,row:20};const tweak=new Tweak({container:$('.ar-launcher'),onChange:()=>{root.style.setProperty('--ar-radius',appearance.radius+'px');root.style.setProperty('--ar-row',appearance.row+'px');}});tweak.addSlider(appearance,'radius',{label:'面板圆角',min:2,max:8,unit:'px'});tweak.addSlider(appearance,'row',{label:'结果行高',min:20,max:24,step:4,unit:'px'});}
+  })();
+  </script>
+</div>

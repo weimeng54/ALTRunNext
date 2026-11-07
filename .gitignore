@@ -1,0 +1,14 @@
+/target/
+/dist/
+/downloads/
+/temp/
+/Data/
+/.superpowers/
+/.worktrees/
+/design/qa/
+/design/premium-audit.json
+*.dmp
+.env
+.env.*
+*.local.json
+__pycache__/
