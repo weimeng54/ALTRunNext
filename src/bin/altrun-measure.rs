@@ -9,7 +9,7 @@ mod windows {
 
     fn wide(s:&str)->Vec<u16>{s.encode_utf16().chain(Some(0)).collect()}
     fn class(hwnd:HWND)->String{unsafe{let mut b=[0_u16;128];let n=GetClassNameW(hwnd,b.as_mut_ptr(),128);String::from_utf16_lossy(&b[..n as usize])}}
-    unsafe extern "system" fn enumerate(hwnd:HWND,param:LPARAM)->BOOL{unsafe{(&mut *(param as *mut Vec<HWND>)).push(hwnd);}1}
+    unsafe extern "system" fn enumerate(hwnd:HWND,param:LPARAM)->i32{unsafe{(&mut *(param as *mut Vec<HWND>)).push(hwnd);}1}
     fn find_target(pid:u32,legacy:bool)->Result<HWND,String>{
         let mut all=Vec::<HWND>::new();unsafe{EnumWindows(Some(enumerate),&mut all as *mut _ as isize);}
         let matches:Vec<_>=all.into_iter().filter(|&h|{let mut p=0;unsafe{GetWindowThreadProcessId(h,&mut p);}p==pid&&class(h)==if legacy{"TALTRunForm"}else{"ALTRun.Native.PerformanceProbe"}}).collect();
@@ -22,7 +22,16 @@ mod windows {
         edit.zip(list).ok_or("Cannot identify native editable query/list controls".into())
     }
     fn set_query(edit:HWND,q:&str)->Result<(),String>{unsafe{let b=wide(q);let mut result=0;if SendMessageTimeoutW(edit,WM_SETTEXT,0,b.as_ptr() as isize,SMTO_ABORTIFHUNG,2000,&mut result)==0{return Err("Query message timed out".into());}}Ok(())}
-    fn get_query(edit:HWND)->String{unsafe{let mut b=vec![0_u16;GetWindowTextLengthW(edit) as usize+1];let n=GetWindowTextW(edit,b.as_mut_ptr(),b.len() as i32);String::from_utf16_lossy(&b[..n as usize])}}
+    fn message(hwnd:HWND,msg:u32,w:usize,l:isize)->Result<usize,String>{
+        let mut result=0;
+        if unsafe{SendMessageTimeoutW(hwnd,msg,w,l,SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,2000,&mut result)}==0{return Err("Target message failed or timed out".into());}Ok(result)
+    }
+    fn get_query(edit:HWND)->Result<String,String>{
+        let length=message(edit,WM_GETTEXTLENGTH,0,0)?;
+        if length>32768{return Err("Original query too long to safely preserve".into());}
+        let mut b=vec![0_u16;length+1];let n=message(edit,WM_GETTEXT,b.len(),b.as_mut_ptr() as isize)?;
+        if n>length{return Err("Query changed while preserving it".into());}Ok(String::from_utf16_lossy(&b[..n]))
+    }
     fn foreground_pid()->u32{unsafe{let mut p=0;GetWindowThreadProcessId(GetForegroundWindow(),&mut p);p}}
     fn input(keys:&[(u16,bool)])->Result<(),String>{
         let values:Vec<INPUT>=keys.iter().map(|&(key,up)|{let mut i:INPUT=unsafe{zeroed()};i.r#type=INPUT_KEYBOARD;i.Anonymous.ki=KEYBDINPUT{wVk:key,wScan:0,dwFlags:if up{KEYEVENTF_KEYUP}else{0},time:0,dwExtraInfo:0};i}).collect();
@@ -34,17 +43,11 @@ mod windows {
         else{input(&[(VK_CONTROL,false),(VK_MENU,false),(0x52,false),(0x52,true),(VK_MENU,true),(VK_CONTROL,true)])}
     }
     fn wait_visible(hwnd:HWND,visible:bool)->Result<(),String>{let start=Instant::now();while (unsafe{IsWindowVisible(hwnd)}!=0)!=visible{if start.elapsed()>Duration::from_secs(2){return Err("Target did not reach requested visibility".into());}thread::sleep(Duration::from_millis(1));}Ok(())}
-    fn hide(hwnd:HWND,edit:HWND,pid:u32)->Result<(),String>{
-        set_query(edit,"")?;
-        if unsafe{IsWindowVisible(hwnd)}==0{return Ok(());}
-        if foreground_pid()!=pid{return Err("Foreground changed; refusing to send Escape to another app".into());}
-        input(&[(VK_ESCAPE,false),(VK_ESCAPE,true)])?;wait_visible(hwnd,false)
-    }
+
 
     struct Capture{screen:HDC,memory:HDC,bitmap:HBITMAP,old:HGDIOBJ,rect:RECT,pixels:Vec<u8>,info:BITMAPINFO}
     impl Capture{
-        fn new(list:HWND)->Result<Self,String>{unsafe{
-            let mut rect:RECT=zeroed();if GetWindowRect(list,&mut rect)==0{return Err("Cannot read list rectangle".into());}
+        fn new(rect:RECT)->Result<Self,String>{unsafe{
             let width=rect.right-rect.left;let height=rect.bottom-rect.top;
             if width<=0||height<=0||width>4096||height>4096{return Err("Invalid results capture region".into());}
             let screen=GetDC(null_mut());let memory=CreateCompatibleDC(screen);let bitmap=CreateCompatibleBitmap(screen,width,height);
@@ -60,45 +63,79 @@ mod windows {
             let rows=GetDIBits(self.screen,self.bitmap,0,height as u32,self.pixels.as_mut_ptr()as *mut c_void,&mut self.info,DIB_RGB_COLORS);
             SelectObject(self.memory,self.bitmap);
             if rows!=height{return Err("Incomplete desktop pixel read".into());}
-            Ok(self.pixels.chunks_exact(8).fold(0xcbf29ce484222325_u64,|h,b|(h^u64::from_ne_bytes(b.try_into().unwrap())).wrapping_mul(0x100000001b3)))
+            Ok(self.pixels.iter().fold(0xcbf29ce484222325_u64,|h,&b|(h^b as u64).wrapping_mul(0x100000001b3)))
         }}
     }
     impl Drop for Capture{fn drop(&mut self){unsafe{SelectObject(self.memory,self.old);DeleteObject(self.bitmap);DeleteDC(self.memory);ReleaseDC(null_mut(),self.screen);}}}
-    struct Reference{query:String,capture:Capture,hash:u64}
-    struct Target{pid:u32,hwnd:HWND,edit:HWND,list:HWND,legacy:bool,saved_query:String,was_visible:bool,references:Vec<Reference>}
+    const QUERIES:[&str;5]=["","a","e","o","r"];
+    fn rectangle(hwnd:HWND)->Result<RECT,String>{let mut r:RECT=unsafe{zeroed()};if unsafe{GetWindowRect(hwnd,&mut r)}==0{return Err("Cannot read results geometry".into());}Ok(r)}
+    fn same_rect(a:RECT,b:RECT)->bool{a.left==b.left&&a.top==b.top&&a.right==b.right&&a.bottom==b.bottom}
+    struct Reference{capture:Capture,hash:u64,list_rect:RECT}
+    struct Target{pid:u32,hwnd:HWND,edit:HWND,list:HWND,legacy:bool,saved_query:String,references:Vec<Reference>}
     impl Target{
-        fn new(pid:u32,legacy:bool)->Result<Self,String>{let hwnd=find_target(pid,legacy)?;let(edit,list)=children(hwnd)?;Ok(Self{pid,hwnd,edit,list,legacy,saved_query:get_query(edit),was_visible:unsafe{IsWindowVisible(hwnd)}!=0,references:Vec::new()})}
+        fn new(pid:u32,legacy:bool)->Result<Self,String>{
+            let hwnd=find_target(pid,legacy)?;let(edit,list)=children(hwnd)?;
+            if unsafe{IsWindowVisible(hwnd)}!=0{return Err("Start with both launchers hidden; no visible input is altered".into());}
+            Ok(Self{pid,hwnd,edit,list,legacy,saved_query:get_query(edit)?,references:Vec::new()})
+        }
+        fn verify(&self)->Result<(),String>{
+            let expected=if self.legacy{"TALTRunForm"}else{"ALTRun.Native.PerformanceProbe"};
+            let mut pid=0;unsafe{GetWindowThreadProcessId(self.hwnd,&mut pid);}
+            if pid!=self.pid||class(self.hwnd)!=expected{return Err("Verified target disappeared or changed".into());}
+            for child in [self.edit,self.list]{let mut p=0;unsafe{GetWindowThreadProcessId(child,&mut p);}if p!=self.pid||unsafe{IsChild(self.hwnd,child)}==0{return Err("Verified input/results control changed".into());}}
+            Ok(())
+        }
+        fn active(&self)->Result<(),String>{self.verify()?;if unsafe{IsWindowVisible(self.hwnd)}==0||unsafe{GetForegroundWindow()}!=self.hwnd||foreground_pid()!=self.pid{return Err("Target hidden or foreground changed; observation rejected".into());}Ok(())}
+        fn query(&self,q:&str)->Result<(),String>{self.verify()?;set_query(self.edit,q)}
+        fn hide(&self)->Result<(),String>{
+            self.verify()?;self.query("")?;
+            if unsafe{IsWindowVisible(self.hwnd)}==0{return Ok(());}
+            // Direct, bounded messages cannot deliver Escape to another app.
+            message(self.edit,WM_KEYDOWN,VK_ESCAPE as usize,1)?;
+            message(self.edit,WM_KEYUP,VK_ESCAPE as usize,0xc0000001_u32 as isize)?;
+            wait_visible(self.hwnd,false)
+        }
+        fn wake(&self)->Result<(),String>{self.verify()?;wake(self.legacy)?;wait_visible(self.hwnd,true)?;self.active()}
         fn prepare(&mut self)->Result<(),String>{
-            if unsafe{IsWindowVisible(self.hwnd)}==0{wake(self.legacy)?;wait_visible(self.hwnd,true)?;}
-            if foreground_pid()!=self.pid{return Err("Target did not receive foreground focus".into());}
-            for query in ["","a","e","o","r","c","n"]{
-                set_query(self.edit,query)?;thread::sleep(Duration::from_millis(100));
-                if unsafe{SendMessageW(self.list,LB_GETCOUNT,0,0)}<2{continue;}
-                let mut capture=Capture::new(self.list)?;let hash=capture.hash()?;thread::sleep(Duration::from_millis(20));
-                if capture.hash()?!=hash{return Err("Unstable reference pixels; do not treat this as latency".into());}
-                if !self.references.iter().any(|r|r.hash==hash){self.references.push(Reference{query:query.into(),capture,hash});}
-                if self.references.len()>=4{break;}
+            self.wake()?;thread::sleep(Duration::from_millis(100));self.active()?;
+            let mut region=rectangle(self.list)?;
+            // One fixed union rectangle per target includes all list resizing.
+            for query in QUERIES.iter().skip(1){self.query(query)?;thread::sleep(Duration::from_millis(100));self.active()?;let r=rectangle(self.list)?;region.left=region.left.min(r.left);region.top=region.top.min(r.top);region.right=region.right.max(r.right);region.bottom=region.bottom.max(r.bottom);}
+            self.hide()?;
+            for (i,query) in QUERIES.iter().enumerate(){
+                if i==0{self.wake()?;}else{self.query(query)?;}
+                thread::sleep(Duration::from_millis(100));self.active()?;
+                if message(self.list,LB_GETCOUNT,0,0)?<2{return Err("Every fixed query must have at least two results in both targets".into());}
+                let list_rect=rectangle(self.list)?;let mut capture=Capture::new(region)?;
+                self.active()?;let hash=capture.hash()?;self.active()?;
+                thread::sleep(Duration::from_millis(20));
+                if !same_rect(rectangle(self.list)?,list_rect)||capture.hash()?!=hash{return Err("Unstable reference pixels or geometry".into());}self.active()?;
+                self.references.push(Reference{capture,hash,list_rect});
             }
-            if self.references.len()<2||!self.references[0].query.is_empty(){return Err("Need an empty-query reference and a distinct nonempty result set".into());}
-            hide(self.hwnd,self.edit,self.pid)
+            if self.references.windows(2).any(|w|w[0].hash==w[1].hash){return Err("Fixed query transitions need distinct pixels in both targets".into());}
+            self.hide()
+        }
+        fn pre_transition(&mut self,index:usize)->Result<(),String>{
+            self.verify()?;
+            if self.references[index].capture.hash()?==self.references[index].hash{return Err("Expected pixels already visible before action; transition rejected".into());}Ok(())
         }
         fn observe(&mut self,index:usize,start:Instant)->Result<(u128,u128),String>{
             let mut lower=0;
             loop{
-                let begin=start.elapsed().as_nanos();
-                let visible=unsafe{IsWindowVisible(self.hwnd)}!=0;
-                if visible&&foreground_pid()==self.pid&&self.references[index].capture.hash()?==self.references[index].hash{return Ok((lower,start.elapsed().as_nanos()));}
+                let begin=start.elapsed().as_nanos();self.verify()?;
+                if unsafe{IsWindowVisible(self.hwnd)}!=0&&unsafe{GetForegroundWindow()}==self.hwnd{
+                    let geometry=rectangle(self.list)?;let hash=self.references[index].capture.hash()?;
+                    self.active()?;
+                    if same_rect(geometry,self.references[index].list_rect)&&same_rect(rectangle(self.list)?,geometry)&&hash==self.references[index].hash{return Ok((lower,start.elapsed().as_nanos()));}
+                }
                 lower=begin;
-                if start.elapsed()>Duration::from_secs(2){return Err("Expected result pixels not observed (focus/occlusion/render change); no latency sample accepted".into());}
+                if start.elapsed()>Duration::from_secs(2){return Err("Expected result pixels not observed; no latency sample accepted".into());}
                 thread::sleep(Duration::from_micros(100));
             }
         }
     }
     impl Drop for Target{fn drop(&mut self){
-        let visible=unsafe{IsWindowVisible(self.hwnd)}!=0;
-        if !self.was_visible&&visible&&foreground_pid()==self.pid{let _=hide(self.hwnd,self.edit,self.pid);}
-        if self.was_visible&&!visible{let _=wake(self.legacy);let _=wait_visible(self.hwnd,true);}
-        let _=set_query(self.edit,&self.saved_query);
+        if self.verify().is_ok(){let _=self.hide();let _=self.query(&self.saved_query);}
     }}
 
     pub fn run()->Result<(),String>{
@@ -126,15 +163,15 @@ mod windows {
         for iteration in 0..rounds{
             for offset in 0..2{
                 let index=(iteration+offset)%2;let target=&mut targets[index];
-                let start=Instant::now();wake(target.legacy)?;let(lo,hi)=target.observe(0,start)?;
+                target.pre_transition(0)?;let start=Instant::now();target.verify()?;wake(target.legacy)?;let(lo,hi)=target.observe(0,start)?;
                 if count>0{rows.push(',');}count+=1;
                 write!(&mut rows,"{{\"target\":\"{}\",\"iteration\":{},\"metric\":\"hotkey_to_results_pixels\",\"lower_ns\":{},\"upper_ns\":{}}}",if index==0{"original"}else{"probe"},iteration,lo,hi).unwrap();
-                for reference in 1..target.references.len(){
-                    let query=target.references[reference].query.clone();let start=Instant::now();set_query(target.edit,&query)?;let(lo,hi)=target.observe(reference,start)?;
+                for (reference,_) in QUERIES.iter().enumerate().skip(1){
+                    let query=QUERIES[reference];target.active()?;target.pre_transition(reference)?;let start=Instant::now();target.query(query)?;let(lo,hi)=target.observe(reference,start)?;
                     rows.push(',');count+=1;
-                    write!(&mut rows,"{{\"target\":\"{}\",\"iteration\":{},\"metric\":\"settext_to_results_pixels\",\"lower_ns\":{},\"upper_ns\":{}}}",if index==0{"original"}else{"probe"},iteration,lo,hi).unwrap();
+                    write!(&mut rows,"{{\"target\":\"{}\",\"iteration\":{},\"metric\":\"settext_to_results_pixels\",\"query_id\":{},\"lower_ns\":{},\"upper_ns\":{}}}",if index==0{"original"}else{"probe"},iteration,reference,lo,hi).unwrap();
                 }
-                hide(target.hwnd,target.edit,target.pid)?;
+                target.hide()?;
             }
         }
         let report=format!("{{\"measurement_kind\":\"desktop-pixel-upper-bounds\",\"decision\":\"pending\",\"samples\":[{}],\"limitations\":[\"SendInput software event start, not physical key travel\",\"SetText is not physical typing or IME\",\"Pixel capture intervals, not hardware-present timestamps\",\"Warm samples only; idle, load, IME and 24h remain unverified\"]}}",rows);
