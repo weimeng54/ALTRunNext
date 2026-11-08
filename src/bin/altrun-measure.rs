@@ -7,7 +7,6 @@
 mod windows {
     use std::{
         ffi::c_void,
-        fmt::Write,
         fs,
         mem::{size_of, zeroed},
         ptr::{null, null_mut},
@@ -321,6 +320,49 @@ mod windows {
     fn same_rect(a: RECT, b: RECT) -> bool {
         a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom
     }
+    struct Report {
+        output: std::path::PathBuf,
+        kind: &'static str,
+        stage: &'static str,
+        target: &'static str,
+        iteration: usize,
+        query_id: usize,
+        samples: Vec<String>,
+        complete: bool,
+    }
+    impl Report {
+        fn new(output: std::path::PathBuf) -> Self {
+            Self {
+                output,
+                kind: "desktop-pixel-upper-bounds",
+                stage: "original_identity",
+                target: "original",
+                iteration: 0,
+                query_id: 0,
+                samples: Vec::new(),
+                complete: false,
+            }
+        }
+        fn save(&self) -> Result<(), String> {
+            let status = if self.complete { "observed" } else { "rejected" };
+            let rows = self.samples.join(",");
+            let text = format!(
+                "{{\"measurement_kind\":\"{}\",\"decision\":\"pending\",\"session_status\":\"{}\",\"stage\":\"{}\",\"target\":\"{}\",\"iteration\":{},\"query_id\":{},\"samples\":[{}],\"limitations\":[\"Software input and desktop capture upper bounds only\",\"Rejected or synthetic sessions cannot establish performance parity\",\"Physical typing, IME, idle, load and long-run remain unverified\"]}}",
+                self.kind, status, self.stage, self.target, self.iteration, self.query_id, rows
+            );
+            if let Some(parent) = self.output.parent() {
+                fs::create_dir_all(parent).map_err(|_| "Cannot create evidence folder")?;
+            }
+            fs::write(&self.output, text).map_err(|_| "Cannot save pending evidence".into())
+        }
+    }
+    impl Drop for Report {
+        fn drop(&mut self) {
+            if let Err(error) = self.save() {
+                eprintln!("{error}");
+            }
+        }
+    }
     struct Reference {
         capture: Capture,
         hash: u64,
@@ -474,27 +516,46 @@ mod windows {
         }
         fn observe(&mut self, index: usize, start: Instant) -> Result<(u128, u128), String> {
             let mut lower = 0;
+            let mut first = None;
+            let mut seen = 0_u8;
+            let mut actual_hash = None;
+            let mut last_rect = None;
+            let expected = self.references[index].list_rect;
+            let expected_rect = [expected.left, expected.top, expected.right, expected.bottom];
             loop {
                 let begin = start.elapsed().as_nanos();
                 self.verify()?;
-                if unsafe { IsWindowVisible(self.hwnd) } != 0
-                    && unsafe { GetForegroundWindow() } == self.hwnd
-                {
+                let visible = unsafe { IsWindowVisible(self.hwnd) } != 0;
+                let foreground = unsafe { GetForegroundWindow() } == self.hwnd;
+                // Bits: visible, foreground, expected geometry, expected hash,
+                // geometry unchanged across capture. Keep strict acceptance.
+                let mut flags = u8::from(visible) | (u8::from(foreground) << 1);
+                if visible && foreground {
                     let geometry = rectangle(self.list)?;
                     let hash = self.references[index].capture.hash()?;
+                    actual_hash = Some(hash);
+                    last_rect = Some([
+                        geometry.left,
+                        geometry.top,
+                        geometry.right,
+                        geometry.bottom,
+                    ]);
                     self.active()?;
-                    if same_rect(geometry, self.references[index].list_rect)
-                        && same_rect(rectangle(self.list)?, geometry)
-                        && hash == self.references[index].hash
-                    {
+                    flags |= u8::from(same_rect(geometry, expected)) << 2;
+                    flags |= u8::from(hash == self.references[index].hash) << 3;
+                    flags |= u8::from(same_rect(rectangle(self.list)?, geometry)) << 4;
+                    if flags == 31 {
                         return Ok((lower, start.elapsed().as_nanos()));
                     }
                 }
+                first.get_or_insert(flags);
+                seen |= flags;
                 lower = begin;
                 if start.elapsed() > Duration::from_secs(2) {
-                    return Err(
-                        "Expected result pixels not observed; no latency sample accepted".into(),
-                    );
+                    return Err(format!(
+                        "Expected result pixels not observed; first_flags={first:?} last_flags={flags:#x} seen_flags={seen:#x} expected_hash={} last_hash={actual_hash:?} expected_rect={expected_rect:?} last_rect={last_rect:?}; no latency sample accepted",
+                        self.references[index].hash
+                    ));
                 }
                 thread::sleep(Duration::from_micros(100));
             }
@@ -547,10 +608,30 @@ mod windows {
         if !(1..=1000).contains(&rounds) {
             return Err("Rounds must be between 1 and 1000".into());
         }
+        let mut report = Report::new(output);
+        if args.iter().any(|a| a == "--diagnostic-fixture-fail-after-one") {
+            #[cfg(debug_assertions)]
+            {
+                report.kind = "synthetic-test";
+                report.stage = "fixture_failure";
+                report.target = "probe";
+                report.samples.push(
+                    "{\"target\":\"probe\",\"metric\":\"synthetic-fixture\",\"lower_ns\":1,\"upper_ns\":2}".into(),
+                );
+                return Err("Intentional diagnostic fixture failure".into());
+            }
+            #[cfg(not(debug_assertions))]
+            return Err("Synthetic fault injection is unavailable in release builds".into());
+        }
         unsafe {
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
-        let mut targets = [Target::new(original, true)?, Target::new(probe, false)?];
+        let original_target = Target::new(original, true)?;
+        report.stage = "probe_identity";
+        report.target = "probe";
+        let probe_target = Target::new(probe, false)?;
+        let mut targets = [original_target, probe_target];
+        report.stage = "backdrop";
         // Opaque, non-topmost backdrop avoids reference drift from unrelated
         // windows behind the original's translucent skin. Always removed.
         let mut root_rect: RECT = unsafe { zeroed() };
@@ -592,46 +673,50 @@ mod windows {
         // Prewarm without counting preparation as a measurement.
         for target in &mut targets {
             let label = if target.legacy { "original" } else { "probe" };
+            report.stage = "prepare";
+            report.target = label;
             target.prepare().map_err(|e| format!("{label}: {e}"))?;
         }
-        let mut rows = String::new();
-        let mut count = 0;
         for iteration in 0..rounds {
             for offset in 0..2 {
                 let index = (iteration + offset) % 2;
                 let target = &mut targets[index];
+                let label = if index == 0 { "original" } else { "probe" };
+                report.target = label;
+                report.iteration = iteration;
+                report.query_id = 0;
+                report.stage = "wake_pre_transition";
                 target.pre_transition(0)?;
+                report.stage = "wake_observe";
                 let start = Instant::now();
                 target.verify()?;
                 wake(target.legacy)?;
-                let (lo, hi) = target.observe(0, start)?;
-                if count > 0 {
-                    rows.push(',');
-                }
-                count += 1;
-                write!(&mut rows,"{{\"target\":\"{}\",\"iteration\":{},\"metric\":\"hotkey_to_results_pixels\",\"lower_ns\":{},\"upper_ns\":{}}}",if index==0{"original"}else{"probe"},iteration,lo,hi).unwrap();
+                let (lo, hi) = target
+                    .observe(0, start)
+                    .map_err(|e| format!("{label} iteration={iteration} wake: {e}"))?;
+                report.samples.push(format!("{{\"target\":\"{label}\",\"iteration\":{iteration},\"metric\":\"hotkey_to_results_pixels\",\"lower_ns\":{lo},\"upper_ns\":{hi}}}"));
                 for (reference, _) in QUERIES.iter().enumerate().skip(1) {
                     let query = QUERIES[reference];
+                    report.query_id = reference;
+                    report.stage = "query_pre_transition";
                     target.active()?;
                     target.pre_transition(reference)?;
+                    report.stage = "query_observe";
                     let start = Instant::now();
                     target.query(query)?;
-                    let (lo, hi) = target.observe(reference, start)?;
-                    rows.push(',');
-                    count += 1;
-                    write!(&mut rows,"{{\"target\":\"{}\",\"iteration\":{},\"metric\":\"settext_to_results_pixels\",\"query_id\":{},\"lower_ns\":{},\"upper_ns\":{}}}",if index==0{"original"}else{"probe"},iteration,reference,lo,hi).unwrap();
+                    let (lo, hi) = target.observe(reference, start).map_err(|e| {
+                        format!("{label} iteration={iteration} query_id={reference}: {e}")
+                    })?;
+                    report.samples.push(format!("{{\"target\":\"{label}\",\"iteration\":{iteration},\"metric\":\"settext_to_results_pixels\",\"query_id\":{reference},\"lower_ns\":{lo},\"upper_ns\":{hi}}}"));
                 }
+                report.stage = "hide";
                 target.hide()?;
             }
         }
-        let report = format!(
-            "{{\"measurement_kind\":\"desktop-pixel-upper-bounds\",\"decision\":\"pending\",\"samples\":[{}],\"limitations\":[\"SendInput software event start, not physical key travel\",\"SetText is not physical typing or IME\",\"Pixel capture intervals, not hardware-present timestamps\",\"Warm samples only; idle, load, IME and 24h remain unverified\"]}}",
-            rows
-        );
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent).map_err(|_| "Cannot create output folder")?;
-        }
-        fs::write(output, report).map_err(|_| "Cannot save private measurement")?;
+        report.complete = true;
+        report.stage = "complete";
+        report.save()?;
+        let count = report.samples.len();
         println!("Captured {count} bounded pixel observations; performance gate remains pending.");
         Ok(())
     }
