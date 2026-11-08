@@ -97,3 +97,5 @@ pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
         return Ok(std::path::PathBuf::from(directory).join("notepad.exe"));
     }
 }
+pub mod observation;
+
