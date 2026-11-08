@@ -571,6 +571,7 @@ mod windows {
     }
 
     pub fn run(args: Vec<String>) -> Result<(), String> {
+        let replay = args.iter().any(|a| a == "--probe-only-replay");
         let value = |name: &str| {
             args.iter()
                 .position(|a| a == name)
@@ -578,17 +579,24 @@ mod windows {
                 .cloned()
                 .ok_or(format!("Missing {name}"))
         };
-        if !args
-            .iter()
-            .any(|a| a == "--confirm-original-auto-execute-off")
+        if !replay
+            && !args
+                .iter()
+                .any(|a| a == "--confirm-original-auto-execute-off")
         {
             return Err(
                 "First verify original ExecuteIfOnlyOne=0; measurement never sends Enter".into(),
             );
         }
-        let original: u32 = value("--original-pid")?
-            .parse()
-            .map_err(|_| "Invalid original PID")?;
+        let original: Option<u32> = if replay {
+            None
+        } else {
+            Some(
+                value("--original-pid")?
+                    .parse()
+                    .map_err(|_| "Invalid original PID")?,
+            )
+        };
         let probe: u32 = value("--probe-pid")?
             .parse()
             .map_err(|_| "Invalid probe PID")?;
@@ -609,6 +617,11 @@ mod windows {
             return Err("Rounds must be between 1 and 1000".into());
         }
         let mut report = Report::new(output);
+        if replay {
+            report.kind = "observer-self-replay";
+            report.stage = "probe_identity";
+            report.target = "probe";
+        }
         if args
             .iter()
             .any(|a| a == "--diagnostic-fixture-fail-after-one")
@@ -629,11 +642,13 @@ mod windows {
         unsafe {
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
-        let original_target = Target::new(original, true)?;
+        let mut targets = Vec::new();
+        if let Some(pid) = original {
+            targets.push(Target::new(pid, true)?);
+        }
         report.stage = "probe_identity";
         report.target = "probe";
-        let probe_target = Target::new(probe, false)?;
-        let mut targets = [original_target, probe_target];
+        targets.push(Target::new(probe, false)?);
         report.stage = "backdrop";
         // Opaque, non-topmost backdrop avoids reference drift from unrelated
         // windows behind the original's translucent skin. Always removed.
@@ -681,10 +696,10 @@ mod windows {
             target.prepare().map_err(|e| format!("{label}: {e}"))?;
         }
         for iteration in 0..rounds {
-            for offset in 0..2 {
-                let index = (iteration + offset) % 2;
+            for offset in 0..targets.len() {
+                let index = (iteration + offset) % targets.len();
                 let target = &mut targets[index];
-                let label = if index == 0 { "original" } else { "probe" };
+                let label = if target.legacy { "original" } else { "probe" };
                 report.target = label;
                 report.iteration = iteration;
                 report.query_id = 0;
@@ -770,8 +785,12 @@ fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
     }
     let text = std::str::from_utf8(&bytes).map_err(|_| "Profile must be UTF-8")?;
     let lines: Vec<_> = text.lines().collect();
-    if lines.len() != 3 || lines[0] != "ALTRUN-LOCAL-TEST-AUTOEXEC-OFF" {
-        return Err("Profile must explicitly confirm original auto-execute is off".into());
+    if lines.len() != 3 {
+        return Err("Local session profile must contain exactly three lines".into());
+    }
+    let replay = lines[0] == "ALTRUN-PROBE-SELF-REPLAY";
+    if !replay && lines[0] != "ALTRUN-LOCAL-TEST-AUTOEXEC-OFF" {
+        return Err("Profile must explicitly select replay or confirm auto-execute off".into());
     }
     let original: u32 = lines[1].parse().map_err(|_| "Invalid original PID")?;
     let data = std::path::Path::new(lines[2]);
@@ -794,7 +813,7 @@ fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
     );
     // Startup readiness is outside all measured intervals.
     std::thread::sleep(std::time::Duration::from_millis(500));
-    windows::run(vec![
+    let mut args = vec![
         "altrun-measure".into(),
         "--original-pid".into(),
         original.to_string(),
@@ -805,5 +824,9 @@ fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
         folder.join("session-result.json").to_string_lossy().into(),
         "--rounds".into(),
         "3".into(),
-    ])
+    ];
+    if replay {
+        args.push("--probe-only-replay".into());
+    }
+    windows::run(args)
 }
