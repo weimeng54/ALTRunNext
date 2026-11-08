@@ -74,9 +74,8 @@ pub fn settled_bounds(
     if last.list_hash == before_list_hash {
         return Err(Rejected::NoListTransition);
     }
-    let matches_final = |frame: &Frame| {
-        frame.ready && frame.hash == last.hash && frame.list_hash == last.list_hash
-    };
+    let matches_final =
+        |frame: &Frame| frame.ready && frame.hash == last.hash && frame.list_hash == last.list_hash;
     let mut stable_start = frames.len() - 1;
     while stable_start > 0 && matches_final(&frames[stable_start - 1]) {
         stable_start -= 1;
@@ -85,9 +84,16 @@ pub fn settled_bounds(
     if frames.len() - stable_start < 2 || stable_span_ns < minimum_stable_span_ns {
         return Err(Rejected::NotSettled);
     }
-    let first_match = frames.iter().position(matches_final).ok_or(Rejected::NotSettled)?;
+    let first_match = frames
+        .iter()
+        .position(matches_final)
+        .ok_or(Rejected::NotSettled)?;
     Ok(Bounds {
-        lower_ns: if first_match == 0 { 0 } else { frames[first_match - 1].began_ns },
+        lower_ns: if first_match == 0 {
+            0
+        } else {
+            frames[first_match - 1].began_ns
+        },
         upper_ns: frames[first_match].ended_ns,
         settled_upper_ns: frames[stable_start].ended_ns,
         final_hash: last.hash,

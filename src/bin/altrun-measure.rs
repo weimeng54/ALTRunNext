@@ -1,10 +1,11 @@
 //! A narrowly scoped local test instrument. No Enter key or command execution.
-//! Desktop pixels are compared with a stable reference of each target's own
-//! results control. Report intervals/upper bounds, never claim hardware present
+//! Each trial is compared with its own final sampled frame, since legacy
+//! equal-rank results can change order. Report sampling bounds, never hardware
 //! timestamps, physical keyboard latency, IME coverage, or a complete gate pass.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #[cfg(windows)]
 mod windows {
+    use altrun_probe::observation::{Bounds, Frame, Rejected, settled_bounds};
     use std::{
         ffi::c_void,
         fs,
@@ -298,6 +299,26 @@ mod windows {
                 }))
             }
         }
+        fn part_hash(&self, region: RECT) -> Result<u64, String> {
+            if region.left < self.rect.left || region.top < self.rect.top
+                || region.right > self.rect.right || region.bottom > self.rect.bottom
+                || region.right <= region.left || region.bottom <= region.top
+            {
+                return Err("List pixels are outside the observed canvas".into());
+            }
+            let stride = (self.rect.right - self.rect.left) as usize * 4;
+            let left = (region.left - self.rect.left) as usize * 4;
+            let right = (region.right - self.rect.left) as usize * 4;
+            let top = (region.top - self.rect.top) as usize;
+            let bottom = (region.bottom - self.rect.top) as usize;
+            let mut hash = 0xcbf29ce484222325_u64;
+            for row in top..bottom {
+                for &value in &self.pixels[row * stride + left..row * stride + right] {
+                    hash = (hash ^ value as u64).wrapping_mul(0x100000001b3);
+                }
+            }
+            Ok(hash)
+        }
     }
     impl Drop for Capture {
         fn drop(&mut self) {
@@ -388,18 +409,20 @@ mod windows {
         iteration: usize,
         query_id: usize,
         samples: Vec<String>,
+        current_trace: Vec<Frame>,
         complete: bool,
     }
     impl Report {
         fn new(output: std::path::PathBuf) -> Self {
             Self {
                 output,
-                kind: "desktop-pixel-upper-bounds",
+                kind: "pixel-settling-observations",
                 stage: "original_identity",
                 target: "original",
                 iteration: 0,
                 query_id: 0,
                 samples: Vec::new(),
+                current_trace: Vec::new(),
                 complete: false,
             }
         }
@@ -410,9 +433,10 @@ mod windows {
                 "rejected"
             };
             let rows = self.samples.join(",");
+            let trace = trace_json(&self.current_trace);
             let text = format!(
-                "{{\"measurement_kind\":\"{}\",\"decision\":\"pending\",\"session_status\":\"{}\",\"stage\":\"{}\",\"target\":\"{}\",\"iteration\":{},\"query_id\":{},\"samples\":[{}],\"limitations\":[\"Software input and desktop capture upper bounds only\",\"Rejected or synthetic sessions cannot establish performance parity\",\"Physical typing, IME, idle, load and long-run remain unverified\"]}}",
-                self.kind, status, self.stage, self.target, self.iteration, self.query_id, rows
+                "{{\"measurement_kind\":\"{}\",\"decision\":\"pending\",\"content_verified\":false,\"session_status\":\"{}\",\"stage\":\"{}\",\"target\":\"{}\",\"iteration\":{},\"query_id\":{},\"samples\":[{}],\"current_trace\":[{}],\"limitations\":[\"Final sampled pixels are not an independent content oracle\",\"First matching observation and final stabilization are separate\",\"Sampling is not hardware presentation or physical input\",\"Rejected, synthetic or content-unverified sessions cannot establish parity\"]}}",
+                self.kind, status, self.stage, self.target, self.iteration, self.query_id, rows, trace
             );
             if let Some(parent) = self.output.parent() {
                 fs::create_dir_all(parent).map_err(|_| "Cannot create evidence folder")?;
@@ -427,11 +451,55 @@ mod windows {
             }
         }
     }
+    fn trace_json(frames: &[Frame]) -> String {
+        frames.iter().map(|f| format!(
+            "{{\"began_ns\":{},\"ended_ns\":{},\"hash\":{},\"list_hash\":{},\"ready\":{},\"unoccluded\":{}}}",
+            f.began_ns, f.ended_ns, f.hash, f.list_hash, f.ready, f.unoccluded
+        )).collect::<Vec<_>>().join(",")
+    }
+    fn sample_json(
+        target: &str,
+        iteration: usize,
+        query_id: usize,
+        metric: &str,
+        bounds: &Bounds,
+        frames: &[Frame],
+    ) -> String {
+        let trace = trace_json(frames);
+        format!(
+            "{{\"target\":\"{target}\",\"iteration\":{iteration},\"query_id\":{query_id},\"metric\":\"{metric}\",\"content_verified\":false,\"lower_ns\":{},\"upper_ns\":{},\"settled_upper_ns\":{},\"stable_span_ns\":{},\"maximum_gap_ns\":{},\"sample_count\":{},\"trace\":[{trace}]}}",
+            bounds.lower_ns, bounds.upper_ns, bounds.settled_upper_ns,
+            bounds.stable_span_ns, bounds.maximum_gap_ns, bounds.sample_count
+        )
+    }
+    fn unoccluded(hwnd: HWND, canvas: RECT) -> Result<bool, String> {
+        let mut above = unsafe { GetWindow(hwnd, GW_HWNDPREV) };
+        let mut checked = 0;
+        while !above.is_null() {
+            if checked > 4096 {
+                return Err("Cannot establish a stable window order".into());
+            }
+            checked += 1;
+            if unsafe { IsWindowVisible(above) } != 0 && unsafe { IsIconic(above) } == 0 {
+                let other = rectangle(above)?;
+                let mut overlap: RECT = unsafe { zeroed() };
+                if unsafe { IntersectRect(&mut overlap, &canvas, &other) } != 0 {
+                    return Ok(false);
+                }
+            }
+            above = unsafe { GetWindow(above, GW_HWNDPREV) };
+        }
+        Ok(true)
+    }
     struct Reference {
         capture: Capture,
         pixels: Vec<u8>,
         hash: u64,
         list_rect: RECT,
+        parent_rect: RECT,
+        count: usize,
+        before_list_hash: u64,
+        cursor: POINT,
     }
     struct Target {
         pid: u32,
@@ -521,120 +589,129 @@ mod windows {
         }
         fn prepare(&mut self) -> Result<(), String> {
             self.wake()?;
-            thread::sleep(Duration::from_millis(100));
-            self.active()?;
-            let mut region = rectangle(self.list)?;
-            // One fixed union rectangle per target includes all list resizing.
-            for query in QUERIES.iter().skip(1) {
-                self.query(query)?;
-                thread::sleep(Duration::from_millis(100));
-                self.active()?;
-                let r = rectangle(self.list)?;
-                region.left = region.left.min(r.left);
-                region.top = region.top.min(r.top);
-                region.right = region.right.max(r.right);
-                region.bottom = region.bottom.max(r.bottom);
-            }
-            self.hide()?;
-            for (i, query) in QUERIES.iter().enumerate() {
-                if i == 0 {
-                    self.wake()?;
-                } else {
+            for (index, query) in QUERIES.iter().enumerate() {
+                if index > 0 {
                     self.query(query)?;
                 }
                 thread::sleep(Duration::from_millis(100));
                 self.active()?;
-                if message(self.list, LB_GETCOUNT, 0, 0)? < 2 {
-                    return Err(
-                        "Every fixed query must have at least two results in both targets".into(),
-                    );
+                let count = message(self.list, LB_GETCOUNT, 0, 0)?;
+                if count < 2 {
+                    return Err("Each fixed query needs at least two results".into());
                 }
                 let list_rect = rectangle(self.list)?;
-                let mut capture = Capture::new(region)?;
-                self.active()?;
+                let parent_rect = rectangle(self.hwnd)?;
+                // Include CMD and the final lower border as a layout witness,
+                // but exclude the blinking edit caret and outside desktop.
+                let canvas = RECT {
+                    left: parent_rect.left,
+                    top: list_rect.top,
+                    right: parent_rect.right,
+                    bottom: parent_rect.bottom,
+                };
+                let mut capture = Capture::new(canvas)?;
                 let hash = capture.hash()?;
-                self.active()?;
-                thread::sleep(Duration::from_millis(20));
-                if !same_rect(rectangle(self.list)?, list_rect) || capture.hash()? != hash {
-                    return Err("Unstable reference pixels or geometry".into());
-                }
-                self.active()?;
+                let before_list_hash = capture.part_hash(list_rect)?;
                 let pixels = capture.pixels.clone();
                 self.references.push(Reference {
-                    capture,
-                    pixels,
-                    hash,
-                    list_rect,
+                    capture, pixels, hash, list_rect, parent_rect, count,
+                    before_list_hash, cursor: POINT { x: 0, y: 0 },
                 });
-            }
-            if self.references.windows(2).any(|w| w[0].hash == w[1].hash) {
-                return Err("Fixed query transitions need distinct pixels in both targets".into());
             }
             self.hide()
         }
         fn pre_transition(&mut self, index: usize) -> Result<(), String> {
             self.verify()?;
-            if self.references[index].capture.hash()? == self.references[index].hash {
-                return Err(
-                    "Expected pixels already visible before action; transition rejected".into(),
-                );
+            let reference = &mut self.references[index];
+            if unsafe { GetCursorPos(&mut reference.cursor) } == 0 {
+                return Err("Cannot record the starting cursor position".into());
+            }
+            reference.hash = reference.capture.hash()?;
+            reference.before_list_hash = reference.capture.part_hash(reference.list_rect)?;
+            reference.pixels.clone_from(&reference.capture.pixels);
+            Ok(())
+        }
+        fn verify_cursor(&self, index: usize) -> Result<(), String> {
+            let mut current: POINT = unsafe { zeroed() };
+            if unsafe { GetCursorPos(&mut current) } == 0 {
+                return Err("Cannot verify cursor stability".into());
+            }
+            let before = self.references[index].cursor;
+            if current.x != before.x || current.y != before.y {
+                return Err("Cursor moved during the trial; observation excluded".into());
             }
             Ok(())
         }
-        fn observe(&mut self, index: usize, start: Instant) -> Result<(u128, u128), String> {
-            let mut lower = 0;
-            let mut first = None;
-            let mut seen = 0_u8;
-            let mut actual_hash = None;
-            let mut last_rect = None;
-            let expected = self.references[index].list_rect;
-            let expected_rect = [expected.left, expected.top, expected.right, expected.bottom];
+        fn input_ready(&self) -> bool {
+            let tid = unsafe { GetWindowThreadProcessId(self.hwnd, null_mut()) };
+            let mut info: GUITHREADINFO = unsafe { zeroed() };
+            info.cbSize = size_of::<GUITHREADINFO>() as u32;
+            (unsafe { GetGUIThreadInfo(tid, &mut info) }) != 0 && info.hwndFocus == self.edit
+        }
+        fn observe(
+            &mut self,
+            index: usize,
+            start: Instant,
+            frames: &mut Vec<Frame>,
+        ) -> Result<Bounds, String> {
+            frames.clear();
             loop {
-                let begin = start.elapsed().as_nanos();
                 self.verify()?;
-                let visible = unsafe { IsWindowVisible(self.hwnd) } != 0;
-                let foreground = unsafe { GetForegroundWindow() } == self.hwnd;
-                // Bits: visible, foreground, expected geometry, expected hash,
-                // geometry unchanged across capture. Keep strict acceptance.
-                let mut flags = u8::from(visible) | (u8::from(foreground) << 1);
-                if visible && foreground {
-                    let geometry = rectangle(self.list)?;
-                    let hash = self.references[index].capture.hash()?;
-                    actual_hash = Some(hash);
-                    last_rect =
-                        Some([geometry.left, geometry.top, geometry.right, geometry.bottom]);
-                    self.active()?;
-                    flags |= u8::from(same_rect(geometry, expected)) << 2;
-                    flags |= u8::from(hash == self.references[index].hash) << 3;
-                    flags |= u8::from(same_rect(rectangle(self.list)?, geometry)) << 4;
-                    if flags == 31 {
-                        return Ok((lower, start.elapsed().as_nanos()));
-                    }
-                }
-                first.get_or_insert(flags);
-                seen |= flags;
-                lower = begin;
-                if start.elapsed() > Duration::from_secs(2) {
-                    let parent_rect = rectangle(self.hwnd)?;
+                self.verify_cursor(index)?;
+                let began_ns = start.elapsed().as_nanos();
+                let list_rect = rectangle(self.list)?;
+                let parent_rect = rectangle(self.hwnd)?;
+                let before_ready = unsafe { IsWindowVisible(self.hwnd) } != 0
+                    && unsafe { GetForegroundWindow() } == self.hwnd && self.input_ready();
+                let reference = &mut self.references[index];
+                let hash = reference.capture.hash()?;
+                let list_hash = reference.capture.part_hash(reference.list_rect)?;
+                let canvas = reference.capture.rect;
+                let expected_list = reference.list_rect;
+                let expected_parent = reference.parent_rect;
+                let ready = before_ready && same_rect(list_rect, expected_list)
+                    && same_rect(parent_rect, expected_parent)
+                    && same_rect(rectangle(self.list)?, list_rect)
+                    && same_rect(rectangle(self.hwnd)?, parent_rect)
+                    && unsafe { GetForegroundWindow() } == self.hwnd && self.input_ready();
+                let clear = if ready { unoccluded(self.hwnd, canvas)? } else { false };
+                frames.push(Frame {
+                    began_ns, ended_ns: start.elapsed().as_nanos(), hash, list_hash,
+                    ready, unoccluded: clear,
+                });
+                if start.elapsed() >= Duration::from_millis(200) {
                     let reference = &self.references[index];
-                    let difference = actual_hash.map(|_| {
-                        pixel_diff(
-                            &reference.pixels,
-                            &reference.capture.pixels,
-                            reference.capture.rect,
-                            expected,
-                            parent_rect,
-                        )
-                    });
-                    return Err(format!(
-                        "Expected result pixels not observed; first_flags={first:?} last_flags={flags:#x} seen_flags={seen:#x} expected_hash={} last_hash={actual_hash:?} expected_rect={expected_rect:?} last_rect={last_rect:?} difference={difference:?}; no latency sample accepted",
-                        self.references[index].hash
-                    ));
+                    let result = settled_bounds(reference.hash, reference.before_list_hash,
+                        frames, 50_000_000, 50_000_000);
+                    match result {
+                        Ok(bounds) => {
+                            self.active()?;
+                            self.verify_cursor(index)?;
+                            if get_query(self.edit)? != QUERIES[index]
+                                || message(self.list, LB_GETCOUNT, 0, 0)? != reference.count
+                                || message(self.list, LB_GETCURSEL, 0, 0)? != 0
+                            {
+                                return Err("Logical query/list state changed; pixels are unverified".into());
+                            }
+                            return Ok(bounds);
+                        }
+                        Err(error) => {
+                            let fatal = matches!(error, Rejected::InvalidTimeline
+                                | Rejected::Interrupted | Rejected::Occluded | Rejected::SparseSampling);
+                            if fatal || start.elapsed() >= Duration::from_secs(2) || frames.len() >= 4096 {
+                                let difference = pixel_diff(&reference.pixels,
+                                    &reference.capture.pixels, reference.capture.rect,
+                                    reference.list_rect, rectangle(self.hwnd)?);
+                                return Err(format!("Pixel observation rejected: {error:?}; samples={}; difference={difference:?}", frames.len()));
+                            }
+                        }
+                    }
                 }
                 thread::sleep(Duration::from_micros(100));
             }
         }
     }
+
     impl Drop for Target {
         fn drop(&mut self) {
             if self.verify().is_ok() {
@@ -783,10 +860,12 @@ mod windows {
                 let start = Instant::now();
                 target.verify()?;
                 wake(target.legacy)?;
-                let (lo, hi) = target
-                    .observe(0, start)
+                let bounds = target
+                    .observe(0, start, &mut report.current_trace)
                     .map_err(|e| format!("{label} iteration={iteration} wake: {e}"))?;
-                report.samples.push(format!("{{\"target\":\"{label}\",\"iteration\":{iteration},\"metric\":\"hotkey_to_results_pixels\",\"lower_ns\":{lo},\"upper_ns\":{hi}}}"));
+                report.samples.push(sample_json(label, iteration, 0,
+                    "hotkey_to_observed_final_pixels", &bounds, &report.current_trace));
+                report.current_trace.clear();
                 for (reference, _) in QUERIES.iter().enumerate().skip(1) {
                     let query = QUERIES[reference];
                     report.query_id = reference;
@@ -796,10 +875,12 @@ mod windows {
                     report.stage = "query_observe";
                     let start = Instant::now();
                     target.query(query)?;
-                    let (lo, hi) = target.observe(reference, start).map_err(|e| {
+                    let bounds = target.observe(reference, start, &mut report.current_trace).map_err(|e| {
                         format!("{label} iteration={iteration} query_id={reference}: {e}")
                     })?;
-                    report.samples.push(format!("{{\"target\":\"{label}\",\"iteration\":{iteration},\"metric\":\"settext_to_results_pixels\",\"query_id\":{reference},\"lower_ns\":{lo},\"upper_ns\":{hi}}}"));
+                    report.samples.push(sample_json(label, iteration, reference,
+                        "settext_to_observed_final_pixels", &bounds, &report.current_trace));
+                    report.current_trace.clear();
                 }
                 report.stage = "hide";
                 target.hide()?;
