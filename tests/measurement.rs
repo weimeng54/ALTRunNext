@@ -39,5 +39,47 @@ fn rejected_measurement_keeps_a_machine_readable_pending_report() {
         .arg(&output)
         .status()
         .unwrap();
-    assert!(validated.success(), "rejection report must be valid and conservative");
+    assert!(
+        validated.success(),
+        "rejection report must be valid and conservative"
+    );
+}
+
+#[test]
+fn later_failure_preserves_earlier_synthetic_observations_without_accepting_them() {
+    let unique = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let output = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join(format!("partial-measurement-{unique}.json"));
+    let status = Command::new(env!("CARGO_BIN_EXE_altrun-measure"))
+        .args([
+            "--original-pid",
+            "4294967295",
+            "--probe-pid",
+            "4294967294",
+            "--confirm-original-auto-execute-off",
+            "--diagnostic-fixture-fail-after-one",
+            "--output",
+        ])
+        .arg(&output)
+        .status()
+        .unwrap();
+    assert!(!status.success());
+    assert!(output.exists(), "partial observations must survive a later failure");
+    let validated = Command::new("python")
+        .arg("-c")
+        .arg(concat!(
+            "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
+            "assert r['decision']=='pending'; assert r['session_status']=='rejected'; ",
+            "assert r['stage']=='fixture_failure'; assert len(r['samples'])==1; ",
+            "assert r['measurement_kind']=='synthetic-test'"
+        ))
+        .arg(&output)
+        .status()
+        .unwrap();
+    assert!(validated.success());
 }
