@@ -701,7 +701,11 @@ mod windows {
                     && unsafe { GetForegroundWindow() } == self.hwnd
                     && self.input_ready();
                 let canvas = self.references[index].capture.rect;
-                let clear_before = if before_ready { unoccluded(self.hwnd, canvas)? } else { false };
+                let clear_before = if before_ready {
+                    unoccluded(self.hwnd, canvas)?
+                } else {
+                    false
+                };
                 let reference = &mut self.references[index];
                 let hash = reference.capture.hash()?;
                 let list_hash = reference.capture.part_hash(reference.list_rect)?;
