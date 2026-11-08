@@ -69,7 +69,10 @@ fn later_failure_preserves_earlier_synthetic_observations_without_accepting_them
         .status()
         .unwrap();
     assert!(!status.success());
-    assert!(output.exists(), "partial observations must survive a later failure");
+    assert!(
+        output.exists(),
+        "partial observations must survive a later failure"
+    );
     let validated = Command::new("python")
         .arg("-c")
         .arg(concat!(
