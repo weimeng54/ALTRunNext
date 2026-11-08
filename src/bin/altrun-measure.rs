@@ -329,15 +329,53 @@ mod windows {
         alpha_only: usize,
         bounds: Option<[i32; 4]>,
     }
-    #[allow(dead_code)]
     fn pixel_diff(
-        _expected: &[u8],
-        _actual: &[u8],
-        _capture: RECT,
-        _list: RECT,
-        _parent: RECT,
+        expected: &[u8],
+        actual: &[u8],
+        capture: RECT,
+        list: RECT,
+        parent: RECT,
     ) -> PixelDiff {
-        PixelDiff::default()
+        if capture.right <= capture.left || capture.bottom <= capture.top {
+            return PixelDiff::default();
+        }
+        let width = (capture.right as i64 - capture.left as i64) as usize;
+        let height = (capture.bottom as i64 - capture.top as i64) as usize;
+        let size = width.checked_mul(height).and_then(|n| n.checked_mul(4));
+        if size != Some(expected.len()) || expected.len() != actual.len() {
+            return PixelDiff::default();
+        }
+        let mut diff = PixelDiff {
+            compared: true,
+            ..PixelDiff::default()
+        };
+        for (i, (a, b)) in expected.chunks_exact(4).zip(actual.chunks_exact(4)).enumerate() {
+            if a == b {
+                continue;
+            }
+            let x = capture.left + (i % width) as i32;
+            let y = capture.top + (i / width) as i32;
+            let inside = |r: RECT| x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+            if inside(list) {
+                diff.list += 1;
+            } else if inside(parent) {
+                diff.parent += 1;
+            } else {
+                diff.outside += 1;
+            }
+            if a[..3] == b[..3] {
+                diff.alpha_only += 1;
+            }
+            if let Some(bounds) = &mut diff.bounds {
+                bounds[0] = bounds[0].min(x);
+                bounds[1] = bounds[1].min(y);
+                bounds[2] = bounds[2].max(x + 1);
+                bounds[3] = bounds[3].max(y + 1);
+            } else {
+                diff.bounds = Some([x, y, x + 1, y + 1]);
+            }
+        }
+        diff
     }
     #[cfg(test)]
     mod pixel_tests {
@@ -345,9 +383,24 @@ mod windows {
 
         #[test]
         fn difference_regions_separate_results_from_window_and_desktop() {
-            let capture = RECT { left: 10, top: 20, right: 14, bottom: 23 };
-            let list = RECT { left: 10, top: 20, right: 12, bottom: 21 };
-            let parent = RECT { left: 10, top: 20, right: 13, bottom: 22 };
+            let capture = RECT {
+                left: 10,
+                top: 20,
+                right: 14,
+                bottom: 23,
+            };
+            let list = RECT {
+                left: 10,
+                top: 20,
+                right: 12,
+                bottom: 21,
+            };
+            let parent = RECT {
+                left: 10,
+                top: 20,
+                right: 13,
+                bottom: 22,
+            };
             let expected = vec![0; 4 * 3 * 4];
             let mut actual = expected.clone();
             actual[0] = 255;
@@ -416,6 +469,7 @@ mod windows {
     }
     struct Reference {
         capture: Capture,
+        pixels: Vec<u8>,
         hash: u64,
         list_rect: RECT,
     }
@@ -545,8 +599,10 @@ mod windows {
                     return Err("Unstable reference pixels or geometry".into());
                 }
                 self.active()?;
+                let pixels = capture.pixels.clone();
                 self.references.push(Reference {
                     capture,
+                    pixels,
                     hash,
                     list_rect,
                 });
@@ -599,8 +655,19 @@ mod windows {
                 seen |= flags;
                 lower = begin;
                 if start.elapsed() > Duration::from_secs(2) {
+                    let parent_rect = rectangle(self.hwnd)?;
+                    let reference = &self.references[index];
+                    let difference = actual_hash.map(|_| {
+                        pixel_diff(
+                            &reference.pixels,
+                            &reference.capture.pixels,
+                            reference.capture.rect,
+                            expected,
+                            parent_rect,
+                        )
+                    });
                     return Err(format!(
-                        "Expected result pixels not observed; first_flags={first:?} last_flags={flags:#x} seen_flags={seen:#x} expected_hash={} last_hash={actual_hash:?} expected_rect={expected_rect:?} last_rect={last_rect:?}; no latency sample accepted",
+                        "Expected result pixels not observed; first_flags={first:?} last_flags={flags:#x} seen_flags={seen:#x} expected_hash={} last_hash={actual_hash:?} expected_rect={expected_rect:?} last_rect={last_rect:?} difference={difference:?}; no latency sample accepted",
                         self.references[index].hash
                     ));
                 }
