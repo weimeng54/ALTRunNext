@@ -320,6 +320,53 @@ mod windows {
     fn same_rect(a: RECT, b: RECT) -> bool {
         a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom
     }
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct PixelDiff {
+        compared: bool,
+        list: usize,
+        parent: usize,
+        outside: usize,
+        alpha_only: usize,
+        bounds: Option<[i32; 4]>,
+    }
+    #[allow(dead_code)]
+    fn pixel_diff(
+        _expected: &[u8],
+        _actual: &[u8],
+        _capture: RECT,
+        _list: RECT,
+        _parent: RECT,
+    ) -> PixelDiff {
+        PixelDiff::default()
+    }
+    #[cfg(test)]
+    mod pixel_tests {
+        use super::*;
+
+        #[test]
+        fn difference_regions_separate_results_from_window_and_desktop() {
+            let capture = RECT { left: 10, top: 20, right: 14, bottom: 23 };
+            let list = RECT { left: 10, top: 20, right: 12, bottom: 21 };
+            let parent = RECT { left: 10, top: 20, right: 13, bottom: 22 };
+            let expected = vec![0; 4 * 3 * 4];
+            let mut actual = expected.clone();
+            actual[0] = 255;
+            actual[7] = 1;
+            actual[(4 + 2) * 4] = 255;
+            actual[(8 + 3) * 4] = 255;
+            assert_eq!(
+                pixel_diff(&expected, &actual, capture, list, parent),
+                PixelDiff {
+                    compared: true,
+                    list: 2,
+                    parent: 1,
+                    outside: 1,
+                    alpha_only: 1,
+                    bounds: Some([10, 20, 14, 23]),
+                }
+            );
+        }
+    }
     struct Report {
         output: std::path::PathBuf,
         kind: &'static str,
