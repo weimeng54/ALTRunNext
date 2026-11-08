@@ -86,6 +86,7 @@ mod windows {
         unsafe {
             let b = wide(q);
             let mut result = 0;
+            SetLastError(0);
             if SendMessageTimeoutW(
                 edit,
                 WM_SETTEXT,
@@ -96,7 +97,7 @@ mod windows {
                 &mut result,
             ) == 0
             {
-                return Err("Query message timed out".into());
+                return Err(format!("WM_SETTEXT failed (Win32 error {})", GetLastError()));
             }
         }
         Ok(())
@@ -104,6 +105,7 @@ mod windows {
     fn message(hwnd: HWND, msg: u32, w: usize, l: isize) -> Result<usize, String> {
         let mut result = 0;
         if unsafe {
+            SetLastError(0);
             SendMessageTimeoutW(
                 hwnd,
                 msg,
@@ -115,7 +117,10 @@ mod windows {
             )
         } == 0
         {
-            return Err("Target message failed or timed out".into());
+            return Err(format!(
+                "Message {msg:#x} failed (Win32 error {})",
+                unsafe { GetLastError() }
+            ));
         }
         Ok(result)
     }
@@ -583,7 +588,8 @@ mod windows {
         }
         // Prewarm without counting preparation as a measurement.
         for target in &mut targets {
-            target.prepare()?;
+            let label = if target.legacy { "original" } else { "probe" };
+            target.prepare().map_err(|e| format!("{label}: {e}"))?;
         }
         let mut rows = String::new();
         let mut count = 0;
