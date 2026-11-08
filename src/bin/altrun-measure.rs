@@ -97,7 +97,10 @@ mod windows {
                 &mut result,
             ) == 0
             {
-                return Err(format!("WM_SETTEXT failed (Win32 error {})", GetLastError()));
+                return Err(format!(
+                    "WM_SETTEXT failed (Win32 error {})",
+                    GetLastError()
+                ));
             }
         }
         Ok(())
