@@ -50,10 +50,13 @@ jobs:
         run: |
           cargo fmt --all --check
       - name: Unit tests (performance gate logic)
+        if: ${{ !cancelled() }}
         run: cargo test --locked
       - name: Evidence gate tests
+        if: ${{ !cancelled() }}
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Lints
+        if: ${{ !cancelled() }}
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Release build
         run: cargo build --release --locked --target x86_64-pc-windows-msvc

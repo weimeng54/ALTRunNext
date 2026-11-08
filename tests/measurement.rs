@@ -98,7 +98,12 @@ fn probe_replay_never_requires_or_falls_back_to_an_original_process() {
         .join("target")
         .join(format!("isolated-probe-replay-{unique}.json"));
     let status = Command::new(env!("CARGO_BIN_EXE_altrun-measure"))
-        .args(["--probe-only-replay", "--probe-pid", "4294967294", "--output"])
+        .args([
+            "--probe-only-replay",
+            "--probe-pid",
+            "4294967294",
+            "--output",
+        ])
         .arg(&output)
         .status()
         .unwrap();
