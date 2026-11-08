@@ -20,14 +20,16 @@ fn valid_final_order_can_differ_between_identical_query_trials() {
             frame(70, final_hash, true),
         ];
         assert_eq!(
-            settled_bounds(10, 10, &frames, 50, 100),
+            settled_bounds(10, 10, &frames, 50, 200),
             Ok(Bounds {
                 lower_ns: 0,
                 upper_ns: 10,
                 settled_upper_ns: 10,
                 final_hash,
-                stable_span_ns: 64,
+                stable_span_ns: 60,
                 maximum_gap_ns: 60,
+                maximum_capture_ns: 2,
+                maximum_sampling_span_ns: 64,
                 sample_count: 3,
             })
         );
@@ -45,14 +47,16 @@ fn first_matching_observation_and_final_settling_are_distinct() {
         frame(72, 30, true),
     ];
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Ok(Bounds {
             lower_ns: 4,
             upper_ns: 10,
             settled_upper_ns: 20,
             final_hash: 30,
-            stable_span_ns: 56,
+            stable_span_ns: 52,
             maximum_gap_ns: 52,
+            maximum_capture_ns: 2,
+            maximum_sampling_span_ns: 56,
             sample_count: 6,
         })
     );
@@ -61,7 +65,7 @@ fn first_matching_observation_and_final_settling_are_distinct() {
 #[test]
 fn an_unchanged_pre_action_picture_cannot_prove_a_response() {
     assert_eq!(
-        settled_bounds(10, 10, &[frame(0, 10, true), frame(100, 10, true)], 50, 100),
+        settled_bounds(10, 10, &[frame(0, 10, true), frame(100, 10, true)], 50, 200),
         Err(Rejected::NoVisibleTransition)
     );
 }
@@ -69,7 +73,7 @@ fn an_unchanged_pre_action_picture_cannot_prove_a_response() {
 #[test]
 fn a_late_unsettled_frame_cannot_prove_completion() {
     assert_eq!(
-        settled_bounds(10, 10, &[frame(0, 20, true), frame(100, 30, true)], 50, 100),
+        settled_bounds(10, 10, &[frame(0, 20, true), frame(100, 30, true)], 50, 200),
         Err(Rejected::NotSettled)
     );
 }
@@ -82,7 +86,7 @@ fn losing_readiness_after_it_was_observed_rejects_the_trial() {
         frame(100, 20, true),
     ];
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Err(Rejected::Interrupted)
     );
 }
@@ -95,14 +99,16 @@ fn early_hidden_frames_can_precede_a_valid_wake() {
         frame(80, 20, true),
     ];
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Ok(Bounds {
             lower_ns: 0,
             upper_ns: 12,
             settled_upper_ns: 12,
             final_hash: 20,
-            stable_span_ns: 72,
+            stable_span_ns: 68,
             maximum_gap_ns: 68,
+            maximum_capture_ns: 2,
+            maximum_sampling_span_ns: 72,
             sample_count: 3,
         })
     );
@@ -124,7 +130,7 @@ fn changing_only_the_command_or_border_does_not_prove_list_presentation() {
         sample.list_hash = 10;
     }
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Err(Rejected::NoListTransition)
     );
 }
@@ -136,7 +142,7 @@ fn stable_overlapping_windows_do_not_prove_result_presentation() {
         sample.unoccluded = false;
     }
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Err(Rejected::Occluded)
     );
 }
@@ -145,7 +151,7 @@ fn stable_overlapping_windows_do_not_prove_result_presentation() {
 fn sparse_sampling_is_not_mistaken_for_continuous_stability() {
     let frames = [frame(0, 20, true), frame(1000, 20, true)];
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Err(Rejected::SparseSampling)
     );
 }
@@ -157,7 +163,7 @@ fn a_single_long_capture_is_not_a_stable_sequence() {
         ..frame(0, 20, true)
     }];
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Err(Rejected::NotSettled)
     );
 }
@@ -166,7 +172,7 @@ fn a_single_long_capture_is_not_a_stable_sequence() {
 fn a_blind_gap_before_the_first_capture_is_reported_as_sparse() {
     let frames = [frame(200, 20, true), frame(270, 20, true)];
     assert_eq!(
-        settled_bounds(10, 10, &frames, 50, 100),
+        settled_bounds(10, 10, &frames, 50, 200),
         Err(Rejected::SparseSampling)
     );
 }
@@ -174,8 +180,14 @@ fn a_blind_gap_before_the_first_capture_is_reported_as_sparse() {
 #[test]
 fn capture_duration_is_not_counted_as_observed_stability() {
     let frames = [
-        Frame { ended_ns: 100, ..frame(0, 20, true) },
-        Frame { ended_ns: 200, ..frame(100, 20, true) },
+        Frame {
+            ended_ns: 100,
+            ..frame(0, 20, true)
+        },
+        Frame {
+            ended_ns: 200,
+            ..frame(100, 20, true)
+        },
     ];
     assert_eq!(
         settled_bounds(10, 10, &frames, 50, 1000),
@@ -186,8 +198,14 @@ fn capture_duration_is_not_counted_as_observed_stability() {
 #[test]
 fn adjacent_long_captures_cannot_hide_sampling_uncertainty_as_zero_gap() {
     let frames = [
-        Frame { ended_ns: 100, ..frame(0, 20, true) },
-        Frame { ended_ns: 200, ..frame(100, 20, true) },
+        Frame {
+            ended_ns: 100,
+            ..frame(0, 20, true)
+        },
+        Frame {
+            ended_ns: 200,
+            ..frame(100, 20, true)
+        },
     ];
     assert_eq!(
         settled_bounds(10, 10, &frames, 50, 100),

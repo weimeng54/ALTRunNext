@@ -477,12 +477,14 @@ mod windows {
     ) -> String {
         let trace = trace_json(frames);
         format!(
-            "{{\"target\":\"{target}\",\"iteration\":{iteration},\"query_id\":{query_id},\"metric\":\"{metric}\",\"content_verified\":false,\"lower_ns\":{},\"upper_ns\":{},\"settled_upper_ns\":{},\"stable_span_ns\":{},\"maximum_gap_ns\":{},\"sample_count\":{},\"trace\":[{trace}]}}",
+            "{{\"target\":\"{target}\",\"iteration\":{iteration},\"query_id\":{query_id},\"metric\":\"{metric}\",\"content_verified\":false,\"lower_ns\":{},\"upper_ns\":{},\"settled_upper_ns\":{},\"stable_span_ns\":{},\"maximum_gap_ns\":{},\"maximum_capture_ns\":{},\"maximum_sampling_span_ns\":{},\"sample_count\":{},\"trace\":[{trace}]}}",
             bounds.lower_ns,
             bounds.upper_ns,
             bounds.settled_upper_ns,
             bounds.stable_span_ns,
             bounds.maximum_gap_ns,
+            bounds.maximum_capture_ns,
+            bounds.maximum_sampling_span_ns,
             bounds.sample_count
         )
     }
@@ -504,6 +506,19 @@ mod windows {
             above = unsafe { GetWindow(above, GW_HWNDPREV) };
         }
         Ok(true)
+    }
+    fn pump_observer_messages() -> Result<(), String> {
+        let mut message: MSG = unsafe { zeroed() };
+        while unsafe { PeekMessageW(&mut message, null_mut(), 0, 0, PM_REMOVE) } != 0 {
+            if message.message == WM_QUIT {
+                return Err("Observer was closed; trial excluded".into());
+            }
+            unsafe {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        Ok(())
     }
     struct Reference {
         capture: Capture,
@@ -676,6 +691,7 @@ mod windows {
         ) -> Result<Bounds, String> {
             frames.clear();
             loop {
+                pump_observer_messages()?;
                 self.verify()?;
                 self.verify_cursor(index)?;
                 let began_ns = start.elapsed().as_nanos();
@@ -684,6 +700,8 @@ mod windows {
                 let before_ready = unsafe { IsWindowVisible(self.hwnd) } != 0
                     && unsafe { GetForegroundWindow() } == self.hwnd
                     && self.input_ready();
+                let canvas = self.references[index].capture.rect;
+                let clear_before = if before_ready { unoccluded(self.hwnd, canvas)? } else { false };
                 let reference = &mut self.references[index];
                 let hash = reference.capture.hash()?;
                 let list_hash = reference.capture.part_hash(reference.list_rect)?;
@@ -698,7 +716,7 @@ mod windows {
                     && unsafe { GetForegroundWindow() } == self.hwnd
                     && self.input_ready();
                 let clear = if ready {
-                    unoccluded(self.hwnd, canvas)?
+                    clear_before && unoccluded(self.hwnd, canvas)?
                 } else {
                     false
                 };
