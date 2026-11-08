@@ -170,3 +170,27 @@ fn a_blind_gap_before_the_first_capture_is_reported_as_sparse() {
         Err(Rejected::SparseSampling)
     );
 }
+
+#[test]
+fn capture_duration_is_not_counted_as_observed_stability() {
+    let frames = [
+        Frame { ended_ns: 100, ..frame(0, 20, true) },
+        Frame { ended_ns: 200, ..frame(100, 20, true) },
+    ];
+    assert_eq!(
+        settled_bounds(10, 10, &frames, 50, 1000),
+        Err(Rejected::NotSettled)
+    );
+}
+
+#[test]
+fn adjacent_long_captures_cannot_hide_sampling_uncertainty_as_zero_gap() {
+    let frames = [
+        Frame { ended_ns: 100, ..frame(0, 20, true) },
+        Frame { ended_ns: 200, ..frame(100, 20, true) },
+    ];
+    assert_eq!(
+        settled_bounds(10, 10, &frames, 50, 100),
+        Err(Rejected::SparseSampling)
+    );
+}

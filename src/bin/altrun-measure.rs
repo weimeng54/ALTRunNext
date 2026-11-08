@@ -300,9 +300,12 @@ mod windows {
             }
         }
         fn part_hash(&self, region: RECT) -> Result<u64, String> {
-            if region.left < self.rect.left || region.top < self.rect.top
-                || region.right > self.rect.right || region.bottom > self.rect.bottom
-                || region.right <= region.left || region.bottom <= region.top
+            if region.left < self.rect.left
+                || region.top < self.rect.top
+                || region.right > self.rect.right
+                || region.bottom > self.rect.bottom
+                || region.right <= region.left
+                || region.bottom <= region.top
             {
                 return Err("List pixels are outside the observed canvas".into());
             }
@@ -436,7 +439,14 @@ mod windows {
             let trace = trace_json(&self.current_trace);
             let text = format!(
                 "{{\"measurement_kind\":\"{}\",\"decision\":\"pending\",\"content_verified\":false,\"session_status\":\"{}\",\"stage\":\"{}\",\"target\":\"{}\",\"iteration\":{},\"query_id\":{},\"samples\":[{}],\"current_trace\":[{}],\"limitations\":[\"Final sampled pixels are not an independent content oracle\",\"First matching observation and final stabilization are separate\",\"Sampling is not hardware presentation or physical input\",\"Rejected, synthetic or content-unverified sessions cannot establish parity\"]}}",
-                self.kind, status, self.stage, self.target, self.iteration, self.query_id, rows, trace
+                self.kind,
+                status,
+                self.stage,
+                self.target,
+                self.iteration,
+                self.query_id,
+                rows,
+                trace
             );
             if let Some(parent) = self.output.parent() {
                 fs::create_dir_all(parent).map_err(|_| "Cannot create evidence folder")?;
@@ -468,8 +478,12 @@ mod windows {
         let trace = trace_json(frames);
         format!(
             "{{\"target\":\"{target}\",\"iteration\":{iteration},\"query_id\":{query_id},\"metric\":\"{metric}\",\"content_verified\":false,\"lower_ns\":{},\"upper_ns\":{},\"settled_upper_ns\":{},\"stable_span_ns\":{},\"maximum_gap_ns\":{},\"sample_count\":{},\"trace\":[{trace}]}}",
-            bounds.lower_ns, bounds.upper_ns, bounds.settled_upper_ns,
-            bounds.stable_span_ns, bounds.maximum_gap_ns, bounds.sample_count
+            bounds.lower_ns,
+            bounds.upper_ns,
+            bounds.settled_upper_ns,
+            bounds.stable_span_ns,
+            bounds.maximum_gap_ns,
+            bounds.sample_count
         )
     }
     fn unoccluded(hwnd: HWND, canvas: RECT) -> Result<bool, String> {
@@ -614,8 +628,14 @@ mod windows {
                 let before_list_hash = capture.part_hash(list_rect)?;
                 let pixels = capture.pixels.clone();
                 self.references.push(Reference {
-                    capture, pixels, hash, list_rect, parent_rect, count,
-                    before_list_hash, cursor: POINT { x: 0, y: 0 },
+                    capture,
+                    pixels,
+                    hash,
+                    list_rect,
+                    parent_rect,
+                    count,
+                    before_list_hash,
+                    cursor: POINT { x: 0, y: 0 },
                 });
             }
             self.hide()
@@ -662,27 +682,43 @@ mod windows {
                 let list_rect = rectangle(self.list)?;
                 let parent_rect = rectangle(self.hwnd)?;
                 let before_ready = unsafe { IsWindowVisible(self.hwnd) } != 0
-                    && unsafe { GetForegroundWindow() } == self.hwnd && self.input_ready();
+                    && unsafe { GetForegroundWindow() } == self.hwnd
+                    && self.input_ready();
                 let reference = &mut self.references[index];
                 let hash = reference.capture.hash()?;
                 let list_hash = reference.capture.part_hash(reference.list_rect)?;
                 let canvas = reference.capture.rect;
                 let expected_list = reference.list_rect;
                 let expected_parent = reference.parent_rect;
-                let ready = before_ready && same_rect(list_rect, expected_list)
+                let ready = before_ready
+                    && same_rect(list_rect, expected_list)
                     && same_rect(parent_rect, expected_parent)
                     && same_rect(rectangle(self.list)?, list_rect)
                     && same_rect(rectangle(self.hwnd)?, parent_rect)
-                    && unsafe { GetForegroundWindow() } == self.hwnd && self.input_ready();
-                let clear = if ready { unoccluded(self.hwnd, canvas)? } else { false };
+                    && unsafe { GetForegroundWindow() } == self.hwnd
+                    && self.input_ready();
+                let clear = if ready {
+                    unoccluded(self.hwnd, canvas)?
+                } else {
+                    false
+                };
                 frames.push(Frame {
-                    began_ns, ended_ns: start.elapsed().as_nanos(), hash, list_hash,
-                    ready, unoccluded: clear,
+                    began_ns,
+                    ended_ns: start.elapsed().as_nanos(),
+                    hash,
+                    list_hash,
+                    ready,
+                    unoccluded: clear,
                 });
                 if start.elapsed() >= Duration::from_millis(200) {
                     let reference = &self.references[index];
-                    let result = settled_bounds(reference.hash, reference.before_list_hash,
-                        frames, 50_000_000, 50_000_000);
+                    let result = settled_bounds(
+                        reference.hash,
+                        reference.before_list_hash,
+                        frames,
+                        50_000_000,
+                        50_000_000,
+                    );
                     match result {
                         Ok(bounds) => {
                             self.active()?;
@@ -691,18 +727,36 @@ mod windows {
                                 || message(self.list, LB_GETCOUNT, 0, 0)? != reference.count
                                 || message(self.list, LB_GETCURSEL, 0, 0)? != 0
                             {
-                                return Err("Logical query/list state changed; pixels are unverified".into());
+                                return Err(
+                                    "Logical query/list state changed; pixels are unverified"
+                                        .into(),
+                                );
                             }
                             return Ok(bounds);
                         }
                         Err(error) => {
-                            let fatal = matches!(error, Rejected::InvalidTimeline
-                                | Rejected::Interrupted | Rejected::Occluded | Rejected::SparseSampling);
-                            if fatal || start.elapsed() >= Duration::from_secs(2) || frames.len() >= 4096 {
-                                let difference = pixel_diff(&reference.pixels,
-                                    &reference.capture.pixels, reference.capture.rect,
-                                    reference.list_rect, rectangle(self.hwnd)?);
-                                return Err(format!("Pixel observation rejected: {error:?}; samples={}; difference={difference:?}", frames.len()));
+                            let fatal = matches!(
+                                error,
+                                Rejected::InvalidTimeline
+                                    | Rejected::Interrupted
+                                    | Rejected::Occluded
+                                    | Rejected::SparseSampling
+                            );
+                            if fatal
+                                || start.elapsed() >= Duration::from_secs(2)
+                                || frames.len() >= 4096
+                            {
+                                let difference = pixel_diff(
+                                    &reference.pixels,
+                                    &reference.capture.pixels,
+                                    reference.capture.rect,
+                                    reference.list_rect,
+                                    rectangle(self.hwnd)?,
+                                );
+                                return Err(format!(
+                                    "Pixel observation rejected: {error:?}; samples={}; difference={difference:?}",
+                                    frames.len()
+                                ));
                             }
                         }
                     }
@@ -863,8 +917,14 @@ mod windows {
                 let bounds = target
                     .observe(0, start, &mut report.current_trace)
                     .map_err(|e| format!("{label} iteration={iteration} wake: {e}"))?;
-                report.samples.push(sample_json(label, iteration, 0,
-                    "hotkey_to_observed_final_pixels", &bounds, &report.current_trace));
+                report.samples.push(sample_json(
+                    label,
+                    iteration,
+                    0,
+                    "hotkey_to_observed_final_pixels",
+                    &bounds,
+                    &report.current_trace,
+                ));
                 report.current_trace.clear();
                 for (reference, _) in QUERIES.iter().enumerate().skip(1) {
                     let query = QUERIES[reference];
@@ -875,11 +935,19 @@ mod windows {
                     report.stage = "query_observe";
                     let start = Instant::now();
                     target.query(query)?;
-                    let bounds = target.observe(reference, start, &mut report.current_trace).map_err(|e| {
-                        format!("{label} iteration={iteration} query_id={reference}: {e}")
-                    })?;
-                    report.samples.push(sample_json(label, iteration, reference,
-                        "settext_to_observed_final_pixels", &bounds, &report.current_trace));
+                    let bounds = target
+                        .observe(reference, start, &mut report.current_trace)
+                        .map_err(|e| {
+                            format!("{label} iteration={iteration} query_id={reference}: {e}")
+                        })?;
+                    report.samples.push(sample_json(
+                        label,
+                        iteration,
+                        reference,
+                        "settext_to_observed_final_pixels",
+                        &bounds,
+                        &report.current_trace,
+                    ));
                     report.current_trace.clear();
                 }
                 report.stage = "hide";
