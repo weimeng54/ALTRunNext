@@ -86,3 +86,37 @@ fn later_failure_preserves_earlier_synthetic_observations_without_accepting_them
         .unwrap();
     assert!(validated.success());
 }
+
+#[test]
+fn probe_replay_never_requires_or_falls_back_to_an_original_process() {
+    let unique = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let output = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join(format!("isolated-probe-replay-{unique}.json"));
+    let status = Command::new(env!("CARGO_BIN_EXE_altrun-measure"))
+        .args(["--probe-only-replay", "--probe-pid", "4294967294", "--output"])
+        .arg(&output)
+        .status()
+        .unwrap();
+    assert!(!status.success());
+    assert!(
+        output.exists(),
+        "probe-only replay must create its own isolated diagnostic report"
+    );
+    let validated = Command::new("python")
+        .arg("-c")
+        .arg(concat!(
+            "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
+            "assert r['decision']=='pending'; assert r['session_status']=='rejected'; ",
+            "assert r['stage']=='probe_identity'; assert r['target']=='probe'; ",
+            "assert r['measurement_kind']=='observer-self-replay'; assert r['samples']==[]"
+        ))
+        .arg(&output)
+        .status()
+        .unwrap();
+    assert!(validated.success());
+}

@@ -344,7 +344,11 @@ mod windows {
             }
         }
         fn save(&self) -> Result<(), String> {
-            let status = if self.complete { "observed" } else { "rejected" };
+            let status = if self.complete {
+                "observed"
+            } else {
+                "rejected"
+            };
             let rows = self.samples.join(",");
             let text = format!(
                 "{{\"measurement_kind\":\"{}\",\"decision\":\"pending\",\"session_status\":\"{}\",\"stage\":\"{}\",\"target\":\"{}\",\"iteration\":{},\"query_id\":{},\"samples\":[{}],\"limitations\":[\"Software input and desktop capture upper bounds only\",\"Rejected or synthetic sessions cannot establish performance parity\",\"Physical typing, IME, idle, load and long-run remain unverified\"]}}",
@@ -534,12 +538,8 @@ mod windows {
                     let geometry = rectangle(self.list)?;
                     let hash = self.references[index].capture.hash()?;
                     actual_hash = Some(hash);
-                    last_rect = Some([
-                        geometry.left,
-                        geometry.top,
-                        geometry.right,
-                        geometry.bottom,
-                    ]);
+                    last_rect =
+                        Some([geometry.left, geometry.top, geometry.right, geometry.bottom]);
                     self.active()?;
                     flags |= u8::from(same_rect(geometry, expected)) << 2;
                     flags |= u8::from(hash == self.references[index].hash) << 3;
@@ -609,7 +609,10 @@ mod windows {
             return Err("Rounds must be between 1 and 1000".into());
         }
         let mut report = Report::new(output);
-        if args.iter().any(|a| a == "--diagnostic-fixture-fail-after-one") {
+        if args
+            .iter()
+            .any(|a| a == "--diagnostic-fixture-fail-after-one")
+        {
             #[cfg(debug_assertions)]
             {
                 report.kind = "synthetic-test";
