@@ -49,6 +49,14 @@ jobs:
         shell: pwsh
         run: |
           cargo fmt --all --check
+          $formatExit = $LASTEXITCODE
+          if ($formatExit -ne 0) {
+            cargo fmt --all
+            git diff --binary -- src tests | Out-File -Encoding utf8NoBOM rustfmt.patch
+            # Tests/build must use committed source, even when formatting fails.
+            git restore --source=HEAD --worktree -- src tests
+            exit $formatExit
+          }
       - name: Unit tests (performance gate logic)
         if: ${{ !cancelled() }}
         run: cargo test --locked
@@ -75,4 +83,5 @@ jobs:
           path: |
             dist/
             Cargo.lock
+            rustfmt.patch
           retention-days: 3

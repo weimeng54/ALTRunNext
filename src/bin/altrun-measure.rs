@@ -349,7 +349,11 @@ mod windows {
             compared: true,
             ..PixelDiff::default()
         };
-        for (i, (a, b)) in expected.chunks_exact(4).zip(actual.chunks_exact(4)).enumerate() {
+        for (i, (a, b)) in expected
+            .chunks_exact(4)
+            .zip(actual.chunks_exact(4))
+            .enumerate()
+        {
             if a == b {
                 continue;
             }
