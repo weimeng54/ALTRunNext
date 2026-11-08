@@ -14,7 +14,11 @@ fn frame(began_ns: u128, hash: u64, ready: bool) -> Frame {
 #[test]
 fn valid_final_order_can_differ_between_identical_query_trials() {
     for final_hash in [20, 30] {
-        let frames = [frame(0, 10, true), frame(8, final_hash, true), frame(70, final_hash, true)];
+        let frames = [
+            frame(0, 10, true),
+            frame(8, final_hash, true),
+            frame(70, final_hash, true),
+        ];
         assert_eq!(
             settled_bounds(10, 10, &frames, 50, 100),
             Ok(Bounds {
@@ -72,13 +76,24 @@ fn a_late_unsettled_frame_cannot_prove_completion() {
 
 #[test]
 fn losing_readiness_after_it_was_observed_rejects_the_trial() {
-    let frames = [frame(0, 20, true), frame(10, 20, false), frame(100, 20, true)];
-    assert_eq!(settled_bounds(10, 10, &frames, 50, 100), Err(Rejected::Interrupted));
+    let frames = [
+        frame(0, 20, true),
+        frame(10, 20, false),
+        frame(100, 20, true),
+    ];
+    assert_eq!(
+        settled_bounds(10, 10, &frames, 50, 100),
+        Err(Rejected::Interrupted)
+    );
 }
 
 #[test]
 fn early_hidden_frames_can_precede_a_valid_wake() {
-    let frames = [frame(0, 10, false), frame(10, 20, true), frame(80, 20, true)];
+    let frames = [
+        frame(0, 10, false),
+        frame(10, 20, true),
+        frame(80, 20, true),
+    ];
     assert_eq!(
         settled_bounds(10, 10, &frames, 50, 100),
         Ok(Bounds {
@@ -96,7 +111,10 @@ fn early_hidden_frames_can_precede_a_valid_wake() {
 #[test]
 fn reversed_capture_intervals_are_invalid() {
     let frames = [frame(20, 20, true), frame(10, 20, true)];
-    assert_eq!(settled_bounds(10, 10, &frames, 1, 100), Err(Rejected::InvalidTimeline));
+    assert_eq!(
+        settled_bounds(10, 10, &frames, 1, 100),
+        Err(Rejected::InvalidTimeline)
+    );
 }
 
 #[test]
@@ -126,6 +144,27 @@ fn stable_overlapping_windows_do_not_prove_result_presentation() {
 #[test]
 fn sparse_sampling_is_not_mistaken_for_continuous_stability() {
     let frames = [frame(0, 20, true), frame(1000, 20, true)];
+    assert_eq!(
+        settled_bounds(10, 10, &frames, 50, 100),
+        Err(Rejected::SparseSampling)
+    );
+}
+
+#[test]
+fn a_single_long_capture_is_not_a_stable_sequence() {
+    let frames = [Frame {
+        ended_ns: 100,
+        ..frame(0, 20, true)
+    }];
+    assert_eq!(
+        settled_bounds(10, 10, &frames, 50, 100),
+        Err(Rejected::NotSettled)
+    );
+}
+
+#[test]
+fn a_blind_gap_before_the_first_capture_is_reported_as_sparse() {
+    let frames = [frame(200, 20, true), frame(270, 20, true)];
     assert_eq!(
         settled_bounds(10, 10, &frames, 50, 100),
         Err(Rejected::SparseSampling)
