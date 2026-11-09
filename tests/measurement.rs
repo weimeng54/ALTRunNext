@@ -135,27 +135,22 @@ fn window_stack_inspection_is_isolated_from_the_original_and_from_replay() {
     let output = std::env::current_dir()
         .unwrap()
         .join("target")
-        .join(format!("probe-stack-inspection-{unique}.json"));
+        .join(format!("window-stack-inspection-{unique}.json"));
     let status = Command::new(env!("CARGO_BIN_EXE_altrun-measure"))
-        .args([
-            "--probe-only-replay",
-            "--inspect-probe-stack",
-            "--probe-pid",
-            "4294967294",
-            "--output",
-        ])
+        .args(["--inspect-window-stack", "--output"])
         .arg(&output)
         .status()
         .unwrap();
-    assert!(!status.success());
-    assert!(output.exists());
+    assert!(status.success(), "read-only inspection requires no original or probe PID");
     let validated = Command::new("python")
         .arg("-c")
         .arg(concat!(
             "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
-            "assert r['decision']=='pending'; assert r['session_status']=='rejected'; ",
-            "assert r['stage']=='probe_identity'; assert r['samples']==[]; ",
-            "assert r['measurement_kind']=='observer-window-stack'"
+            "assert r['decision']=='pending'; assert r['samples']==[]; ",
+            "assert r['stage']=='window_stack_inspected'; assert r['current_trace']==[]; ",
+            "assert r['measurement_kind']=='observer-window-stack'; ",
+            "assert not r['diagnostic_windows']['root']['visible']; ",
+            "assert bytes.fromhex(r['diagnostic_windows']['root']['class_utf8_hex']).decode().lower()=='static'"
         ))
         .arg(&output)
         .status()
