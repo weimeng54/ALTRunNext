@@ -503,10 +503,17 @@ mod windows {
         let mut region_bounds: RECT = unsafe { zeroed() };
         let (cloak_hr, layered_ok, region_kind) = unsafe {
             GetWindowThreadProcessId(hwnd, &mut pid);
-            let hr = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED as u32, &mut cloaked as *mut _ as *mut c_void, size_of::<u32>() as u32);
+            let hr = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_CLOAKED as u32,
+                &mut cloaked as *mut _ as *mut c_void,
+                size_of::<u32>() as u32,
+            );
             let layered = GetLayeredWindowAttributes(hwnd, &mut color, &mut alpha, &mut flags) != 0;
             let region = CreateRectRgn(0, 0, 0, 0);
-            let kind = if region.is_null() { -1 } else {
+            let kind = if region.is_null() {
+                -1
+            } else {
                 let kind = GetWindowRgn(hwnd, region);
                 GetRgnBox(region, &mut region_bounds);
                 DeleteObject(region);
@@ -514,8 +521,24 @@ mod windows {
             };
             (hr, layered, kind)
         };
-        let class_hex: String = class(hwnd).as_bytes().iter().map(|b| format!("{b:02x}")).collect();
-        Ok(format!("{{\"pid\":{pid},\"class_utf8_hex\":\"{class_hex}\",\"visible\":{},\"ex_style\":{},\"rect\":[{},{},{},{}],\"intersects_canvas\":{intersects},\"cloak_hresult\":{cloak_hr},\"cloaked\":{cloaked},\"layered_query_ok\":{layered_ok},\"alpha\":{alpha},\"layered_flags\":{flags},\"region_kind\":{region_kind},\"region_bounds\":[{},{},{},{}]}}", unsafe { IsWindowVisible(hwnd) } != 0, unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32, rect.left, rect.top, rect.right, rect.bottom, region_bounds.left, region_bounds.top, region_bounds.right, region_bounds.bottom))
+        let class_hex: String = class(hwnd)
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Ok(format!(
+            "{{\"pid\":{pid},\"class_utf8_hex\":\"{class_hex}\",\"visible\":{},\"ex_style\":{},\"rect\":[{},{},{},{}],\"intersects_canvas\":{intersects},\"cloak_hresult\":{cloak_hr},\"cloaked\":{cloaked},\"layered_query_ok\":{layered_ok},\"alpha\":{alpha},\"layered_flags\":{flags},\"region_kind\":{region_kind},\"region_bounds\":[{},{},{},{}]}}",
+            unsafe { IsWindowVisible(hwnd) } != 0,
+            unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            region_bounds.left,
+            region_bounds.top,
+            region_bounds.right,
+            region_bounds.bottom
+        ))
     }
     // Metadata only: no ShowWindow, input, foreground change, capture or launcher.
     fn inspect_window_stack(output: std::path::PathBuf) -> Result<(), String> {
@@ -523,29 +546,82 @@ mod windows {
         report.kind = "observer-window-stack";
         report.target = "synthetic-hidden-window";
         report.stage = "window_stack_setup";
-        let dpi_context_ok = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } != 0;
-        let hwnd = unsafe { CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, wide("STATIC").as_ptr(), wide("").as_ptr(), WS_POPUP | WS_BORDER, 400, 220, 420, 284, null_mut(), null_mut(), GetModuleHandleW(null()), null()) };
-        if hwnd.is_null() { return Err("Cannot create hidden diagnostic window".into()); }
+        let dpi_context_ok =
+            unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }
+                != 0;
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                wide("STATIC").as_ptr(),
+                wide("").as_ptr(),
+                WS_POPUP | WS_BORDER,
+                400,
+                220,
+                420,
+                284,
+                null_mut(),
+                null_mut(),
+                GetModuleHandleW(null()),
+                null(),
+            )
+        };
+        if hwnd.is_null() {
+            return Err("Cannot create hidden diagnostic window".into());
+        }
         struct Hidden(HWND);
-        impl Drop for Hidden { fn drop(&mut self) { unsafe { DestroyWindow(self.0); } } }
+        impl Drop for Hidden {
+            fn drop(&mut self) {
+                unsafe {
+                    DestroyWindow(self.0);
+                }
+            }
+        }
         let _hidden = Hidden(hwnd);
         let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-        unsafe { SetWindowPos(hwnd, null_mut(), 0, 0, (420 * dpi / 96) as i32, (284 * dpi / 96) as i32, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE); }
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                null_mut(),
+                0,
+                0,
+                (420 * dpi / 96) as i32,
+                (284 * dpi / 96) as i32,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
         let mut origin = POINT { x: 0, y: 0 };
-        if unsafe { ClientToScreen(hwnd, &mut origin) } == 0 { return Err("Cannot locate diagnostic canvas".into()); }
+        if unsafe { ClientToScreen(hwnd, &mut origin) } == 0 {
+            return Err("Cannot locate diagnostic canvas".into());
+        }
         let parent = rectangle(hwnd)?;
-        let canvas = RECT { left: parent.left, top: origin.y + (54 * dpi / 96) as i32, right: parent.right, bottom: parent.bottom };
+        let canvas = RECT {
+            left: parent.left,
+            top: origin.y + (54 * dpi / 96) as i32,
+            right: parent.right,
+            bottom: parent.bottom,
+        };
         let root = window_metadata(hwnd, canvas)?;
         let mut above = unsafe { GetWindow(hwnd, GW_HWNDPREV) };
         let mut checked = 0;
         let mut rows = Vec::new();
         while !above.is_null() {
             checked += 1;
-            if checked > 4096 { return Err("Unstable diagnostic window order".into()); }
-            if unsafe { IsWindowVisible(above) } != 0 && unsafe { IsIconic(above) } == 0 { rows.push(window_metadata(above, canvas)?); }
+            if checked > 4096 {
+                return Err("Unstable diagnostic window order".into());
+            }
+            if unsafe { IsWindowVisible(above) } != 0 && unsafe { IsIconic(above) } == 0 {
+                rows.push(window_metadata(above, canvas)?);
+            }
             above = unsafe { GetWindow(above, GW_HWNDPREV) };
         }
-        report.diagnostic_windows = format!("{{\"diagnostic_source\":\"equivalent-hidden-topmost-window\",\"dpi_context_ok\":{dpi_context_ok},\"dpi\":{dpi},\"root\":{root},\"canvas\":[{},{},{},{}],\"checked\":{checked},\"windows\":[{}]}}", canvas.left, canvas.top, canvas.right, canvas.bottom, rows.join(","));
+        report.diagnostic_windows = format!(
+            "{{\"diagnostic_source\":\"equivalent-hidden-topmost-window\",\"dpi_context_ok\":{dpi_context_ok},\"dpi\":{dpi},\"root\":{root},\"canvas\":[{},{},{},{}],\"checked\":{checked},\"windows\":[{}]}}",
+            canvas.left,
+            canvas.top,
+            canvas.right,
+            canvas.bottom,
+            rows.join(",")
+        );
         report.stage = "window_stack_inspected";
         report.complete = true;
         report.save()
@@ -870,7 +946,14 @@ mod windows {
         };
         if args.iter().any(|a| a == "--inspect-window-stack") {
             let output = std::path::PathBuf::from(value("--output")?);
-            if !output.is_absolute() || !output.to_string_lossy().to_ascii_lowercase().starts_with("d:\\") { return Err("Output must stay on D:".into()); }
+            if !output.is_absolute()
+                || !output
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .starts_with("d:\\")
+            {
+                return Err("Output must stay on D:".into());
+            }
             return inspect_window_stack(output);
         }
         if !replay
@@ -1144,7 +1227,12 @@ fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
         return Err("Local session profile must contain exactly three lines".into());
     }
     if lines[0] == "ALTRUN-OBSERVER-WINDOW-STACK" {
-        return windows::run(vec!["altrun-measure".into(), "--inspect-window-stack".into(), "--output".into(), folder.join("session-result.json").to_string_lossy().into()]);
+        return windows::run(vec![
+            "altrun-measure".into(),
+            "--inspect-window-stack".into(),
+            "--output".into(),
+            folder.join("session-result.json").to_string_lossy().into(),
+        ]);
     }
     let replay = lines[0] == "ALTRUN-PROBE-SELF-REPLAY";
     if !replay && lines[0] != "ALTRUN-LOCAL-TEST-AUTOEXEC-OFF" {

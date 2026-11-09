@@ -141,7 +141,10 @@ fn window_stack_inspection_is_isolated_from_the_original_and_from_replay() {
         .arg(&output)
         .status()
         .unwrap();
-    assert!(status.success(), "read-only inspection requires no original or probe PID");
+    assert!(
+        status.success(),
+        "read-only inspection requires no original or probe PID"
+    );
     let validated = Command::new("python")
         .arg("-c")
         .arg(concat!(
