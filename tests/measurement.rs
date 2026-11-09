@@ -125,3 +125,40 @@ fn probe_replay_never_requires_or_falls_back_to_an_original_process() {
         .unwrap();
     assert!(validated.success());
 }
+
+#[test]
+fn window_stack_inspection_is_isolated_from_the_original_and_from_replay() {
+    let unique = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let output = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join(format!("probe-stack-inspection-{unique}.json"));
+    let status = Command::new(env!("CARGO_BIN_EXE_altrun-measure"))
+        .args([
+            "--probe-only-replay",
+            "--inspect-probe-stack",
+            "--probe-pid",
+            "4294967294",
+            "--output",
+        ])
+        .arg(&output)
+        .status()
+        .unwrap();
+    assert!(!status.success());
+    assert!(output.exists());
+    let validated = Command::new("python")
+        .arg("-c")
+        .arg(concat!(
+            "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
+            "assert r['decision']=='pending'; assert r['session_status']=='rejected'; ",
+            "assert r['stage']=='probe_identity'; assert r['samples']==[]; ",
+            "assert r['measurement_kind']=='observer-window-stack'"
+        ))
+        .arg(&output)
+        .status()
+        .unwrap();
+    assert!(validated.success());
+}
