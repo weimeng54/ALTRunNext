@@ -4,37 +4,109 @@ pub struct LaunchRequest {
     pub file: String,
     pub parameters: String,
 }
-#[derive(Clone,Debug,Default)]
-pub struct LaunchContext {pub clipboard:Option<String>,pub window_id:usize,pub window_title:String,pub window_class:String,pub base_directory:String,pub allow_dynamic_target:bool}
-#[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub enum ShowMode{Normal,Maximized,Minimized,Hidden}
-pub fn resolve_context(command:&str,parameter:Option<&str>,kind:crate::library::ParamType,working_directory:&str,context:&LaunchContext)->Result<(LaunchRequest,ShowMode,Option<String>),String>{
+#[derive(Clone, Debug, Default)]
+pub struct LaunchContext {
+    pub clipboard: Option<String>,
+    pub window_id: usize,
+    pub window_title: String,
+    pub window_class: String,
+    pub base_directory: String,
+    pub allow_dynamic_target: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShowMode {
+    Normal,
+    Maximized,
+    Minimized,
+    Hidden,
+}
+pub fn resolve_context(
+    command: &str,
+    parameter: Option<&str>,
+    kind: crate::library::ParamType,
+    working_directory: &str,
+    context: &LaunchContext,
+) -> Result<(LaunchRequest, ShowMode, Option<String>), String> {
     use crate::library::ParamType;
-    let command=command.trim();
-    let (command,mode)=if let Some(s)=command.strip_prefix("@+"){(s.trim_start(),ShowMode::Maximized)}else if let Some(s)=command.strip_prefix("@-"){(s.trim_start(),ShowMode::Minimized)}else if let Some(s)=command.strip_prefix('@'){(s.trim_start(),ShowMode::Hidden)}else{(command,ShowMode::Normal)};
-    if command.contains(['\u{e000}','\u{e001}']){return Err("命令含保留字符".into());}
-    let values=[context.clipboard.clone().unwrap_or_default(),context.window_id.to_string(),context.window_title.clone(),context.window_class.clone()];
-    let tokens=["c","wd","wt","wc"];
-    let mut masked=command.to_owned();let mut had_context=false;
-    for (i,token) in tokens.iter().enumerate(){
-        let brace=format!("{{%{token}}}");let bare=format!("%{token}");let marker=format!("\u{e000}{i}\u{e001}");
-        if masked.contains(&brace)||masked.contains(&bare){had_context=true;if i==0&&context.clipboard.is_none(){return Err("剪贴板没有可用文本".into());}masked=masked.replace(&brace,&marker).replace(&bare,&marker);}
-    }
-    let actual_kind=if had_context&&!has_parameter(command)&&parameter.is_none(){ParamType::Auto}else{kind};
-    let mut result=resolve_typed(&masked,parameter,actual_kind)?;
-    if result.file.contains('\u{e000}')&&!context.allow_dynamic_target&&!result.file.starts_with("https://")&&!result.file.starts_with("http://"){return Err("动态内容不能替换程序路径；可在设置中明确启用".into());}
-    let substitute=|text:&str|->Result<String,String>{
-        let mut out=String::new();let mut rest=text;
-        while let Some(start)=rest.find('\u{e000}'){
-            out.push_str(&rest[..start]);let tail=&rest[start+'\u{e000}'.len_utf8()..];let end=tail.find('\u{e001}').ok_or("无效上下文标记")?;
-            let i=tail[..end].parse::<usize>().map_err(|_|"无效上下文标记")?;let value=values.get(i).ok_or("无效上下文标记")?;
-            if value.contains(['\0','\r','\n']){return Err("上下文包含换行或空字符，请先复制单行文本".into());}
-            out.push_str(&match kind{ParamType::LegacyUrl=>percent_encode(&crate::textcodec::ansi_bytes(value)?),ParamType::Utf8Url=>percent_encode(value.as_bytes()),_=>value.clone()});rest=&tail[end+'\u{e001}'.len_utf8()..];
-        }out.push_str(rest);Ok(out)
+    let command = command.trim();
+    let (command, mode) = if let Some(s) = command.strip_prefix("@+") {
+        (s.trim_start(), ShowMode::Maximized)
+    } else if let Some(s) = command.strip_prefix("@-") {
+        (s.trim_start(), ShowMode::Minimized)
+    } else if let Some(s) = command.strip_prefix('@') {
+        (s.trim_start(), ShowMode::Hidden)
+    } else {
+        (command, ShowMode::Normal)
     };
-    result.file=substitute(&result.file)?;result.parameters=substitute(&result.parameters)?;
-    let directory=if !working_directory.trim().is_empty(){Some(expand_environment(working_directory,false)?)}else if !context.base_directory.is_empty(){Some(context.base_directory.clone())}else{None};
-    Ok((result,mode,directory))
+    if command.contains(['\u{e000}', '\u{e001}']) {
+        return Err("命令含保留字符".into());
+    }
+    let values = [
+        context.clipboard.clone().unwrap_or_default(),
+        context.window_id.to_string(),
+        context.window_title.clone(),
+        context.window_class.clone(),
+    ];
+    let tokens = ["c", "wd", "wt", "wc"];
+    let mut masked = command.to_owned();
+    let mut had_context = false;
+    for (i, token) in tokens.iter().enumerate() {
+        let brace = format!("{{%{token}}}");
+        let bare = format!("%{token}");
+        let marker = format!("\u{e000}{i}\u{e001}");
+        if masked.contains(&brace) || masked.contains(&bare) {
+            had_context = true;
+            if i == 0 && context.clipboard.is_none() {
+                return Err("剪贴板没有可用文本".into());
+            }
+            masked = masked.replace(&brace, &marker).replace(&bare, &marker);
+        }
+    }
+    let actual_kind = if had_context && !has_parameter(command) && parameter.is_none() {
+        ParamType::Auto
+    } else {
+        kind
+    };
+    let mut result = resolve_typed(&masked, parameter, actual_kind)?;
+    if result.file.contains('\u{e000}')
+        && !context.allow_dynamic_target
+        && !result.file.starts_with("https://")
+        && !result.file.starts_with("http://")
+    {
+        return Err("动态内容不能替换程序路径；可在设置中明确启用".into());
+    }
+    let substitute = |text: &str| -> Result<String, String> {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('\u{e000}') {
+            out.push_str(&rest[..start]);
+            let tail = &rest[start + '\u{e000}'.len_utf8()..];
+            let end = tail.find('\u{e001}').ok_or("无效上下文标记")?;
+            let i = tail[..end].parse::<usize>().map_err(|_| "无效上下文标记")?;
+            let value = values.get(i).ok_or("无效上下文标记")?;
+            if value.contains(['\0', '\r', '\n']) {
+                return Err("上下文包含换行或空字符，请先复制单行文本".into());
+            }
+            out.push_str(&match kind {
+                ParamType::LegacyUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
+                ParamType::Utf8Url => percent_encode(value.as_bytes()),
+                _ => value.clone(),
+            });
+            rest = &tail[end + '\u{e001}'.len_utf8()..];
+        }
+        out.push_str(rest);
+        Ok(out)
+    };
+    result.file = substitute(&result.file)?;
+    result.parameters = substitute(&result.parameters)?;
+    let directory = if !working_directory.trim().is_empty() {
+        Some(expand_environment(working_directory, false)?)
+    } else if !context.base_directory.is_empty() {
+        Some(context.base_directory.clone())
+    } else {
+        None
+    };
+    Ok((result, mode, directory))
 }
 
 pub fn has_parameter(command: &str) -> bool {

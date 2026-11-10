@@ -1,5 +1,51 @@
-use altrun_probe::{management::{self,Validation},parse_entries};
-#[test]fn validation_does_not_classify_network_system_or_search_targets_as_missing(){let rows=parse_entries("a\tA\t\\\\server\\file.exe\t0\nb\tB\tnotepad.exe\t0\nc\tC\thttps://example.com\t0\nd\tD\ttool.exe %p\t0\n").unwrap();for row in rows{assert!(matches!(management::validate(&row,std::path::Path::new(".")),Validation::Unconfirmed(_)));}}
-#[test]fn path_intake_quotes_spaces_and_preserves_id_while_converting(){let root=std::env::current_dir().unwrap();let path=root.join("target/folder with spaces/tool.exe");let mut entry=management::from_path(&path).unwrap();let id=entry.id.clone();assert!(entry.command.starts_with('"'));entry.command.push_str(" --flag");assert!(management::convert_path(&mut entry,&root,true).unwrap());assert!(entry.command.ends_with(" --flag"));assert_eq!(entry.id,id);assert!(management::convert_path(&mut entry,&root,false).unwrap());assert!(entry.command.contains("folder with spaces"));}
+use altrun_probe::{
+    management::{self, Validation},
+    parse_entries,
+};
+#[test]
+fn validation_does_not_classify_network_system_or_search_targets_as_missing() {
+    let rows=parse_entries("a\tA\t\\\\server\\file.exe\t0\nb\tB\tnotepad.exe\t0\nc\tC\thttps://example.com\t0\nd\tD\ttool.exe %p\t0\n").unwrap();
+    for row in rows {
+        assert!(matches!(
+            management::validate(&row, std::path::Path::new(".")),
+            Validation::Unconfirmed(_)
+        ));
+    }
+}
+#[test]
+fn path_intake_quotes_spaces_and_preserves_id_while_converting() {
+    let root = std::env::current_dir().unwrap();
+    let path = root.join("target/folder with spaces/tool.exe");
+    let mut entry = management::from_path(&path).unwrap();
+    let id = entry.id.clone();
+    assert!(entry.command.starts_with('"'));
+    entry.command.push_str(" --flag");
+    assert!(management::convert_path(&mut entry, &root, true).unwrap());
+    assert!(entry.command.ends_with(" --flag"));
+    assert_eq!(entry.id, id);
+    assert!(management::convert_path(&mut entry, &root, false).unwrap());
+    assert!(entry.command.contains("folder with spaces"));
+}
 #[cfg(windows)]
-#[test]fn integration_status_and_rollback_use_isolated_namespaces(){use altrun_probe::integration::Integration;let root=std::env::current_dir().unwrap().join("target/integration-test");std::fs::create_dir_all(&root).unwrap();let name=format!("fixture-{}",std::process::id());let integration=Integration{registry:format!(r"Software\ALTRunModern\Tests\{name}"),name:name.clone(),send_to:root.join(format!("{name}.lnk")),executable:std::env::current_exe().unwrap(),data:root.join("shortcuts.tsv")};integration.apply(false,false).unwrap();assert_eq!(integration.status().unwrap(),(false,false));integration.apply(true,true).unwrap();assert_eq!(integration.status().unwrap(),(true,true));integration.apply(false,false).unwrap();assert_eq!(integration.status().unwrap(),(false,false));}
+#[test]
+fn integration_status_and_rollback_use_isolated_namespaces() {
+    use altrun_probe::integration::Integration;
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target/integration-test");
+    std::fs::create_dir_all(&root).unwrap();
+    let name = format!("fixture-{}", std::process::id());
+    let integration = Integration {
+        registry: format!(r"Software\ALTRunModern\Tests\{name}"),
+        name: name.clone(),
+        send_to: root.join(format!("{name}.lnk")),
+        executable: std::env::current_exe().unwrap(),
+        data: root.join("shortcuts.tsv"),
+    };
+    integration.apply(false, false).unwrap();
+    assert_eq!(integration.status().unwrap(), (false, false));
+    integration.apply(true, true).unwrap();
+    assert_eq!(integration.status().unwrap(), (true, true));
+    integration.apply(false, false).unwrap();
+    assert_eq!(integration.status().unwrap(), (false, false));
+}

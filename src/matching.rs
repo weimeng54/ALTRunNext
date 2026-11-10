@@ -17,8 +17,7 @@ pub fn prepare_legacy(pattern: &str) -> String {
         }
         if c == '[' {
             class = true;
-        }
-        else if c == ']' {
+        } else if c == ']' {
             class = false;
         }
         if !class && c == '*' && previous != '.' {

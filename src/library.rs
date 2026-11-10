@@ -1,16 +1,53 @@
 use crate::Entry;
-#[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub enum EntryKind{Command,Separator,Remark}
-impl EntryKind {
-    pub fn parse(s:&str)->Result<Self,String>{match s{"command"=>Ok(Self::Command),"separator"=>Ok(Self::Separator),"remark"=>Ok(Self::Remark),_=>Err("未知快捷项类型".into())}}
-    pub fn name(self)->&'static str{match self{Self::Command=>"command",Self::Separator=>"separator",Self::Remark=>"remark"}}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryKind {
+    Command,
+    Separator,
+    Remark,
 }
-pub fn legacy_id(alias:&str,name:&str,command:&str,row:usize)->String{
-    let mut hash=0xcbf29ce484222325u64;
-    for byte in alias.bytes().chain([0]).chain(name.bytes()).chain([0]).chain(command.bytes()).chain(row.to_le_bytes()) {hash=(hash^u64::from(byte)).wrapping_mul(0x100000001b3);}
+impl EntryKind {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "command" => Ok(Self::Command),
+            "separator" => Ok(Self::Separator),
+            "remark" => Ok(Self::Remark),
+            _ => Err("未知快捷项类型".into()),
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Command => "command",
+            Self::Separator => "separator",
+            Self::Remark => "remark",
+        }
+    }
+}
+pub fn legacy_id(alias: &str, name: &str, command: &str, row: usize) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in alias
+        .bytes()
+        .chain([0])
+        .chain(name.bytes())
+        .chain([0])
+        .chain(command.bytes())
+        .chain(row.to_le_bytes())
+    {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+    }
     format!("legacy-{hash:016x}")
 }
-pub fn new_id()->String {static NEXT:AtomicU64=AtomicU64::new(0);format!("item-{:x}-{:x}-{:x}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos(),std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed))}
+pub fn new_id() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "item-{:x}-{:x}-{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -105,14 +142,17 @@ pub fn import_legacy(text: &str) -> Result<Import, String> {
             .ok_or_else(|| format!("第 {} 行缺少命令", number + 1))?
             .trim()
             .to_owned();
-        let id=legacy_id(&alias,&name,&command,number);
+        let id = legacy_id(&alias, &name, &command, number);
         let entry = Entry {
             alias,
             name,
             command,
             frequency,
             param_type: kind,
-            id,working_directory:String::new(),enabled:true,kind:EntryKind::Command,
+            id,
+            working_directory: String::new(),
+            enabled: true,
+            kind: EntryKind::Command,
         };
         validate(&entry).map_err(|e| format!("第 {} 行：{e}", number + 1))?;
         entries.push(entry);
@@ -123,10 +163,10 @@ pub fn import_legacy(text: &str) -> Result<Import, String> {
     })
 }
 fn validate(e: &Entry) -> Result<(), String> {
-    if e.alias.trim().is_empty() || (e.kind==EntryKind::Command&&e.command.trim().is_empty()) {
+    if e.alias.trim().is_empty() || (e.kind == EntryKind::Command && e.command.trim().is_empty()) {
         return Err("快捷字和命令不能为空".into());
     }
-    for s in [&e.alias, &e.name, &e.command,&e.id,&e.working_directory] {
+    for s in [&e.alias, &e.name, &e.command, &e.id, &e.working_directory] {
         if s.chars().any(|c| matches!(c, '\0' | '\t' | '\r' | '\n')) {
             return Err("快捷项不能包含换行、制表符或空字符".into());
         }
@@ -143,7 +183,15 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
             e.name,
             e.command,
             e.frequency,
-            e.param_type.name(),if e.id.is_empty(){legacy_id(&e.alias,&e.name,&e.command,i)}else{e.id.clone()},e.working_directory,e.kind.name(),u8::from(e.enabled)
+            e.param_type.name(),
+            if e.id.is_empty() {
+                legacy_id(&e.alias, &e.name, &e.command, i)
+            } else {
+                e.id.clone()
+            },
+            e.working_directory,
+            e.kind.name(),
+            u8::from(e.enabled)
         ));
     }
     Ok(output)

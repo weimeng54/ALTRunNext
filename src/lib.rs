@@ -5,10 +5,10 @@ pub struct Entry {
     pub command: String,
     pub frequency: i64,
     pub param_type: library::ParamType,
-    pub id:String,
-    pub working_directory:String,
-    pub enabled:bool,
-    pub kind:library::EntryKind,
+    pub id: String,
+    pub working_directory: String,
+    pub enabled: bool,
+    pub kind: library::EntryKind,
 }
 
 pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
@@ -28,10 +28,18 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 frequency: fields[3]
                     .parse()
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
-                id: fields.get(5).filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(||library::legacy_id(fields[0],fields[1],fields[2],i)),
-                working_directory:fields.get(6).unwrap_or(&"").to_string(),
-                kind:library::EntryKind::parse(fields.get(7).unwrap_or(&"command"))?,
-                enabled:match fields.get(8).copied().unwrap_or("1"){"1"=>true,"0"=>false,_=>return Err(format!("Invalid enabled flag at row {}",i+1))},
+                id: fields
+                    .get(5)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| library::legacy_id(fields[0], fields[1], fields[2], i)),
+                working_directory: fields.get(6).unwrap_or(&"").to_string(),
+                kind: library::EntryKind::parse(fields.get(7).unwrap_or(&"command"))?,
+                enabled: match fields.get(8).copied().unwrap_or("1") {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("Invalid enabled flag at row {}", i + 1)),
+                },
                 param_type: if fields.len() >= 5 {
                     library::ParamType::parse(fields[4])?
                 } else {
@@ -39,37 +47,99 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 },
             })
         })
-        .collect::<Result<Vec<_>,_>>()
-        .and_then(|rows|{let mut ids=std::collections::HashSet::new();if rows.iter().any(|e|!ids.insert(&e.id)){Err("Duplicate shortcut identity".into())}else{Ok(rows)}})
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(|rows| {
+            let mut ids = std::collections::HashSet::new();
+            if rows.iter().any(|e| !ids.insert(&e.id)) {
+                Err("Duplicate shortcut identity".into())
+            } else {
+                Ok(rows)
+            }
+        })
 }
 
 pub struct SearchIndex {
     aliases: Vec<String>,
     frequencies: Vec<i64>,
     characters: Vec<Vec<char>>,
-    active:Vec<bool>,
+    active: Vec<bool>,
 }
 
 impl SearchIndex {
-    pub fn aliases(&self)->&[String]{&self.aliases}
-    pub fn rank_positions(&self,positions:&[Option<usize>],input:&str)->Vec<usize>{
-        let length=input.chars().count() as i64;let mut hits:Vec<_>=positions.iter().enumerate().filter_map(|(i,p)|{
-            if !self.active.get(i).copied().unwrap_or(false){return None;}p.map(|p|(i,1024i64.saturating_add(self.frequencies[i].saturating_mul(4)).saturating_sub((p as i64+1).saturating_mul(128)).saturating_sub((self.characters[i].len() as i64-length).saturating_mul(16))))
-        }).collect();hits.sort_by(|a,b|b.1.cmp(&a.1).then(a.0.cmp(&b.0)));hits.into_iter().map(|h|h.0).collect()
+    pub fn aliases(&self) -> &[String] {
+        &self.aliases
     }
-    pub fn query_options(&self,input:&str,regex:bool,anywhere:bool,standard:bool)->Result<Vec<usize>,String>{
-        if input.chars().count()>256{return Ok(Vec::new());}
-        if regex&&input.contains(['*','?','[',']','(',')','|','^','$','\\','.','+','{']){
-            let pattern=if standard{input.to_owned()}else{matching::prepare_legacy(input)};
-            if matching::advanced(&pattern){return Err("advanced".into());}
-            return Ok(self.rank_positions(&matching::positions(&pattern,&self.aliases,!anywhere)?,input));
+    pub fn rank_positions(&self, positions: &[Option<usize>], input: &str) -> Vec<usize> {
+        let length = input.chars().count() as i64;
+        let mut hits: Vec<_> = positions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                if !self.active.get(i).copied().unwrap_or(false) {
+                    return None;
+                }
+                p.map(|p| {
+                    (
+                        i,
+                        1024i64
+                            .saturating_add(self.frequencies[i].saturating_mul(4))
+                            .saturating_sub((p as i64 + 1).saturating_mul(128))
+                            .saturating_sub(
+                                (self.characters[i].len() as i64 - length).saturating_mul(16),
+                            ),
+                    )
+                })
+            })
+            .collect();
+        hits.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        hits.into_iter().map(|h| h.0).collect()
+    }
+    pub fn query_options(
+        &self,
+        input: &str,
+        regex: bool,
+        anywhere: bool,
+        standard: bool,
+    ) -> Result<Vec<usize>, String> {
+        if input.chars().count() > 256 {
+            return Ok(Vec::new());
         }
-        let needle=input.to_lowercase();let positions:Vec<_>=self.aliases.iter().map(|a|a.find(&needle).filter(|p|anywhere||*p==0).map(|p|a[..p].chars().count())).collect();
-        Ok(self.rank_positions(&positions,input))
+        if regex
+            && input.contains([
+                '*', '?', '[', ']', '(', ')', '|', '^', '$', '\\', '.', '+', '{',
+            ])
+        {
+            let pattern = if standard {
+                input.to_owned()
+            } else {
+                matching::prepare_legacy(input)
+            };
+            if matching::advanced(&pattern) {
+                return Err("advanced".into());
+            }
+            return Ok(self.rank_positions(
+                &matching::positions(&pattern, &self.aliases, !anywhere)?,
+                input,
+            ));
+        }
+        let needle = input.to_lowercase();
+        let positions: Vec<_> = self
+            .aliases
+            .iter()
+            .map(|a| {
+                a.find(&needle)
+                    .filter(|p| anywhere || *p == 0)
+                    .map(|p| a[..p].chars().count())
+            })
+            .collect();
+        Ok(self.rank_positions(&positions, input))
     }
     pub fn new(entries: &[Entry]) -> Self {
         Self {
-            active:entries.iter().map(|e|e.enabled&&e.kind==library::EntryKind::Command).collect(),
+            active: entries
+                .iter()
+                .map(|e| e.enabled && e.kind == library::EntryKind::Command)
+                .collect(),
             aliases: entries.iter().map(|e| e.alias.to_lowercase()).collect(),
             frequencies: entries.iter().map(|e| e.frequency).collect(),
             characters: entries
@@ -91,7 +161,9 @@ impl SearchIndex {
             .iter()
             .enumerate()
             .filter_map(|(i, alias)| {
-                if !self.active[i]{return None;}
+                if !self.active[i] {
+                    return None;
+                }
                 if input.is_empty() {
                     return Some((i, self.frequencies[i]));
                 }
@@ -150,19 +222,20 @@ pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
 pub mod capture_bridge;
 pub mod desktop_frame;
 pub mod desktop_observation;
+#[cfg(windows)]
+pub mod integration;
+pub mod isolated_matching;
 pub mod launch;
 pub mod library;
 pub mod library_updates;
+pub mod management;
+pub mod migration;
 pub mod matching;
-pub mod isolated_matching;
 pub mod observation;
 pub mod preferences;
+pub mod state_store;
 pub mod textcodec;
 pub mod usage;
-pub mod state_store;
-pub mod management;
-#[cfg(windows)]
-pub mod integration;
 
 fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
     fn merge(slot: &mut Option<usize>, value: usize) {
