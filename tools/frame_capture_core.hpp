@@ -98,7 +98,11 @@ struct Readback {
     }
 };
 void require_desktop_frames(size_t count) { require(count > 0, "no_valid_desktop_frame"); }
-void validate_frame_metadata(const DXGI_OUTDUPL_FRAME_INFO&, int64_t) {}
+void validate_frame_metadata(const DXGI_OUTDUPL_FRAME_INFO& info, int64_t acquired) {
+    if (info.ProtectedContentMaskedOut) throw Failure{"protected_content_masked", E_ACCESSDENIED};
+    require(info.LastPresentTime.QuadPart >= 0 && info.LastPresentTime.QuadPart <= acquired, "invalid_frame_timestamp");
+    require((info.LastPresentTime.QuadPart == 0) == (info.AccumulatedFrames == 0), "inconsistent_frame_metadata");
+}
 void self_test() {
     DXGI_OUTDUPL_FRAME_INFO valid_pointer{};
     validate_frame_metadata(valid_pointer, 100);

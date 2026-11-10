@@ -178,11 +178,19 @@ impl Capture {
                 &mut info,
             )
         };
+        if (0..=2).contains(&status) {
+            if info.size != size_of::<FrameInfo>() as u32 || info.version != 1 {
+                return Err("Capture ABI frame layout mismatch".into());
+            }
+            if info.protected_content != 0 {
+                return Err(format!("Protected capture frame metadata: {info:?}"));
+            }
+            if status != 0 && (info.present_qpc != 0 || info.accumulated_frames != 0) {
+                return Err(format!("Inconsistent no-update frame metadata: {info:?}"));
+            }
+        }
         match status {
             0 => {
-                if info.size != size_of::<FrameInfo>() as u32 || info.version != 1 {
-                    return Err("Capture ABI frame layout mismatch".into());
-                }
                 Ok(Poll::Frame(DesktopFrame {
                     present_qpc: info.present_qpc,
                     acquire_begin_qpc: info.acquire_begin_qpc,
@@ -226,22 +234,40 @@ mod tests {
     fn rejected_no_update(variant: u32) {
         let name = format!("frame_capture_poison_{variant}.dll");
         let bridge = Bridge::load_exact(&adjacent(&name)).expect("poison fixture loads");
-        let mut capture = bridge.open(Region { left: 0, top: 0, width: 5, height: 3 }).unwrap();
+        let mut capture = bridge
+            .open(Region {
+                left: 0,
+                top: 0,
+                width: 5,
+                height: 3,
+            })
+            .unwrap();
         let outcome = capture.poll(0);
-        assert!(outcome.is_err(), "non-image metadata must be checked: {outcome:?}");
+        assert!(
+            outcome.is_err(),
+            "non-image metadata must be checked: {outcome:?}"
+        );
     }
 
     #[test]
-    fn protected_pointer_update_cannot_extend_cached_stability() { rejected_no_update(1); }
+    fn protected_pointer_update_cannot_extend_cached_stability() {
+        rejected_no_update(1);
+    }
 
     #[test]
-    fn inconsistent_pointer_count_cannot_extend_cached_stability() { rejected_no_update(2); }
+    fn inconsistent_pointer_count_cannot_extend_cached_stability() {
+        rejected_no_update(2);
+    }
 
     #[test]
-    fn incompatible_pointer_layout_cannot_extend_cached_stability() { rejected_no_update(3); }
+    fn incompatible_pointer_layout_cannot_extend_cached_stability() {
+        rejected_no_update(3);
+    }
 
     #[test]
-    fn protected_timeout_cannot_extend_cached_stability() { rejected_no_update(4); }
+    fn protected_timeout_cannot_extend_cached_stability() {
+        rejected_no_update(4);
+    }
 
     #[test]
     fn real_adjacent_library_loads_and_rejects_invalid_regions() {
