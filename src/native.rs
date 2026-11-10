@@ -213,10 +213,11 @@ fn cancel_parameter() -> bool {
         let s = s.as_mut().unwrap();
         s.parameter_entry
             .take()
-            .map(|_| (s.edit, s.saved_query.clone()))
+                .map(|_| (s.edit, s.list, s.saved_query.clone()))
     });
-    if let Some((edit, query)) = restore {
+    if let Some((edit, list, query)) = restore {
         unsafe {
+            EnableWindow(list, 1);
             SetWindowTextW(edit, wide(&query).as_ptr());
             SendMessageW(
                 edit,
@@ -268,6 +269,7 @@ fn launch_selected() {
     }
     if entry.command.contains("%p") && !parameter_mode {
         let query = edit_text(edit);
+        let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
         STATE.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
@@ -275,6 +277,7 @@ fn launch_selected() {
             s.parameter_entry = Some(index);
         });
         unsafe {
+            EnableWindow(list, 0);
             SetWindowTextW(title, wide(&format!("{} · 输入参数", entry.name)).as_ptr());
             SetWindowTextW(edit, wide("").as_ptr());
             SendMessageW(
@@ -463,16 +466,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 return 0;
             }
             VK_RETURN => {
-                if unsafe { GetKeyState(VK_CONTROL as i32) } < 0
-                    && unsafe { GetKeyState(VK_SHIFT as i32) } < 0
-                {
-                    let parent = unsafe { GetParent(hwnd) };
-                    unsafe {
-                        PostMessageW(parent, QUIT, 0, 0);
-                    }
-                } else {
-                    launch_selected();
-                }
+                launch_selected();
                 return 0;
             }
             VK_ESCAPE => {
@@ -573,6 +567,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
             let id = w & 0xffff;
             let code = (w >> 16) & 0xffff;
+            if id == ID_LIST
+                && STATE.with(|c| c.borrow().as_ref().unwrap().parameter_entry.is_some())
+            {
+                return 0;
+            }
             if id == ID_EDIT && code == EN_CHANGE as usize {
                 refresh();
             }

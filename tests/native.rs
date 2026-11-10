@@ -100,7 +100,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_ne!(IsWindowVisible(hwnd), 0, "IME Enter must not launch");
             SendMessageW(edit, WM_IME_ENDCOMPOSITION, 0, 0);
-            SetWindowTextW(edit, wide("param").as_ptr());
+            SetWindowTextW(edit, wide("a").as_ptr());
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_eq!(
                 SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0),
@@ -113,6 +113,9 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 0,
                 "parameter mode must lock the displayed execution target"
             );
+            // Ignore list notifications already queued when parameter entry began.
+            SendMessageW(hwnd, WM_COMMAND, 1002 | ((LBN_DBLCLK as usize) << 16), list as isize);
+            assert_ne!(IsWindowVisible(hwnd), 0);
             SendMessageW(edit, WM_KEYDOWN, 27, 0);
             assert_ne!(
                 IsWindowEnabled(list),
@@ -121,7 +124,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             );
             let mut restored = [0_u16; 32];
             SendMessageW(edit, WM_GETTEXT, 32, restored.as_mut_ptr() as isize);
-            assert_eq!(String::from_utf16_lossy(&restored[..5]), "param");
+            assert_eq!(String::from_utf16_lossy(&restored[..1]), "a");
             SetWindowTextW(edit, wide("np").as_ptr());
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             let failure_deadline = Instant::now() + Duration::from_secs(8);
