@@ -43,7 +43,8 @@ pub fn analyze(
         }
         match frame.image_ns {
             None => {
-                if frame.fresh || frame.accumulated_frames != 0
+                if frame.fresh
+                    || frame.accumulated_frames != 0
                     || frame.observed.hash != before_hash
                     || frame.observed.list_hash != before_list_hash
                     || previous.is_some_and(|p| p.image_ns.is_some())
@@ -75,17 +76,34 @@ pub fn analyze(
     }
     let observed: Vec<_> = frames.iter().map(|f| f.observed).collect();
     let pixels = crate::observation::settled_bounds(
-        before_hash, before_list_hash, &observed, minimum_stable_span_ns, maximum_uncertainty_ns,
-    ).map_err(Rejected::Pixels)?;
+        before_hash,
+        before_list_hash,
+        &observed,
+        minimum_stable_span_ns,
+        maximum_uncertainty_ns,
+    )
+    .map_err(Rejected::Pixels)?;
     let last = frames.last().ok_or(Rejected::InconsistentStream)?;
-    let first_match = frames.iter().find(|f| f.observed.ready
-        && f.observed.hash == pixels.final_hash
-        && f.observed.list_hash == last.observed.list_hash
-        && f.image_ns.is_some()).ok_or(Rejected::InconsistentStream)?;
-    let ready = frames.iter().position(|f| f.observed.ready).ok_or(Rejected::InconsistentStream)?;
+    let first_match = frames
+        .iter()
+        .find(|f| {
+            f.observed.ready
+                && f.observed.hash == pixels.final_hash
+                && f.observed.list_hash == last.observed.list_hash
+                && f.image_ns.is_some()
+        })
+        .ok_or(Rejected::InconsistentStream)?;
+    let ready = frames
+        .iter()
+        .position(|f| f.observed.ready)
+        .ok_or(Rejected::InconsistentStream)?;
     Ok(DesktopBounds {
         image_update_ns: first_match.image_ns.ok_or(Rejected::InconsistentStream)?,
-        first_ready_lower_ns: if ready == 0 { 0 } else { frames[ready - 1].observed.began_ns },
+        first_ready_lower_ns: if ready == 0 {
+            0
+        } else {
+            frames[ready - 1].observed.began_ns
+        },
         first_ready_upper_ns: frames[ready].observed.ended_ns,
         pixels,
     })
@@ -93,7 +111,9 @@ pub fn analyze(
 
 pub fn rgb_hash(bgra: &[u8]) -> Result<u64, &'static str> {
     let (pixels, remainder) = bgra.as_chunks::<4>();
-    if !remainder.is_empty() { return Err("Incomplete BGRA pixel"); }
+    if !remainder.is_empty() {
+        return Err("Incomplete BGRA pixel");
+    }
     let mut hash = 0xcbf29ce484222325_u64;
     for pixel in pixels {
         for &value in &pixel[..3] {

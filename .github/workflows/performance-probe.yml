@@ -76,6 +76,7 @@ jobs:
           if errorlevel 1 exit /b 1
           if not exist target\debug\deps mkdir target\debug\deps
           copy /y target\altrun-frame-capture.dll target\debug\deps\altrun-frame-capture.dll
+          copy /y target\altrun-frame-capture.dll target\debug\altrun-frame-capture.dll
           cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /Fe:target\debug\deps\frame_capture_fixture.dll /Fo:target\frame_capture_fixture.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_fixture.lib
           if errorlevel 1 exit /b 1
           cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /DALTRUN_BAD_ABI /Fe:target\debug\deps\frame_capture_badabi.dll /Fo:target\frame_capture_badabi.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_badabi.lib
