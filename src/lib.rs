@@ -98,3 +98,4 @@ pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
     }
 }
 pub mod observation;
+pub mod desktop_frame;
