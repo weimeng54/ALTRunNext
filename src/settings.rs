@@ -27,6 +27,8 @@ pub enum Change {
 }
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 struct Editor {
+    background:HBRUSH,
+    paper:HBRUSH,
     boolean:HWND,
     picker:HWND,
     dpi:i32,
@@ -106,11 +108,12 @@ fn apply() {
         status(&e);
         return;
     }
-    let (prefs, sender, owner) = EDITOR.with(|c| {
+    let (prefs, sender, owner,data) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.prefs.clone(), s.sender.clone(), s.owner)
+        (s.prefs.clone(), s.sender.clone(), s.owner,s.data.clone())
     });
+    if let Err(error)=crate::localization::load(&prefs.get("Lang"),data.parent().unwrap_or(std::path::Path::new("."))){status(&error);return;}
     static NEXT: AtomicUsize = AtomicUsize::new(1);
     let token = NEXT.fetch_add(1, Ordering::Relaxed) as u64;
     let (tx, rx) = mpsc::channel();
@@ -145,6 +148,7 @@ fn apply() {
         Ok(()) => {
             let _ = sender.send(Change::Commit(token));
             EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().dirty = false);
+            refresh_style();
             status("已保存并应用。热键冲突会保留原有可用设置。");
         }
         Err(e) => {
@@ -189,6 +193,8 @@ fn choose_file(save: bool) -> Option<PathBuf> {
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
+        WM_ERASEBKGND=>{let brush=EDITOR.with(|c|c.borrow().as_ref().map(|s|s.background)).unwrap_or_else(||unsafe{GetSysColorBrush(COLOR_WINDOW)});let mut rect:RECT=unsafe{std::mem::zeroed()};unsafe{GetClientRect(hwnd,&mut rect);FillRect(w as HDC,&rect,brush);}1}
+        WM_CTLCOLORSTATIC|WM_CTLCOLOREDIT|WM_CTLCOLORLISTBOX|WM_CTLCOLORBTN=>EDITOR.with(|c|{let s=c.borrow();let Some(s)=s.as_ref()else{return unsafe{GetSysColorBrush(COLOR_WINDOW)} as isize;};unsafe{SetTextColor(w as HDC,crate::theme::text());SetBkColor(w as HDC,if msg==WM_CTLCOLOREDIT||msg==WM_CTLCOLORLISTBOX{crate::theme::paper()}else{crate::theme::surface()});}if msg==WM_CTLCOLOREDIT||msg==WM_CTLCOLORLISTBOX{s.paper as isize}else{s.background as isize}}),
         WM_COMMAND => {
             let id = w & 65535;
             let code = w >> 16;
@@ -347,6 +353,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let _ = prefs.set("AutoRun", if startup { "1" } else { "0" });
                 let _ = prefs.set("AddToSendTo", if send_to { "1" } else { "0" });
             }
+            crate::theme::install(&prefs);let background=unsafe{CreateSolidBrush(crate::theme::surface())};let paper=unsafe{CreateSolidBrush(crate::theme::paper())};
             unsafe {
                 let instance = GetModuleHandleW(std::ptr::null());
                 let class = wide("ALTRun.Native.Settings");
@@ -355,7 +362,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 wc.hInstance = instance;
                 wc.lpszClassName = class.as_ptr();
                 wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
-                wc.hbrBackground = (COLOR_WINDOW + 1) as HBRUSH;
+                wc.hbrBackground = null_mut();
                 RegisterClassW(&wc);
                 let hwnd = CreateWindowExW(
                     0,
@@ -438,6 +445,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 }
                 EDITOR.with(|c| {
                     *c.borrow_mut() = Some(Editor {
+                        background,paper,
                         boolean,picker,dpi,
                         prefs,
                         file,
@@ -466,6 +474,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 EDITOR.with(|c| {
                     if let Some(e) = c.borrow_mut().take() {
                         DeleteObject(e.font);
+                        DeleteObject(e.background);DeleteObject(e.paper);
                     }
                 });
                 UnregisterClassW(class.as_ptr(), instance);
@@ -481,3 +490,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
 pub fn is_open() -> bool {
     WINDOW.load(Ordering::Acquire) != 0
 }
+
+fn refresh_style(){let(hwnd,prefs)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(unsafe{GetParent(s.value)},s.prefs.clone())});crate::theme::install(&prefs);unsafe{let background=CreateSolidBrush(crate::theme::surface());let paper=CreateSolidBrush(crate::theme::paper());EDITOR.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();DeleteObject(std::mem::replace(&mut s.background,background));DeleteObject(std::mem::replace(&mut s.paper,paper));});RedrawWindow(hwnd,std::ptr::null(),null_mut(),0x0001|0x0004|0x0080|0x0100);}}
+
+
+

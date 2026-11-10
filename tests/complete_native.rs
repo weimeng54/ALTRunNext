@@ -176,6 +176,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 .contains("RowHeight=24")
         );
         native_snapshot::save(dialog, "settings");
+        select_setting(dialog,"Regex");SendMessageW(GetDlgItem(dialog,2304),BM_CLICK,0,0);command(dialog,2310);assert!(std::fs::read_to_string(&settings).unwrap().contains("Regex=0"));SendMessageW(GetDlgItem(dialog,2304),BM_CLICK,0,0);command(dialog,2310);
         assert_ne!(RegisterHotKey(null_mut(), 22222, 3, 0x7b), 0);
         select_setting(dialog, "HotKey1");
         set(GetDlgItem(dialog, 2302), "Ctrl+Alt+F12");

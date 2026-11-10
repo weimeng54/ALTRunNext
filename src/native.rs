@@ -1,7 +1,4 @@
-//! Deliberately small performance experiment, not the full launcher.
-//! Persistent Win32 EDIT/LISTBOX and GDI share the original's thin rendering
-//! path. Direct2D is not initialized merely to draw ten text rows: the hard
-//! performance gate takes precedence over the earlier rendering preference.
+//! Resident native launcher. Show/search only use cached data and controls.
 use crate::theme;
 use altrun_probe::{Entry, SearchIndex, advance, parse_entries};
 use std::{cell::RefCell, mem::zeroed, ptr::null_mut};
@@ -38,6 +35,7 @@ type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
 struct State {
+    last_user_generation:Option<u64>,
     match_generation:std::sync::Arc<std::sync::atomic::AtomicU64>,
     input_paper: HBRUSH,
     font_colours: [u32; 3],
@@ -161,6 +159,7 @@ fn refresh() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
+        s.last_user_generation=None;
         s.match_generation.store(s.generation,std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
         s.matching = false;
@@ -206,7 +205,7 @@ fn render_hits() {
         let s = s.as_ref().unwrap();
         (s.hwnd, s.list, s.command, s.dpi, visible_count(s))
     });
-    let (width, row, max_rows, show_command, radius, edit, title) = STATE.with(|c| {
+    let (mut width, row, mut max_rows, show_command, radius, edit, title) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
@@ -219,6 +218,7 @@ fn render_hits() {
             s.title,
         )
     });
+    unsafe{let mut monitor:MONITORINFO=zeroed();monitor.cbSize=std::mem::size_of_val(&monitor) as u32;if GetMonitorInfoW(MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST),&mut monitor)!=0{width=width.min(((monitor.rcWork.right-monitor.rcWork.left)*96/dpi-2).max(160));max_rows=max_rows.min((((monitor.rcWork.bottom-monitor.rcWork.top)*96/dpi-theme::BASE_HEIGHT)/row).max(1));}}
     let labels = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -236,6 +236,7 @@ fn render_hits() {
         }
         SendMessageW(list, LB_SETCURSEL, 0, 0);
         let height = scaled((count.max(1) as i32).min(max_rows) * row, dpi);
+        let empty=STATE.with(|c|c.borrow().as_ref().unwrap().empty);SetWindowPos(empty,null_mut(),scaled(12,dpi),scaled(theme::LIST_Y+2,dpi),scaled(width-24,dpi),scaled(row,dpi),SWP_NOZORDER|SWP_NOACTIVATE);
         SetWindowPos(
             edit,
             null_mut(),
@@ -644,18 +645,19 @@ fn paint_panel(hwnd: HWND) {
             }
             let old_brush = SelectObject(dc, s.input_paper);
             let old_pen = SelectObject(dc, s.border);
+            let mut panel:RECT=zeroed();GetClientRect(hwnd,&mut panel);
             RoundRect(
                 dc,
                 scaled(10, s.dpi),
                 scaled(29, s.dpi),
-                scaled(s.preferences.number("FormWidth") - 10, s.dpi),
+                panel.right-scaled(10,s.dpi),
                 scaled(60, s.dpi),
                 scaled(8, s.dpi),
                 scaled(8, s.dpi),
             );
             let mut rect: RECT = zeroed();
             GetClientRect(hwnd, &mut rect);
-            MoveToEx(
+            if s.preferences.flag("ShowCommandLine"){MoveToEx(
                 dc,
                 scaled(12, s.dpi),
                 rect.bottom - scaled(25, s.dpi),
@@ -666,6 +668,7 @@ fn paint_panel(hwnd: HWND) {
                 rect.right - scaled(12, s.dpi),
                 rect.bottom - scaled(25, s.dpi),
             );
+            }
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
         });
@@ -1092,6 +1095,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 render_hits();
                 if let Some(error) = error {
                     show_inline_error(&error);
+                }else if STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.enabled&&s.preferences.flag("ExecuteIfOnlyOne")&&s.hits.len()==1&&s.last_user_generation==Some(s.generation)&&s.parameter_entry.is_none()})&&unsafe{IsWindowVisible(hwnd)!=0&&GetForegroundWindow()==hwnd}{launch_selected();
                 }
             }
             0
@@ -1123,6 +1127,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             launch_selected();
             0
         }
+        WM_ERASEBKGND=>{let brush=STATE.with(|c|c.borrow().as_ref().map(|s|s.background)).unwrap_or_else(||unsafe{GetSysColorBrush(COLOR_WINDOW)});let mut rect:RECT=unsafe{zeroed()};unsafe{GetClientRect(hwnd,&mut rect);FillRect(w as HDC,&rect,brush);}1}
         WM_PAINT => {
             paint_panel(hwnd);
             0
@@ -1217,6 +1222,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 });
                 let query = edit_text(edit);
                 refresh();
+                if key!=0&&!composing&&!query.is_empty(){STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.last_user_generation=Some(s.generation);});}
                 let none = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
@@ -1519,7 +1525,7 @@ pub fn run() -> Result<(), String> {
         wc.lpfnWndProc = Some(window_proc);
         wc.hInstance = instance;
         wc.lpszClassName = class.as_ptr();
-        wc.hbrBackground = background;
+        wc.hbrBackground = null_mut();
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         wc.hIcon = LoadIconW(instance, 1usize as _);
         if RegisterClassW(&wc) == 0 {
@@ -1555,6 +1561,7 @@ pub fn run() -> Result<(), String> {
         };
         let rounded = 2_i32;
         DwmSetWindowAttribute(hwnd, 33, &rounded as *const _ as *const _, 4);
+        let no_transitions=1i32;DwmSetWindowAttribute(hwnd,3,&no_transitions as *const _ as _,4);
         DwmSetWindowAttribute(hwnd, 34, &theme::border() as *const _ as *const _, 4);
         let font = CreateFontW(
             -scaled(13, dpi),
@@ -1656,6 +1663,7 @@ pub fn run() -> Result<(), String> {
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
+                last_user_generation:None,
                 input_paper,
                 alias_font,
                 font_colours: [theme::text(); 3],
@@ -1704,7 +1712,7 @@ pub fn run() -> Result<(), String> {
                 accent,
                 border,
                 empty,
-                enabled: args.iter().any(|a| a == "--enable-launch"),
+                enabled: !args.iter().any(|a|a=="--safe-mode")&&(args.iter().any(|a| a == "--enable-launch")||(!cfg!(debug_assertions)&&!args.iter().any(|a|a=="--allow-safe-notepad"))),
                 parameter_entry: None,
                 saved_query: String::new(),
                 error: false,
@@ -2028,7 +2036,7 @@ fn recent() {
 }
 fn about() {
     unsafe {
-        MessageBoxW(null_mut(),ui("ALTRun Modern 0.1\n原生 Windows 快速启动器\n\nCtrl+Alt+R：呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
+        MessageBoxW(null_mut(),ui("ALTRun Modern 0.2\n原生 Windows 快速启动器\n\nCtrl+Alt+R：呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
     }
 }
 fn open_settings() {
@@ -2149,6 +2157,8 @@ fn apply_settings_messages() {
                             }
                         }
                     }
+                    if ["ManWinLeft","ManWinTop","ManWinWidth","ManWinHeight"].iter().any(|key|s.preferences.get(key)!=prefs.get(key)){s.usage.positions.remove("manager");}
+                    if ["WinLeft","WinTop"].iter().any(|key|s.preferences.get(key)!=prefs.get(key)){s.usage.positions.remove("launcher");}
                     s.preferences = prefs;
                     s.hotkeys = keys;
                     true
@@ -2197,7 +2207,6 @@ fn apply_appearance() {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
             let background = CreateSolidBrush(theme::surface());
-            SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, background as isize);
             for (slot, new) in [
                 (&mut s.background, background),
                 (&mut s.paper, CreateSolidBrush(theme::paper())),
@@ -2246,6 +2255,7 @@ fn apply_appearance() {
                 );
                 if !font.is_null() {
                     SendMessageW(control, WM_SETFONT, font as usize, 1);
+                    if key=="ListFont"{let empty=STATE.with(|c|c.borrow().as_ref().unwrap().empty);SendMessageW(empty,WM_SETFONT,font as usize,1);}
                     fonts.push((key, font));
                 }
             }
@@ -2371,33 +2381,22 @@ fn selected_action(copy: bool) {
     let entry = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        s.hits.get(s.selected).map(|i| s.entries[*i].clone())
+        s.hits.get(s.selected).map(|i| (s.entries[*i].clone(),s.context.clone()))
     });
-    if let Some(entry) = entry {
+    if let Some((entry,context)) = entry {
         if copy {
             if let Err(e) = copy_text(&entry.command) {
                 show_inline_error(&e);
             }
         } else {
             std::thread::spawn(move || {
-                let context = altrun_probe::launch::LaunchContext::default();
-                match altrun_probe::launch::resolve_context(
-                    &entry.command,
-                    None,
-                    entry.param_type,
-                    &entry.working_directory,
-                    &context,
-                ) {
-                    Ok((request, _, _)) => {
-                        if let Some(parent) = std::path::Path::new(&request.file)
-                            .parent()
-                            .filter(|p| !p.as_os_str().is_empty())
-                        {
+                let base=if entry.working_directory.is_empty(){context.base_directory}else{entry.working_directory};
+                match altrun_probe::local_target::directory(&entry.command,std::path::Path::new(&base)) {
+                    Ok(parent) => {
                             let _ = execute_request(&altrun_probe::launch::LaunchRequest {
                                 file: parent.to_string_lossy().into_owned(),
                                 parameters: String::new(),
                             });
-                        }
                     }
                     Err(e) => crate::native::show_error(&e),
                 }
@@ -2700,5 +2699,6 @@ fn trace_event(event: &'static str) {
         });
     }
 }
+
 
 

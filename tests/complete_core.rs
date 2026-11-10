@@ -159,6 +159,7 @@ fn advanced_matching_worker_returns_results_and_is_time_bounded() {
         )
         .is_err()
     );
+    let calls=std::sync::atomic::AtomicUsize::new(0);assert!(altrun_probe::isolated_matching::run_cancellable(program,r"^(ab)\1$",&aliases,false,std::time::Duration::from_secs(3),||calls.fetch_add(1,std::sync::atomic::Ordering::Relaxed)>0).is_err());assert!(calls.load(std::sync::atomic::Ordering::Relaxed)>=2);
 }
 
 #[test]

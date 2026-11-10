@@ -1,0 +1,31 @@
+ALTRun Modern 0.2 — Windows 11 x64 便携版
+
+双击 ALTRun.exe 后按 Ctrl+Alt+R 呼出，输入快捷字，Enter 启动。
+正式构建默认允许启动；--safe-mode 为不执行命令的预览模式。
+
+Ctrl+Alt+L / Ctrl+L：最近启动
+上下键 / Tab：选择；Esc：清空或隐藏
+Ctrl/Alt + 数字：启动对应项
+Ctrl+C：复制命令；Ctrl+D：打开目录
+Alt+S：管理快捷项；F1：帮助
+参数输入时 Ctrl+上下键 或 Alt+下键：参数历史
+托盘右键：设置、管理、重启、清理新版系统集成、退出
+
+数据与设置均在快捷项文件旁：
+shortcuts.tsv / shortcuts.settings.ini / shortcuts.state.tsv
+保存会保留上一版 .bak，外部修改冲突时不会强制覆盖。
+高级正则在受限进程运行；普通输入和呼出不等待磁盘、网络或图片。
+
+导入旧快捷项：管理窗口 → 导入旧版。
+完整迁移：工具 → 完整迁移旧版配置到新目录。
+也可用：ALTRun.exe --migrate "旧版目录" --output-dir "尚不存在的新目录"
+使用迁移数据：ALTRun.exe --data "新目录\shortcuts.tsv"
+默认保留共存快捷键，开机启动和发送到需在设置中主动开启。
+原版配置不被改写；旧版 MyCmd / 外部工具仍从旧目录调用。
+
+语言 EN 或自定义语言文件在下次启动生效。
+自定义语言文件：每行 中文界面原文=译文，UTF-8/UTF-16/GB18030 均可。
+未知 WinCtl 子命令继续交给原外部程序；缺失时明确报错。
+
+项目：https://github.com/weimeng54/altrun
+依赖许可证见 licenses；当前新代码尚未另行指定开源许可证。

@@ -235,6 +235,7 @@ pub mod launch;
 pub mod library;
 pub mod library_updates;
 pub mod list_format;
+pub mod local_target;
 pub mod management;
 pub mod matching;
 pub mod migration;

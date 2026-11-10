@@ -460,6 +460,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return unsafe { DefWindowProcW(hwnd, msg, w, l) };
     }
     match msg {
+        WM_ERASEBKGND=>{let brush=EDITOR.with(|c|c.borrow().as_ref().unwrap().background);let mut rect:RECT=unsafe{zeroed()};unsafe{GetClientRect(hwnd,&mut rect);FillRect(w as HDC,&rect,brush);}1}
         WM_SIZE => {
             resize(hwnd);
             0
@@ -660,16 +661,7 @@ fn run(
     } else {
         Snapshot::new(path, initial)?
     };
-    if let Ok((_, text)) =
-        altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))
-        && let Ok(prefs) = altrun_probe::preferences::Preferences::parse(&text)
-    {
-        theme::install(&prefs);
-        let _ = crate::localization::install(
-            &prefs.get("Lang"),
-            file.path.parent().unwrap_or(std::path::Path::new(".")),
-        );
-    }
+    let (_,text)=altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))?;let prefs=altrun_probe::preferences::Preferences::parse(&text)?;theme::install(&prefs);let _=crate::localization::install(&prefs.get("Lang"),file.path.parent().unwrap_or(std::path::Path::new(".")));
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let background = CreateSolidBrush(theme::surface());
@@ -678,7 +670,7 @@ fn run(
         class.hInstance = instance;
         let class_name = wide(CLASS);
         class.lpszClassName = class_name.as_ptr();
-        class.hbrBackground = background;
+        class.hbrBackground = null_mut();
         class.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         RegisterClassW(&class);
         let hwnd = CreateWindowExW(
@@ -986,14 +978,8 @@ fn run(
         AppendMenuW(menu, MF_POPUP, tools as usize, ui("工具").as_ptr());
         SetMenu(hwnd, menu);
         let remembered = window_state();
-        let mut outer: RECT = zeroed();
-        GetWindowRect(hwnd, &mut outer);
-        let desired = remembered.rect.unwrap_or((
-            outer.left,
-            outer.top,
-            outer.right - outer.left,
-            outer.bottom - outer.top + GetSystemMetricsForDpi(SM_CYMENU, GetDpiForWindow(hwnd)),
-        ));
+        let mut configured=RECT{left:0,top:0,right:scaled(prefs.number("ManWinWidth"),dpi),bottom:scaled(prefs.number("ManWinHeight"),dpi)};AdjustWindowRectExForDpi(&mut configured,GetWindowLongW(hwnd,GWL_STYLE) as u32,1,WS_EX_CONTROLPARENT,GetDpiForWindow(hwnd));
+        let desired = remembered.rect.unwrap_or((prefs.number("ManWinLeft"),prefs.number("ManWinTop"),configured.right-configured.left,configured.bottom-configured.top));
         // The menu is installed before fitting so the bottom command row retains
         // the full client height at each monitor's non-client DPI.
         crate::window_geometry::fit(hwnd, 760, 420, Some(desired));
@@ -1016,7 +1002,7 @@ fn run(
         apply_intake(hwnd);
         let mut message: MSG = zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
-            if message.message==WM_KEYDOWN{let control=GetKeyState(VK_CONTROL as i32)<0;let focus=GetFocus();if control&&message.wParam==b'S' as usize{save();continue;}if focus==list{match message.wParam as u16{VK_INSERT=>{SendMessageW(hwnd,WM_COMMAND,ADD,0);continue;},VK_DELETE=>{SendMessageW(hwnd,WM_COMMAND,DELETE,0);continue;},VK_F1=>{crate::native::show_error("选择快捷项后在右侧修改。工具菜单支持验证、路径转换、备份、恢复和测试。保存后更新启动面板。");continue;},VK_UP|VK_DOWN if control=>{tool(hwnd,if message.wParam as u16==VK_UP{MOVE_UP}else{MOVE_DOWN});continue;},_=>{}}}}
+            if message.message==WM_KEYDOWN{let control=GetKeyState(VK_CONTROL as i32)<0;let focus=GetFocus();if control&&message.wParam==b'S' as usize{SendMessageW(hwnd,WM_COMMAND,SAVE,0);continue;}if focus==list{match message.wParam as u16{VK_INSERT=>{SendMessageW(hwnd,WM_COMMAND,ADD,0);continue;},VK_DELETE=>{SendMessageW(hwnd,WM_COMMAND,DELETE,0);continue;},VK_F1=>{crate::native::show_error("选择快捷项后在右侧修改。工具菜单支持验证、路径转换、备份、恢复和测试。保存后更新启动面板。");continue;},VK_UP|VK_DOWN if control=>{tool(hwnd,if message.wParam as u16==VK_UP{MOVE_UP}else{MOVE_DOWN});continue;},_=>{}}}}
             if message.message == WM_KEYDOWN
                 && message.wParam == VK_TAB as usize
                 && IsDialogMessageW(hwnd, &message) != 0
@@ -1412,7 +1398,7 @@ fn resize(hwnd: HWND) {
         if child.id == LIST {
             height += dh;
         }
-        if r.top >= scaled(318, dpi) {
+        if dh<0&&child.id!=LIST{y=r.top*client.bottom/base.1;height=(r.bottom-r.top)*client.bottom/base.1;}else if r.top >= scaled(318, dpi) {
             y += dh;
         }
         if r.left >= scaled(560, dpi) {
@@ -1423,6 +1409,7 @@ fn resize(hwnd: HWND) {
         } else if r.left >= scaled(280, dpi) {
             width += if child.id == ALIAS { dw / 2 } else { dw };
         }
+        if dw<0&&child.id==KIND{width=client.right-scaled(386,dpi);}if dw<0&&child.id==ENABLED{x=client.right-scaled(90,dpi);width=scaled(72,dpi);}
         unsafe {
             SetWindowPos(
                 child.handle as HWND,
@@ -1470,4 +1457,5 @@ fn publish_geometry(hwnd: HWND) {
 }
 
 fn test_selected(hwnd:HWND){let(entry,base)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.draft.get(s.selected).cloned(),s.file.path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf())});let Some(entry)=entry else{return;};if entry.kind!=library::EntryKind::Command||entry.command.trim().is_empty(){status("所选项没有可测试的启动命令。",true);return;}let mut context=TEST_CONTEXT.lock().map(|c|c.clone()).unwrap_or_default();if context.base_directory.is_empty(){context.base_directory=base.to_string_lossy().into_owned();}let needs_input=entry.param_type.needs_input(&entry.command)&&(altrun_probe::launch::has_parameter(&entry.command)||!altrun_probe::launch::has_context(&entry.command));let parameter=if needs_input{let Some(value)=crate::input_dialog::ask(hwnd,&format!("{} · 输入测试参数",entry.name))else{return;};Some(value)}else{None};status("已发出测试启动请求。草稿尚未保存。",false);std::thread::spawn(move||{if altrun_probe::launch::has_context(&entry.command)&&entry.command.contains("%c"){context.clipboard=crate::native::clipboard_text();}let result=altrun_probe::launch::resolve_context(&entry.command,parameter.as_deref(),entry.param_type,&entry.working_directory,&context).and_then(|(request,mode,directory)|crate::native::execute_request_with(&request,mode,directory.as_deref()));if let Err(error)=result{crate::native::show_error(&error);}});}
+
 

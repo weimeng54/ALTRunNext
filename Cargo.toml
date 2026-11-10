@@ -1,6 +1,6 @@
 [package]
 name = "altrun-probe"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 publish = false
 
@@ -15,4 +15,5 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
 

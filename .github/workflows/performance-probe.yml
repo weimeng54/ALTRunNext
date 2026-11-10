@@ -1,8 +1,8 @@
-name: Native performance probe
+name: Native launcher validation
 on:
   push:
     branches: ['codex/performance-spike']
-    paths: ['src/**', 'tests/**', 'tools/**', 'Cargo.*', 'rust-toolchain.toml', 'scripts/**', '.github/workflows/performance-probe.yml']
+    paths: ['src/**', 'tests/**', 'tools/**', 'assets/**', 'build.rs', 'Cargo.*', 'rust-toolchain.toml', 'scripts/**', '.github/workflows/performance-probe.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -109,17 +109,26 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Release build
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc
-      - name: Package prototype
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc --bin altrun-probe
+      - name: Package launcher
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/*.exe dist/
-          Copy-Item target/altrun-frame-calibrate.exe dist/
-          Copy-Item target/altrun-frame-capture.dll dist/
+          Copy-Item target/x86_64-pc-windows-msvc/release/altrun-probe.exe dist/ALTRun.exe
+          Copy-Item assets/shortcuts.tsv dist/
+          Copy-Item assets/README-portable.txt dist/README.txt
           Copy-Item Cargo.lock dist/
+          $metadata = cargo metadata --format-version 1 --locked --offline | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($package in $metadata.packages | Where-Object { $_.source }) {
+            $source = Split-Path $package.manifest_path
+            $destination = "dist/licenses/$($package.name)-$($package.version)"
+            New-Item -ItemType Directory -Force $destination | Out-Null
+            Get-ChildItem $source -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)([-.]|$)' } | Copy-Item -Destination $destination
+            if (-not (Get-ChildItem $destination -File)) { throw "Missing dependency license: $($package.name)" }
+          }
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
-          @(Get-ChildItem dist/* -File | Where-Object { $_.Extension -in '.exe','.dll' } | ForEach-Object { @{Name=$_.Name;Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
+          @(Get-ChildItem dist -Recurse -File | ForEach-Object { @{Name=[IO.Path]::GetRelativePath((Join-Path $PWD dist),$_.FullName);Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

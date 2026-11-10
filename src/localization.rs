@@ -9,6 +9,9 @@ pub fn tr(value: &str) -> String {
     })
 }
 pub fn install(language: &str, base: &Path) -> Result<(), String> {
+    let map=load(language,base)?;LANGUAGE.with(|l|*l.borrow_mut()=map);Ok(())
+}
+pub fn load(language:&str,base:&Path)->Result<BTreeMap<String,String>,String>{
     let mut map = BTreeMap::new();
     if language.eq_ignore_ascii_case("EN") || language.eq_ignore_ascii_case("English") {
         for line in include_str!("../assets/english.txt").lines() {
@@ -37,6 +40,5 @@ pub fn install(language: &str, base: &Path) -> Result<(), String> {
             }
         }
     }
-    LANGUAGE.with(|l| *l.borrow_mut() = map);
-    Ok(())
+    Ok(map)
 }

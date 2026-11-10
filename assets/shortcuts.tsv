@@ -1,0 +1,5 @@
+np	记事本	notepad.exe	7	none
+calc	计算器	calc.exe	5	none
+explorer	资源管理器	explorer.exe	4	none
+cmd	命令提示符	cmd.exe /k {%p}	6	raw
+b	百度搜索	https://www.baidu.com/s?wd={%p}	12	utf8_query
