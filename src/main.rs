@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod input_dialog;
+#[cfg(windows)]
 mod instance;
 #[cfg(windows)]
 mod localization;
@@ -11,6 +13,8 @@ mod native;
 #[cfg(windows)]
 mod settings;
 #[cfg(windows)]
+mod settings_pickers;
+#[cfg(windows)]
 mod skin;
 #[cfg(windows)]
 mod theme;
@@ -18,10 +22,6 @@ mod theme;
 mod window_actions;
 #[cfg(windows)]
 mod window_geometry;
-#[cfg(windows)]
-mod settings_pickers;
-#[cfg(windows)]
-mod input_dialog;
 
 fn main() {
     #[cfg(windows)]

@@ -130,7 +130,10 @@ pub fn resolve_context(
             let end = tail.find('\u{e001}').ok_or("无效上下文标记")?;
             let i = tail[..end].parse::<usize>().map_err(|_| "无效上下文标记")?;
             let value = values.get(i).ok_or("无效上下文标记")?;
-            if value.contains(['\0', '\r', '\n']) {
+            if value.contains('\0')
+                || (value.contains(['\r', '\n'])
+                    && !matches!(kind, ParamType::LegacyUrl | ParamType::Utf8Url))
+            {
                 return Err("上下文包含换行或空字符，请先复制单行文本".into());
             }
             out.push_str(&match kind {
@@ -202,7 +205,9 @@ pub fn resolve_typed(
     let mut result = resolve_base(&normalized, encoded.as_deref())?;
     if active && !marked {
         let value = encoded.as_deref().unwrap_or("");
-        if result.file.to_ascii_lowercase().starts_with("http://") || result.file.to_ascii_lowercase().starts_with("https://") {
+        if result.file.to_ascii_lowercase().starts_with("http://")
+            || result.file.to_ascii_lowercase().starts_with("https://")
+        {
             result.file.push_str(value);
         } else {
             if !result.parameters.is_empty() && !value.is_empty() {
@@ -240,9 +245,31 @@ fn resolve_base(command: &str, parameter: Option<&str>) -> Result<LaunchRequest,
     if command.is_empty() {
         return Err("命令为空".into());
     }
-    let lowercase=command.to_ascii_lowercase();let url=lowercase.starts_with("https://")||lowercase.starts_with("http://")||lowercase.starts_with("mailto:");
-    let executable=if let Some(quoted)=command.strip_prefix('"'){quoted.split('"').next().unwrap_or("")}else{command.split_whitespace().next().unwrap_or("")};let name=executable.rsplit(['\\','/']).next().unwrap_or("").to_ascii_lowercase();let shell=["cmd","cmd.exe","powershell","powershell.exe","pwsh","pwsh.exe","%comspec%"].contains(&name.as_str());
-    let expanded = expand_environment_mode(command, url,shell)?;
+    let lowercase = command.to_ascii_lowercase();
+    let url = lowercase.starts_with("https://")
+        || lowercase.starts_with("http://")
+        || lowercase.starts_with("mailto:");
+    let executable = if let Some(quoted) = command.strip_prefix('"') {
+        quoted.split('"').next().unwrap_or("")
+    } else {
+        command.split_whitespace().next().unwrap_or("")
+    };
+    let name = executable
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let shell = [
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "pwsh.exe",
+        "%comspec%",
+    ]
+    .contains(&name.as_str());
+    let expanded = expand_environment_mode(command, url, shell)?;
     let (file, parameters) = if url {
         (expanded.as_str(), "")
     } else if let Some(quoted) = expanded.strip_prefix('"') {
@@ -285,9 +312,9 @@ fn resolve_base(command: &str, parameter: Option<&str>) -> Result<LaunchRequest,
 }
 
 fn expand_environment(command: &str, url: bool) -> Result<String, String> {
-    expand_environment_mode(command,url,false)
+    expand_environment_mode(command, url, false)
 }
-fn expand_environment_mode(command:&str,url:bool,shell:bool)->Result<String,String>{
+fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<String, String> {
     let mut output = String::new();
     let mut remaining = command;
     while let Some(index) = remaining.find('%') {
@@ -314,17 +341,33 @@ fn expand_environment_mode(command:&str,url:bool,shell:bool)->Result<String,Stri
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || "_()".contains(c))
             {
-                if shell{output.push('%');remaining=&remaining[1..];continue;}
+                if shell {
+                    output.push('%');
+                    remaining = &remaining[1..];
+                    continue;
+                }
                 return Err("尚未支持这个旧版命令模板".into());
             }
-            let value =match std::env::var(key){Ok(value)=>value,Err(_)if shell=>{output.push_str(&remaining[..end+2]);remaining=&remaining[end+2..];continue;},Err(_)=>return Err(format!("环境变量不存在：{key}"))};
+            let value = match std::env::var(key) {
+                Ok(value) => value,
+                Err(_) if shell => {
+                    output.push_str(&remaining[..end + 2]);
+                    remaining = &remaining[end + 2..];
+                    continue;
+                }
+                Err(_) => return Err(format!("环境变量不存在：{key}")),
+            };
             if value.chars().any(|c| matches!(c, '\0' | '\r' | '\n')) {
                 return Err("环境变量包含无效控制字符".into());
             }
             output.push_str(&value);
             remaining = &remaining[end + 2..];
         } else {
-            if shell{output.push('%');remaining=&remaining[1..];continue;}
+            if shell {
+                output.push('%');
+                remaining = &remaining[1..];
+                continue;
+            }
             return Err("尚未支持这个旧版命令模板".into());
         }
     }

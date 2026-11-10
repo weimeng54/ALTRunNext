@@ -26,7 +26,20 @@ fn path_intake_quotes_spaces_and_preserves_id_while_converting() {
     assert!(management::convert_path(&mut entry, &root, false).unwrap());
     assert!(entry.command.contains("folder with spaces"));
 }
-#[test]fn open_directory_ignores_parameter_markers_in_the_argument_tail(){let root=std::env::current_dir().unwrap();let executable=root.join("target/folder with spaces/tool.exe");let command=format!("\"{}\" --query {{%p}} --window {{%wt}}",executable.display());assert_eq!(altrun_probe::local_target::directory(&command,&root).unwrap(),executable.parent().unwrap());assert!(altrun_probe::local_target::directory("https://example.com",&root).is_err());}
+#[test]
+fn open_directory_ignores_parameter_markers_in_the_argument_tail() {
+    let root = std::env::current_dir().unwrap();
+    let executable = root.join("target/folder with spaces/tool.exe");
+    let command = format!(
+        "\"{}\" --query {{%p}} --window {{%wt}}",
+        executable.display()
+    );
+    assert_eq!(
+        altrun_probe::local_target::directory(&command, &root).unwrap(),
+        executable.parent().unwrap()
+    );
+    assert!(altrun_probe::local_target::directory("https://example.com", &root).is_err());
+}
 #[cfg(windows)]
 #[test]
 fn integration_status_and_rollback_use_isolated_namespaces() {

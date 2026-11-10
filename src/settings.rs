@@ -27,11 +27,11 @@ pub enum Change {
 }
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 struct Editor {
-    background:HBRUSH,
-    paper:HBRUSH,
-    boolean:HWND,
-    picker:HWND,
-    dpi:i32,
+    background: HBRUSH,
+    paper: HBRUSH,
+    boolean: HWND,
+    picker: HWND,
+    dpi: i32,
     prefs: Preferences,
     file: TextFile,
     data: PathBuf,
@@ -60,16 +60,39 @@ fn status(message: &str) {
     }
 }
 fn select() {
-    let (value, index, prefs,boolean,picker,dpi) = EDITOR.with(|c| {
+    let (value, index, prefs, boolean, picker, dpi) = EDITOR.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.loading = true;
-        (s.value, s.index, s.prefs.clone(),s.boolean,s.picker,s.dpi)
+        (
+            s.value,
+            s.index,
+            s.prefs.clone(),
+            s.boolean,
+            s.picker,
+            s.dpi,
+        )
     });
     unsafe {
         SetWindowTextW(value, wide(&prefs.get(SPECS[index].key)).as_ptr());
-        let spec=&SPECS[index];let is_bool=matches!(spec.kind,Kind::Bool);ShowWindow(boolean,if is_bool{SW_SHOW}else{SW_HIDE});ShowWindow(value,if is_bool{SW_HIDE}else{SW_SHOW});SendMessageW(boolean,BM_SETCHECK,usize::from(prefs.flag(spec.key)),0);
-        let can_pick=matches!(spec.kind,Kind::Font)||spec.key.ends_with("Color")||["BGFileName","PopupFileName","Lang","WorkingDirectory"].contains(&spec.key);ShowWindow(picker,if can_pick{SW_SHOW}else{SW_HIDE});SetWindowPos(value,null_mut(),crate::native::scaled(310,dpi),crate::native::scaled(52,dpi),crate::native::scaled(if can_pick{258}else{350},dpi),crate::native::scaled(30,dpi),SWP_NOZORDER|SWP_NOACTIVATE);
+        let spec = &SPECS[index];
+        let is_bool = matches!(spec.kind, Kind::Bool);
+        ShowWindow(boolean, if is_bool { SW_SHOW } else { SW_HIDE });
+        ShowWindow(value, if is_bool { SW_HIDE } else { SW_SHOW });
+        SendMessageW(boolean, BM_SETCHECK, usize::from(prefs.flag(spec.key)), 0);
+        let can_pick = matches!(spec.kind, Kind::Font)
+            || spec.key.ends_with("Color")
+            || ["BGFileName", "PopupFileName", "Lang", "WorkingDirectory"].contains(&spec.key);
+        ShowWindow(picker, if can_pick { SW_SHOW } else { SW_HIDE });
+        SetWindowPos(
+            value,
+            null_mut(),
+            crate::native::scaled(310, dpi),
+            crate::native::scaled(52, dpi),
+            crate::native::scaled(if can_pick { 258 } else { 350 }, dpi),
+            crate::native::scaled(30, dpi),
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
     }
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
     let spec = &SPECS[index];
@@ -98,7 +121,8 @@ fn store_value() -> Result<(), String> {
     EDITOR.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        let changed=s.prefs.get(SPECS[index].key)!=value.trim();s.prefs.set(SPECS[index].key, &value)?;
+        let changed = s.prefs.get(SPECS[index].key) != value.trim();
+        s.prefs.set(SPECS[index].key, &value)?;
         s.dirty |= changed;
         Ok(())
     })
@@ -108,12 +132,18 @@ fn apply() {
         status(&e);
         return;
     }
-    let (prefs, sender, owner,data) = EDITOR.with(|c| {
+    let (prefs, sender, owner, data) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.prefs.clone(), s.sender.clone(), s.owner,s.data.clone())
+        (s.prefs.clone(), s.sender.clone(), s.owner, s.data.clone())
     });
-    if let Err(error)=crate::localization::load(&prefs.get("Lang"),data.parent().unwrap_or(std::path::Path::new("."))){status(&error);return;}
+    if let Err(error) = crate::localization::load(
+        &prefs.get("Lang"),
+        data.parent().unwrap_or(std::path::Path::new(".")),
+    ) {
+        status(&error);
+        return;
+    }
     static NEXT: AtomicUsize = AtomicUsize::new(1);
     let token = NEXT.fetch_add(1, Ordering::Relaxed) as u64;
     let (tx, rx) = mpsc::channel();
@@ -193,8 +223,41 @@ fn choose_file(save: bool) -> Option<PathBuf> {
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
-        WM_ERASEBKGND=>{let brush=EDITOR.with(|c|c.borrow().as_ref().map(|s|s.background)).unwrap_or_else(||unsafe{GetSysColorBrush(COLOR_WINDOW)});let mut rect:RECT=unsafe{std::mem::zeroed()};unsafe{GetClientRect(hwnd,&mut rect);FillRect(w as HDC,&rect,brush);}1}
-        WM_CTLCOLORSTATIC|WM_CTLCOLOREDIT|WM_CTLCOLORLISTBOX|WM_CTLCOLORBTN=>EDITOR.with(|c|{let s=c.borrow();let Some(s)=s.as_ref()else{return unsafe{GetSysColorBrush(COLOR_WINDOW)} as isize;};unsafe{SetTextColor(w as HDC,crate::theme::text());SetBkColor(w as HDC,if msg==WM_CTLCOLOREDIT||msg==WM_CTLCOLORLISTBOX{crate::theme::paper()}else{crate::theme::surface()});}if msg==WM_CTLCOLOREDIT||msg==WM_CTLCOLORLISTBOX{s.paper as isize}else{s.background as isize}}),
+        WM_ERASEBKGND => {
+            let brush = EDITOR
+                .with(|c| c.borrow().as_ref().map(|s| s.background))
+                .unwrap_or_else(|| unsafe { GetSysColorBrush(COLOR_WINDOW) });
+            let mut rect: RECT = unsafe { std::mem::zeroed() };
+            unsafe {
+                GetClientRect(hwnd, &mut rect);
+                FillRect(w as HDC, &rect, brush);
+            }
+            1
+        }
+        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => {
+            EDITOR.with(|c| {
+                let s = c.borrow();
+                let Some(s) = s.as_ref() else {
+                    return unsafe { GetSysColorBrush(COLOR_WINDOW) } as isize;
+                };
+                unsafe {
+                    SetTextColor(w as HDC, crate::theme::text());
+                    SetBkColor(
+                        w as HDC,
+                        if msg == WM_CTLCOLOREDIT || msg == WM_CTLCOLORLISTBOX {
+                            crate::theme::paper()
+                        } else {
+                            crate::theme::surface()
+                        },
+                    );
+                }
+                if msg == WM_CTLCOLOREDIT || msg == WM_CTLCOLORLISTBOX {
+                    s.paper as isize
+                } else {
+                    s.background as isize
+                }
+            })
+        }
         WM_COMMAND => {
             let id = w & 65535;
             let code = w >> 16;
@@ -219,8 +282,29 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
             }
             match id {
-                2304 if code==BN_CLICKED as usize=>{let(boolean,value)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.boolean,s.value)});let checked=unsafe{SendMessageW(boolean,BM_GETCHECK,0,0)!=0};unsafe{SetWindowTextW(value,wide(if checked{"1"}else{"0"}).as_ptr());}},
-                2305=>{let(key,value)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(SPECS[s.index].key,s.value)});if let Some(chosen)=crate::settings_pickers::choose(hwnd,key,&text(value)){unsafe{SetWindowTextW(value,wide(&chosen).as_ptr());}}},
+                2304 if code == BN_CLICKED as usize => {
+                    let (boolean, value) = EDITOR.with(|c| {
+                        let s = c.borrow();
+                        let s = s.as_ref().unwrap();
+                        (s.boolean, s.value)
+                    });
+                    let checked = unsafe { SendMessageW(boolean, BM_GETCHECK, 0, 0) != 0 };
+                    unsafe {
+                        SetWindowTextW(value, wide(if checked { "1" } else { "0" }).as_ptr());
+                    }
+                }
+                2305 => {
+                    let (key, value) = EDITOR.with(|c| {
+                        let s = c.borrow();
+                        let s = s.as_ref().unwrap();
+                        (SPECS[s.index].key, s.value)
+                    });
+                    if let Some(chosen) = crate::settings_pickers::choose(hwnd, key, &text(value)) {
+                        unsafe {
+                            SetWindowTextW(value, wide(&chosen).as_ptr());
+                        }
+                    }
+                }
                 2310 => apply(),
                 2311 => {
                     if unsafe {
@@ -353,7 +437,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let _ = prefs.set("AutoRun", if startup { "1" } else { "0" });
                 let _ = prefs.set("AddToSendTo", if send_to { "1" } else { "0" });
             }
-            crate::theme::install(&prefs);let background=unsafe{CreateSolidBrush(crate::theme::surface())};let paper=unsafe{CreateSolidBrush(crate::theme::paper())};
+            crate::theme::install(&prefs);
+            let background = unsafe { CreateSolidBrush(crate::theme::surface()) };
+            let paper = unsafe { CreateSolidBrush(crate::theme::paper()) };
             unsafe {
                 let instance = GetModuleHandleW(std::ptr::null());
                 let class = wide("ALTRun.Native.Settings");
@@ -432,8 +518,17 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     2302,
                 );
                 let status = control("STATIC", "", 0, 310, 100, 350, 245, 2303);
-                let boolean=control("BUTTON","启用",BS_AUTOCHECKBOX as u32|WS_TABSTOP,310,52,350,30,2304);
-                let picker=control("BUTTON","选择…",WS_TABSTOP,580,52,80,30,2305);
+                let boolean = control(
+                    "BUTTON",
+                    "启用",
+                    BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+                    310,
+                    52,
+                    350,
+                    30,
+                    2304,
+                );
+                let picker = control("BUTTON", "选择…", WS_TABSTOP, 580, 52, 80, 30, 2305);
                 for (label, id, x, width) in [
                     ("保存并应用", 2310, 16, 120),
                     ("恢复默认", 2311, 146, 110),
@@ -445,8 +540,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 }
                 EDITOR.with(|c| {
                     *c.borrow_mut() = Some(Editor {
-                        background,paper,
-                        boolean,picker,dpi,
+                        background,
+                        paper,
+                        boolean,
+                        picker,
+                        dpi,
                         prefs,
                         file,
                         data: path,
@@ -474,7 +572,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 EDITOR.with(|c| {
                     if let Some(e) = c.borrow_mut().take() {
                         DeleteObject(e.font);
-                        DeleteObject(e.background);DeleteObject(e.paper);
+                        DeleteObject(e.background);
+                        DeleteObject(e.paper);
                     }
                 });
                 UnregisterClassW(class.as_ptr(), instance);
@@ -491,7 +590,27 @@ pub fn is_open() -> bool {
     WINDOW.load(Ordering::Acquire) != 0
 }
 
-fn refresh_style(){let(hwnd,prefs)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(unsafe{GetParent(s.value)},s.prefs.clone())});crate::theme::install(&prefs);unsafe{let background=CreateSolidBrush(crate::theme::surface());let paper=CreateSolidBrush(crate::theme::paper());EDITOR.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();DeleteObject(std::mem::replace(&mut s.background,background));DeleteObject(std::mem::replace(&mut s.paper,paper));});RedrawWindow(hwnd,std::ptr::null(),null_mut(),0x0001|0x0004|0x0080|0x0100);}}
-
-
-
+fn refresh_style() {
+    let (hwnd, prefs) = EDITOR.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (unsafe { GetParent(s.value) }, s.prefs.clone())
+    });
+    crate::theme::install(&prefs);
+    unsafe {
+        let background = CreateSolidBrush(crate::theme::surface());
+        let paper = CreateSolidBrush(crate::theme::paper());
+        EDITOR.with(|c| {
+            let mut s = c.borrow_mut();
+            let s = s.as_mut().unwrap();
+            DeleteObject(std::mem::replace(&mut s.background, background));
+            DeleteObject(std::mem::replace(&mut s.paper, paper));
+        });
+        RedrawWindow(
+            hwnd,
+            std::ptr::null(),
+            null_mut(),
+            0x0001 | 0x0004 | 0x0080 | 0x0100,
+        );
+    }
+}

@@ -29,7 +29,14 @@ fn shell_metacharacters_remain_arguments_not_an_implicit_shell() {
         resolve("cmd.exe /k echo hello", None).unwrap(),
         request("cmd.exe", "/k echo hello")
     );
-    assert_eq!(resolve("cmd.exe /D /C echo 100%",None).unwrap(),request("cmd.exe","/D /C echo 100%"));assert_eq!(resolve("cmd.exe /D /C for %q in (a) do echo %q",None).unwrap(),request("cmd.exe","/D /C for %q in (a) do echo %q"));
+    assert_eq!(
+        resolve("cmd.exe /D /C echo 100%", None).unwrap(),
+        request("cmd.exe", "/D /C echo 100%")
+    );
+    assert_eq!(
+        resolve("cmd.exe /D /C for %q in (a) do echo %q", None).unwrap(),
+        request("cmd.exe", "/D /C for %q in (a) do echo %q")
+    );
 }
 
 #[test]

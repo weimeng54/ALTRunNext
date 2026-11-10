@@ -6,9 +6,9 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use windows_sys::Win32::System::{DataExchange::*, Memory::*};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
-use windows_sys::Win32::System::{DataExchange::*,Memory::*};
 #[repr(C)]
 #[derive(Default)]
 struct Memory {
@@ -161,7 +161,27 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         thread::sleep(Duration::from_millis(250));
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
         assert!(text(GetDlgItem(launcher, 1003)).contains("cmd.exe"));
-        command(launcher,18010);assert_ne!(OpenClipboard(null_mut()),0);let handle=GetClipboardData(13);let copied=if handle.is_null(){None}else{let p=GlobalLock(handle)as *const u16;if p.is_null(){None}else{let data=std::slice::from_raw_parts(p,GlobalSize(handle)/2);let s=String::from_utf16(data.split(|c|*c==0).next().unwrap_or_default()).ok();GlobalUnlock(handle);s}};CloseClipboard();assert!(copied.is_some_and(|s|s.contains("cmd.exe")),"copy command must transfer Unicode text to the clipboard");
+        command(launcher, 18010);
+        assert_ne!(OpenClipboard(null_mut()), 0);
+        let handle = GetClipboardData(13);
+        let copied = if handle.is_null() {
+            None
+        } else {
+            let p = GlobalLock(handle) as *const u16;
+            if p.is_null() {
+                None
+            } else {
+                let data = std::slice::from_raw_parts(p, GlobalSize(handle) / 2);
+                let s = String::from_utf16(data.split(|c| *c == 0).next().unwrap_or_default()).ok();
+                GlobalUnlock(handle);
+                s
+            }
+        };
+        CloseClipboard();
+        assert!(
+            copied.is_some_and(|s| s.contains("cmd.exe")),
+            "copy command must transfer Unicode text to the clipboard"
+        );
         command(launcher, 18005);
         let mut dialog = null_mut();
         wait(|| {
@@ -178,7 +198,16 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 .contains("RowHeight=24")
         );
         native_snapshot::save(dialog, "settings");
-        select_setting(dialog,"Regex");SendMessageW(GetDlgItem(dialog,2304),BM_CLICK,0,0);command(dialog,2310);assert!(std::fs::read_to_string(&settings).unwrap().contains("Regex=0"));SendMessageW(GetDlgItem(dialog,2304),BM_CLICK,0,0);command(dialog,2310);
+        select_setting(dialog, "Regex");
+        SendMessageW(GetDlgItem(dialog, 2304), BM_CLICK, 0, 0);
+        command(dialog, 2310);
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("Regex=0")
+        );
+        SendMessageW(GetDlgItem(dialog, 2304), BM_CLICK, 0, 0);
+        command(dialog, 2310);
         assert_ne!(RegisterHotKey(null_mut(), 22222, 3, 0x7b), 0);
         select_setting(dialog, "HotKey1");
         set(GetDlgItem(dialog, 2302), "Ctrl+Alt+F12");

@@ -45,11 +45,13 @@ pub fn fit(hwnd: HWND, width: i32, height: i32, remembered: Option<(i32, i32, i3
             default_height,
         ));
         let w = w.clamp(
-            (scaled(width.min(500),dpi)+default_width-scaled(width,dpi)).min(work.right-work.left),
+            (scaled(width.min(500), dpi) + default_width - scaled(width, dpi))
+                .min(work.right - work.left),
             work.right - work.left,
         );
         let h = h.clamp(
-            (scaled(height.min(360),dpi)+default_height-scaled(height,dpi)).min(work.bottom-work.top),
+            (scaled(height.min(360), dpi) + default_height - scaled(height, dpi))
+                .min(work.bottom - work.top),
             work.bottom - work.top,
         );
         SetWindowPos(

@@ -25,8 +25,8 @@ const ID_RECENT: usize = 18006;
 const ID_ABOUT: usize = 18007;
 const ID_RESTART: usize = 18008;
 const ID_CLEAN: usize = 18009;
-const ID_COPY:usize=18010;
-const ID_OPEN_FOLDER:usize=18011;
+const ID_COPY: usize = 18010;
+const ID_OPEN_FOLDER: usize = 18011;
 const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
@@ -37,8 +37,9 @@ type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
 struct State {
-    last_user_generation:Option<u64>,
-    match_generation:std::sync::Arc<std::sync::atomic::AtomicU64>,
+    sound_sender: std::sync::mpsc::SyncSender<String>,
+    last_user_generation: Option<u64>,
+    match_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     input_paper: HBRUSH,
     font_colours: [u32; 3],
     alias_font: HFONT,
@@ -161,8 +162,9 @@ fn refresh() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
-        s.last_user_generation=None;
-        s.match_generation.store(s.generation,std::sync::atomic::Ordering::Relaxed);
+        s.last_user_generation = None;
+        s.match_generation
+            .store(s.generation, std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
         s.matching = false;
         s.hits = match s.index.query_options(
@@ -220,7 +222,23 @@ fn render_hits() {
             s.title,
         )
     });
-    unsafe{let mut monitor:MONITORINFO=zeroed();monitor.cbSize=std::mem::size_of_val(&monitor) as u32;if GetMonitorInfoW(MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST),&mut monitor)!=0{width=width.min(((monitor.rcWork.right-monitor.rcWork.left)*96/dpi-2).max(160));max_rows=max_rows.min((((monitor.rcWork.bottom-monitor.rcWork.top)*96/dpi-theme::BASE_HEIGHT)/row).max(1));}}
+    unsafe {
+        let mut monitor: MONITORINFO = zeroed();
+        monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
+        if GetMonitorInfoW(
+            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
+            &mut monitor,
+        ) != 0
+        {
+            width =
+                width.min(((monitor.rcWork.right - monitor.rcWork.left) * 96 / dpi - 2).max(160));
+            max_rows = max_rows.min(
+                (((monitor.rcWork.bottom - monitor.rcWork.top) * 96 / dpi - theme::BASE_HEIGHT)
+                    / row)
+                    .max(1),
+            );
+        }
+    }
     let labels = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -238,7 +256,16 @@ fn render_hits() {
         }
         SendMessageW(list, LB_SETCURSEL, 0, 0);
         let height = scaled((count.max(1) as i32).min(max_rows) * row, dpi);
-        let empty=STATE.with(|c|c.borrow().as_ref().unwrap().empty);SetWindowPos(empty,null_mut(),scaled(12,dpi),scaled(theme::LIST_Y+2,dpi),scaled(width-24,dpi),scaled(row,dpi),SWP_NOZORDER|SWP_NOACTIVATE);
+        let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
+        SetWindowPos(
+            empty,
+            null_mut(),
+            scaled(12, dpi),
+            scaled(theme::LIST_Y + 2, dpi),
+            scaled(width - 24, dpi),
+            scaled(row, dpi),
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
         SetWindowPos(
             edit,
             null_mut(),
@@ -647,29 +674,31 @@ fn paint_panel(hwnd: HWND) {
             }
             let old_brush = SelectObject(dc, s.input_paper);
             let old_pen = SelectObject(dc, s.border);
-            let mut panel:RECT=zeroed();GetClientRect(hwnd,&mut panel);
+            let mut panel: RECT = zeroed();
+            GetClientRect(hwnd, &mut panel);
             RoundRect(
                 dc,
                 scaled(10, s.dpi),
                 scaled(29, s.dpi),
-                panel.right-scaled(10,s.dpi),
+                panel.right - scaled(10, s.dpi),
                 scaled(60, s.dpi),
                 scaled(8, s.dpi),
                 scaled(8, s.dpi),
             );
             let mut rect: RECT = zeroed();
             GetClientRect(hwnd, &mut rect);
-            if s.preferences.flag("ShowCommandLine"){MoveToEx(
-                dc,
-                scaled(12, s.dpi),
-                rect.bottom - scaled(25, s.dpi),
-                std::ptr::null_mut(),
-            );
-            LineTo(
-                dc,
-                rect.right - scaled(12, s.dpi),
-                rect.bottom - scaled(25, s.dpi),
-            );
+            if s.preferences.flag("ShowCommandLine") {
+                MoveToEx(
+                    dc,
+                    scaled(12, s.dpi),
+                    rect.bottom - scaled(25, s.dpi),
+                    std::ptr::null_mut(),
+                );
+                LineTo(
+                    dc,
+                    rect.right - scaled(12, s.dpi),
+                    rect.bottom - scaled(25, s.dpi),
+                );
             }
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
@@ -690,7 +719,18 @@ fn show_menu(hwnd: HWND) {
         AppendMenuW(menu, MF_STRING, ID_ABOUT, ui("帮助和关于\tF1").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_RESTART, ui("重启启动器").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_CLEAN, ui("移除新版系统集成…").as_ptr());
-        AppendMenuW(menu,MF_STRING,ID_COPY,ui("复制所选命令\tCtrl+C").as_ptr());AppendMenuW(menu,MF_STRING,ID_OPEN_FOLDER,ui("打开所选目录\tCtrl+D").as_ptr());
+        AppendMenuW(
+            menu,
+            MF_STRING,
+            ID_COPY,
+            ui("复制所选命令\tCtrl+C").as_ptr(),
+        );
+        AppendMenuW(
+            menu,
+            MF_STRING,
+            ID_OPEN_FOLDER,
+            ui("打开所选目录\tCtrl+D").as_ptr(),
+        );
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
         AppendMenuW(menu, MF_STRING, ID_HIDE, ui("隐藏").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
@@ -737,7 +777,14 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN) && !composing {
         let control = unsafe { GetKeyState(VK_CONTROL as i32) } < 0;
         let alt = unsafe { GetKeyState(VK_MENU as i32) } < 0;
-        STATE.with(|c| c.borrow_mut().as_mut().unwrap().last_key =if control&&matches!(w as u16,0x56|0x58|0x5a){u16::MAX}else{0});
+        STATE.with(|c| {
+            c.borrow_mut().as_mut().unwrap().last_key =
+                if control && matches!(w as u16, 0x56 | 0x58 | 0x5a) {
+                    u16::MAX
+                } else {
+                    0
+                }
+        });
         if control || alt {
             let digit = match w as u16 {
                 0x30..=0x39 => Some(w - 0x30),
@@ -749,7 +796,16 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 return 0;
             }
         }
-        let(delay,parent)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.preferences.number("HideDelay"),s.hwnd)});if delay>0{unsafe{SetTimer(parent,AUTO_HIDE,delay as u32*1000,None);}}
+        let (delay, parent) = STATE.with(|c| {
+            let s = c.borrow();
+            let s = s.as_ref().unwrap();
+            (s.preferences.number("HideDelay"), s.hwnd)
+        });
+        if delay > 0 {
+            unsafe {
+                SetTimer(parent, AUTO_HIDE, delay as u32 * 1000, None);
+            }
+        }
         if control {
             match w as u16 {
                 0x43 => {
@@ -779,13 +835,17 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let id = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
-                    if w as u16==VK_INSERT{return s.current_query.clone();}
+                    if w as u16 == VK_INSERT {
+                        return s.current_query.clone();
+                    }
                     s.hits
                         .get(s.selected)
                         .map(|i| s.entries[*i].id.clone())
                         .unwrap_or_default()
                 });
-                if id.is_empty()&&w as u16!=VK_INSERT{return 0;}
+                if id.is_empty() && w as u16 != VK_INSERT {
+                    return 0;
+                }
                 crate::manager::enqueue(Vec::new(), Some((id, w as u16)));
                 open_manager();
                 return 0;
@@ -845,8 +905,24 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             _ => {}
         }
     }
-    if msg==WM_CHAR&&!composing&&!matches!(w,3|4|12|13|27|9|59|39){let control=unsafe{GetKeyState(VK_CONTROL as i32)}<0;if control&&(0x30..=0x39).contains(&w){return 0;}STATE.with(|c|c.borrow_mut().as_mut().unwrap().last_key=if w==32{VK_SPACE}else if (0x30..=0x39).contains(&w){w as u16}else{u16::MAX});}
-    if msg==WM_SYSCHAR&&(0x30..=0x39).contains(&w){return 0;}
+    if msg == WM_CHAR && !composing && !matches!(w, 3 | 4 | 12 | 13 | 27 | 9 | 59 | 39) {
+        let control = unsafe { GetKeyState(VK_CONTROL as i32) } < 0;
+        if control && (0x30..=0x39).contains(&w) {
+            return 0;
+        }
+        STATE.with(|c| {
+            c.borrow_mut().as_mut().unwrap().last_key = if w == 32 {
+                VK_SPACE
+            } else if (0x30..=0x39).contains(&w) {
+                w as u16
+            } else {
+                u16::MAX
+            }
+        });
+    }
+    if msg == WM_SYSCHAR && (0x30..=0x39).contains(&w) {
+        return 0;
+    }
     if msg == WM_CHAR && unsafe { GetKeyState(VK_CONTROL as i32) } < 0 && matches!(w, 3 | 4 | 12) {
         return 0;
     }
@@ -904,8 +980,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         .hotkeys
                         .get(2)
                         .is_some_and(|h| h.0 == w as i32)
-                })
-            ; if is_recent {recent();}
+                });
+            if is_recent {
+                recent();
+            }
             let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
             unsafe {
                 if msg == WM_HOTKEY && !is_recent && IsWindowVisible(hwnd) != 0 {
@@ -915,7 +993,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     SetForegroundWindow(hwnd);
                     SetFocus(edit);
                     popup_sound();
-                    let delay=STATE.with(|c|c.borrow().as_ref().unwrap().preferences.number("HideDelay"));if delay>0{SetTimer(hwnd,AUTO_HIDE,delay as u32*1000,None);}
+                    let delay = STATE
+                        .with(|c| c.borrow().as_ref().unwrap().preferences.number("HideDelay"));
+                    if delay > 0 {
+                        SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None);
+                    }
                 }
             }
             0
@@ -1098,7 +1180,18 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 render_hits();
                 if let Some(error) = error {
                     show_inline_error(&error);
-                }else if STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.enabled&&s.preferences.flag("ExecuteIfOnlyOne")&&s.hits.len()==1&&s.last_user_generation==Some(s.generation)&&s.parameter_entry.is_none()})&&unsafe{IsWindowVisible(hwnd)!=0&&GetForegroundWindow()==hwnd}{launch_selected();
+                } else if STATE.with(|c| {
+                    let s = c.borrow();
+                    let s = s.as_ref().unwrap();
+                    s.enabled
+                        && s.preferences.flag("ExecuteIfOnlyOne")
+                        && s.hits.len() == 1
+                        && s.last_user_generation == Some(s.generation)
+                        && s.parameter_entry.is_none()
+                }) && unsafe {
+                    IsWindowVisible(hwnd) != 0 && GetForegroundWindow() == hwnd
+                } {
+                    launch_selected();
                 }
             }
             0
@@ -1130,7 +1223,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             launch_selected();
             0
         }
-        WM_ERASEBKGND=>{let brush=STATE.with(|c|c.borrow().as_ref().map(|s|s.background)).unwrap_or_else(||unsafe{GetSysColorBrush(COLOR_WINDOW)});let mut rect:RECT=unsafe{zeroed()};unsafe{GetClientRect(hwnd,&mut rect);FillRect(w as HDC,&rect,brush);}1}
+        WM_ERASEBKGND => {
+            let brush = STATE
+                .with(|c| c.borrow().as_ref().map(|s| s.background))
+                .unwrap_or_else(|| unsafe { GetSysColorBrush(COLOR_WINDOW) });
+            let mut rect: RECT = unsafe { zeroed() };
+            unsafe {
+                GetClientRect(hwnd, &mut rect);
+                FillRect(w as HDC, &rect, brush);
+            }
+            1
+        }
         WM_PAINT => {
             paint_panel(hwnd);
             0
@@ -1166,7 +1269,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         WM_COMMAND => {
-            if w&65535==ID_COPY{selected_action(true);return 0;}if w&65535==ID_OPEN_FOLDER{selected_action(false);return 0;}
+            if w & 65535 == ID_COPY {
+                selected_action(true);
+                return 0;
+            }
+            if w & 65535 == ID_OPEN_FOLDER {
+                selected_action(false);
+                return 0;
+            }
             if w & 0xffff == ID_MANAGE {
                 open_manager();
                 return 0;
@@ -1211,7 +1321,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 return 0;
             }
             if id == ID_EDIT && code == EN_CHANGE as usize {
-                let (previous,previous_selected, key, edit, number, composing) = STATE.with(|c| {
+                let (previous, previous_selected, key, edit, number, composing) = STATE.with(|c| {
                     let mut s = c.borrow_mut();
                     let s = s.as_mut().unwrap();
                     let key = std::mem::take(&mut s.last_key);
@@ -1226,7 +1336,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 });
                 let query = edit_text(edit);
                 refresh();
-                if key!=0&&!composing&&!query.is_empty(){STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.last_user_generation=Some(s.generation);});}
+                if key != 0 && !composing && !query.is_empty() {
+                    STATE.with(|c| {
+                        let mut s = c.borrow_mut();
+                        let s = s.as_mut().unwrap();
+                        s.last_user_generation = Some(s.generation);
+                    });
+                }
                 let none = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
@@ -1239,7 +1355,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         _ => None,
                     };
                     if (number && digit.is_some()) || key == VK_SPACE {
-                        let trimmed=query.char_indices().next_back().map(|(i,_)|&query[..i]).unwrap_or("");unsafe{SetWindowTextW(edit,wide(trimmed).as_ptr());}STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.hits=previous;s.selected=previous_selected.min(visible_count(s).saturating_sub(1));});
+                        let trimmed = query
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| &query[..i])
+                            .unwrap_or("");
+                        unsafe {
+                            SetWindowTextW(edit, wide(trimmed).as_ptr());
+                        }
+                        STATE.with(|c| {
+                            let mut s = c.borrow_mut();
+                            let s = s.as_mut().unwrap();
+                            s.hits = previous;
+                            s.selected = previous_selected.min(visible_count(s).saturating_sub(1));
+                        });
                         if let Some(digit) = digit {
                             choose_number(digit);
                         } else {
@@ -1507,8 +1636,33 @@ pub fn run() -> Result<(), String> {
     let (match_sender, match_tasks) =
         std::sync::mpsc::channel::<(u64, String, Vec<String>, bool)>();
     let (match_sender_result, match_results) = std::sync::mpsc::channel();
-    let match_generation=std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));let worker_generation=match_generation.clone();
+    let match_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let worker_generation = match_generation.clone();
     let (skin_sender, skin_results) = std::sync::mpsc::channel();
+    let (sound_sender, sound_tasks) = std::sync::mpsc::sync_channel::<String>(1);
+    std::thread::spawn(move || {
+        use windows_sys::Win32::Media::Audio::*;
+        while let Ok(mut file) = sound_tasks.recv() {
+            while let Ok(newer) = sound_tasks.try_recv() {
+                file = newer;
+            }
+            unsafe {
+                if file.is_empty() {
+                    PlaySoundW(
+                        wide("SystemAsterisk").as_ptr(),
+                        null_mut(),
+                        SND_ALIAS | SND_ASYNC,
+                    );
+                } else {
+                    PlaySoundW(
+                        wide(&file).as_ptr(),
+                        null_mut(),
+                        SND_FILENAME | SND_ASYNC | SND_NODEFAULT,
+                    );
+                }
+            }
+        }
+    });
     theme::install(&preferences);
     crate::localization::install(
         &preferences.get("Lang"),
@@ -1565,7 +1719,8 @@ pub fn run() -> Result<(), String> {
         };
         let rounded = 2_i32;
         DwmSetWindowAttribute(hwnd, 33, &rounded as *const _ as *const _, 4);
-        let no_transitions=1i32;DwmSetWindowAttribute(hwnd,3,&no_transitions as *const _ as _,4);
+        let no_transitions = 1i32;
+        DwmSetWindowAttribute(hwnd, 3, &no_transitions as *const _ as _, 4);
         DwmSetWindowAttribute(hwnd, 34, &theme::border() as *const _ as *const _, 4);
         let font = CreateFontW(
             -scaled(13, dpi),
@@ -1667,7 +1822,8 @@ pub fn run() -> Result<(), String> {
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
-                last_user_generation:None,
+                sound_sender,
+                last_user_generation: None,
                 input_paper,
                 alias_font,
                 font_colours: [theme::text(); 3],
@@ -1716,7 +1872,10 @@ pub fn run() -> Result<(), String> {
                 accent,
                 border,
                 empty,
-                enabled: !args.iter().any(|a|a=="--safe-mode")&&(args.iter().any(|a| a == "--enable-launch")||(!cfg!(debug_assertions)&&!args.iter().any(|a|a=="--allow-safe-notepad"))),
+                enabled: !args.iter().any(|a| a == "--safe-mode")
+                    && (args.iter().any(|a| a == "--enable-launch")
+                        || (!cfg!(debug_assertions)
+                            && !args.iter().any(|a| a == "--allow-safe-notepad"))),
                 parameter_entry: None,
                 saved_query: String::new(),
                 error: false,
@@ -1750,7 +1909,10 @@ pub fn run() -> Result<(), String> {
                             &aliases,
                             prefix,
                             std::time::Duration::from_millis(100),
-                            ||worker_generation.load(std::sync::atomic::Ordering::Relaxed)!=generation,
+                            || {
+                                worker_generation.load(std::sync::atomic::Ordering::Relaxed)
+                                    != generation
+                            },
                         )
                     });
                 if match_sender_result.send((generation, result)).is_err() {
@@ -1793,7 +1955,12 @@ pub fn run() -> Result<(), String> {
             crate::manager::enqueue(intake, None);
             open_manager();
         }
-        if args.iter().any(|a|matches!(a.as_str(),"--clean"|"Clean")){PostMessageW(hwnd,WM_COMMAND,ID_CLEAN,0);}
+        if args
+            .iter()
+            .any(|a| matches!(a.as_str(), "--clean" | "Clean"))
+        {
+            PostMessageW(hwnd, WM_COMMAND, ID_CLEAN, 0);
+        }
         if args.iter().any(|a| a == "--show")
             || STATE.with(|c| {
                 c.borrow()
@@ -1854,7 +2021,8 @@ pub fn run() -> Result<(), String> {
 }
 
 fn open_manager() {
-    let context=STATE.with(|c|c.borrow().as_ref().unwrap().context.clone());crate::manager::configure_context(context);
+    let context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
+    crate::manager::configure_context(context);
     let geometry = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -1942,9 +2110,12 @@ pub(crate) fn clipboard_text() -> Option<String> {
                 None
             } else {
                 let length = GlobalSize(handle) / 2;
-                let slice = std::slice::from_raw_parts(pointer, length.min(1024 * 1024));
-                let result =
-                    String::from_utf16(slice.split(|v| *v == 0).next().unwrap_or_default()).ok();
+                let result = if length > 1024 * 1024 {
+                    None
+                } else {
+                    let slice = std::slice::from_raw_parts(pointer, length);
+                    String::from_utf16(slice.split(|v| *v == 0).next().unwrap_or_default()).ok()
+                };
                 GlobalUnlock(handle);
                 result
             }
@@ -1956,6 +2127,7 @@ pub(crate) fn clipboard_text() -> Option<String> {
 fn copy_text(value: &str) -> Result<(), String> {
     use windows_sys::Win32::System::{DataExchange::*, Memory::*};
     let bytes = wide(value);
+    let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
     unsafe {
         let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len() * 2);
         if handle.is_null() {
@@ -1968,7 +2140,7 @@ fn copy_text(value: &str) -> Result<(), String> {
         }
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len());
         GlobalUnlock(handle);
-        if OpenClipboard(null_mut()) == 0 {
+        if OpenClipboard(owner) == 0 {
             GlobalFree(handle);
             return Err("剪贴板正被其他程序使用".into());
         }
@@ -1988,8 +2160,9 @@ fn capture_context() {
         if foreground.is_null() {
             return;
         }
-        let own = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
-        if foreground == own {
+        let mut process = 0;
+        GetWindowThreadProcessId(foreground, &mut process);
+        if process == std::process::id() {
             return;
         }
         let title = edit_text(foreground);
@@ -2017,12 +2190,21 @@ fn capture_context() {
 }
 fn recent() {
     cancel_parameter();
-    let edit=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.last_key=0;s.edit});unsafe{SetWindowTextW(edit,wide("").as_ptr());}
+    let edit = STATE.with(|c| {
+        let mut s = c.borrow_mut();
+        let s = s.as_mut().unwrap();
+        s.last_key = 0;
+        s.edit
+    });
+    unsafe {
+        SetWindowTextW(edit, wide("").as_ptr());
+    }
     STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
-        s.match_generation.store(s.generation,std::sync::atomic::Ordering::Relaxed);
+        s.match_generation
+            .store(s.generation, std::sync::atomic::Ordering::Relaxed);
         s.matching = false;
         s.hits = s
             .usage
@@ -2161,8 +2343,18 @@ fn apply_settings_messages() {
                             }
                         }
                     }
-                    if ["ManWinLeft","ManWinTop","ManWinWidth","ManWinHeight"].iter().any(|key|s.preferences.get(key)!=prefs.get(key)){s.usage.positions.remove("manager");}
-                    if ["WinLeft","WinTop"].iter().any(|key|s.preferences.get(key)!=prefs.get(key)){s.usage.positions.remove("launcher");}
+                    if ["ManWinLeft", "ManWinTop", "ManWinWidth", "ManWinHeight"]
+                        .iter()
+                        .any(|key| s.preferences.get(key) != prefs.get(key))
+                    {
+                        s.usage.positions.remove("manager");
+                    }
+                    if ["WinLeft", "WinTop"]
+                        .iter()
+                        .any(|key| s.preferences.get(key) != prefs.get(key))
+                    {
+                        s.usage.positions.remove("launcher");
+                    }
                     s.preferences = prefs;
                     s.hotkeys = keys;
                     true
@@ -2259,7 +2451,10 @@ fn apply_appearance() {
                 );
                 if !font.is_null() {
                     SendMessageW(control, WM_SETFONT, font as usize, 1);
-                    if key=="ListFont"{let empty=STATE.with(|c|c.borrow().as_ref().unwrap().empty);SendMessageW(empty,WM_SETFONT,font as usize,1);}
+                    if key == "ListFont" {
+                        let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
+                        SendMessageW(empty, WM_SETFONT, font as usize, 1);
+                    }
                     fonts.push((key, font));
                 }
             }
@@ -2385,22 +2580,31 @@ fn selected_action(copy: bool) {
     let entry = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        s.hits.get(s.selected).map(|i| (s.entries[*i].clone(),s.context.clone()))
+        s.hits
+            .get(s.selected)
+            .map(|i| (s.entries[*i].clone(), s.context.clone()))
     });
-    if let Some((entry,context)) = entry {
+    if let Some((entry, context)) = entry {
         if copy {
             if let Err(e) = copy_text(&entry.command) {
                 show_inline_error(&e);
             }
         } else {
             std::thread::spawn(move || {
-                let base=if entry.working_directory.is_empty(){context.base_directory}else{entry.working_directory};
-                match altrun_probe::local_target::directory(&entry.command,std::path::Path::new(&base)) {
+                let base = if entry.working_directory.is_empty() {
+                    context.base_directory
+                } else {
+                    entry.working_directory
+                };
+                match altrun_probe::local_target::directory(
+                    &entry.command,
+                    std::path::Path::new(&base),
+                ) {
                     Ok(parent) => {
-                            let _ = execute_request(&altrun_probe::launch::LaunchRequest {
-                                file: parent.to_string_lossy().into_owned(),
-                                parameters: String::new(),
-                            });
+                        let _ = execute_request(&altrun_probe::launch::LaunchRequest {
+                            file: parent.to_string_lossy().into_owned(),
+                            parameters: String::new(),
+                        });
                     }
                     Err(e) => crate::native::show_error(&e),
                 }
@@ -2578,26 +2782,24 @@ fn parameter_menu() {
     }
 }
 fn popup_sound() {
-    let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
-    if !prefs.flag("PlayPopupNotify") {
-        return;
-    }
-    let file = prefs.get("PopupFileName");
-    unsafe {
-        if file.is_empty() {
-            windows_sys::Win32::Media::Audio::PlaySoundW(
-                wide("SystemAsterisk").as_ptr(),
-                null_mut(),
-                0x00010000 | 0x00000001,
-            );
-        } else {
-            windows_sys::Win32::Media::Audio::PlaySoundW(
-                wide(&file).as_ptr(),
-                null_mut(),
-                0x00020000 | 0x00000001 | 0x00000002,
-            );
+    STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        if !s.preferences.flag("PlayPopupNotify") {
+            return;
         }
-    }
+        let file = s.preferences.get("PopupFileName");
+        let path = std::path::Path::new(&file);
+        let file = if file.is_empty() || path.is_absolute() {
+            file
+        } else {
+            std::path::Path::new(&s.context.base_directory)
+                .join(path)
+                .to_string_lossy()
+                .into_owned()
+        };
+        let _ = s.sound_sender.try_send(file);
+    });
 }
 
 fn lifecycle(clean: bool) {
@@ -2703,6 +2905,3 @@ fn trace_event(event: &'static str) {
         });
     }
 }
-
-
-

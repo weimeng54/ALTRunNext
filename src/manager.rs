@@ -72,15 +72,27 @@ const EXPORT: usize = 2128;
 const RESTORE: usize = 2129;
 const EDIT_TEXT: usize = 2130;
 const UNDO: usize = 2131;
-const SORT_ALIAS:usize=2132;
-const SORT_NAME:usize=2133;
-const SORT_FREQUENCY:usize=2134;
-const MOVE_UP:usize=2135;
-const MOVE_DOWN:usize=2136;
-const TEST:usize=2137;
-const MIGRATE:usize=2138;
-static TEST_CONTEXT:std::sync::Mutex<altrun_probe::launch::LaunchContext>=std::sync::Mutex::new(altrun_probe::launch::LaunchContext{clipboard:None,window_id:0,window_title:String::new(),window_class:String::new(),base_directory:String::new(),allow_dynamic_target:false});
-pub fn configure_context(context:altrun_probe::launch::LaunchContext){if let Ok(mut current)=TEST_CONTEXT.lock(){*current=context;}}
+const SORT_ALIAS: usize = 2132;
+const SORT_NAME: usize = 2133;
+const SORT_FREQUENCY: usize = 2134;
+const MOVE_UP: usize = 2135;
+const MOVE_DOWN: usize = 2136;
+const TEST: usize = 2137;
+const MIGRATE: usize = 2138;
+static TEST_CONTEXT: std::sync::Mutex<altrun_probe::launch::LaunchContext> =
+    std::sync::Mutex::new(altrun_probe::launch::LaunchContext {
+        clipboard: None,
+        window_id: 0,
+        window_title: String::new(),
+        window_class: String::new(),
+        base_directory: String::new(),
+        allow_dynamic_target: false,
+    });
+pub fn configure_context(context: altrun_probe::launch::LaunchContext) {
+    if let Ok(mut current) = TEST_CONTEXT.lock() {
+        *current = context;
+    }
+}
 static OPEN: AtomicBool = AtomicBool::new(false);
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
@@ -460,7 +472,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return unsafe { DefWindowProcW(hwnd, msg, w, l) };
     }
     match msg {
-        WM_ERASEBKGND=>{let brush=EDITOR.with(|c|c.borrow().as_ref().unwrap().background);let mut rect:RECT=unsafe{zeroed()};unsafe{GetClientRect(hwnd,&mut rect);FillRect(w as HDC,&rect,brush);}1}
+        WM_ERASEBKGND => {
+            let brush = EDITOR.with(|c| c.borrow().as_ref().unwrap().background);
+            let mut rect: RECT = unsafe { zeroed() };
+            unsafe {
+                GetClientRect(hwnd, &mut rect);
+                FillRect(w as HDC, &rect, brush);
+            }
+            1
+        }
         WM_SIZE => {
             resize(hwnd);
             0
@@ -541,6 +561,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 let mut state = c.borrow_mut();
                                 let s = state.as_mut().unwrap();
                                 s.undo.push(s.draft.clone());
+                                if s.undo.len() > 20 {
+                                    s.undo.remove(0);
+                                }
                                 s.draft.remove(s.selected);
                                 s.selected = s.selected.min(s.draft.len().saturating_sub(1));
                                 s.dirty = true;
@@ -555,7 +578,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
                     ADD_FILE | ADD_FOLDER | SEPARATOR | REMARK | VALIDATE | CLEAN_MISSING
-                    | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO|SORT_ALIAS|SORT_NAME|SORT_FREQUENCY|MOVE_UP|MOVE_DOWN|TEST|MIGRATE => tool(hwnd, id),
+                    | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO | SORT_ALIAS
+                    | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | MIGRATE => {
+                        tool(hwnd, id)
+                    }
                     _ => {}
                 }
             }
@@ -661,7 +687,14 @@ fn run(
     } else {
         Snapshot::new(path, initial)?
     };
-    let (_,text)=altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))?;let prefs=altrun_probe::preferences::Preferences::parse(&text)?;theme::install(&prefs);let _=crate::localization::install(&prefs.get("Lang"),file.path.parent().unwrap_or(std::path::Path::new(".")));
+    let (_, text) =
+        altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))?;
+    let prefs = altrun_probe::preferences::Preferences::parse(&text)?;
+    theme::install(&prefs);
+    let _ = crate::localization::install(
+        &prefs.get("Lang"),
+        file.path.parent().unwrap_or(std::path::Path::new(".")),
+    );
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let background = CreateSolidBrush(theme::surface());
@@ -964,8 +997,13 @@ fn run(
             ("从备份恢复草稿…", RESTORE),
             ("用文本编辑器打开数据", EDIT_TEXT),
             ("撤销上一次批量操作", UNDO),
-            ("完整迁移旧版配置到新目录…",MIGRATE),
-            ("按快捷字排序",SORT_ALIAS),("按名称排序",SORT_NAME),("按频率排序",SORT_FREQUENCY),("上移所选项",MOVE_UP),("下移所选项",MOVE_DOWN),("测试所选快捷项…",TEST),
+            ("完整迁移旧版配置到新目录…", MIGRATE),
+            ("按快捷字排序", SORT_ALIAS),
+            ("按名称排序", SORT_NAME),
+            ("按频率排序", SORT_FREQUENCY),
+            ("上移所选项", MOVE_UP),
+            ("下移所选项", MOVE_DOWN),
+            ("测试所选快捷项…", TEST),
         ] {
             AppendMenuW(
                 tools,
@@ -978,8 +1016,25 @@ fn run(
         AppendMenuW(menu, MF_POPUP, tools as usize, ui("工具").as_ptr());
         SetMenu(hwnd, menu);
         let remembered = window_state();
-        let mut configured=RECT{left:0,top:0,right:scaled(prefs.number("ManWinWidth"),dpi),bottom:scaled(prefs.number("ManWinHeight"),dpi)};AdjustWindowRectExForDpi(&mut configured,GetWindowLongW(hwnd,GWL_STYLE) as u32,1,WS_EX_CONTROLPARENT,GetDpiForWindow(hwnd));
-        let desired = remembered.rect.unwrap_or((prefs.number("ManWinLeft"),prefs.number("ManWinTop"),configured.right-configured.left,configured.bottom-configured.top));
+        let mut configured = RECT {
+            left: 0,
+            top: 0,
+            right: scaled(prefs.number("ManWinWidth"), dpi),
+            bottom: scaled(prefs.number("ManWinHeight"), dpi),
+        };
+        AdjustWindowRectExForDpi(
+            &mut configured,
+            GetWindowLongW(hwnd, GWL_STYLE) as u32,
+            1,
+            WS_EX_CONTROLPARENT,
+            GetDpiForWindow(hwnd),
+        );
+        let desired = remembered.rect.unwrap_or((
+            prefs.number("ManWinLeft"),
+            prefs.number("ManWinTop"),
+            configured.right - configured.left,
+            configured.bottom - configured.top,
+        ));
         // The menu is installed before fitting so the bottom command row retains
         // the full client height at each monitor's non-client DPI.
         crate::window_geometry::fit(hwnd, 760, 420, Some(desired));
@@ -1002,7 +1057,44 @@ fn run(
         apply_intake(hwnd);
         let mut message: MSG = zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
-            if message.message==WM_KEYDOWN{let control=GetKeyState(VK_CONTROL as i32)<0;let focus=GetFocus();if control&&message.wParam==b'S' as usize{SendMessageW(hwnd,WM_COMMAND,SAVE,0);continue;}if focus==list{match message.wParam as u16{VK_INSERT=>{SendMessageW(hwnd,WM_COMMAND,ADD,0);continue;},VK_DELETE=>{SendMessageW(hwnd,WM_COMMAND,DELETE,0);continue;},VK_F1=>{crate::native::show_error("选择快捷项后在右侧修改。工具菜单支持验证、路径转换、备份、恢复和测试。保存后更新启动面板。");continue;},VK_UP|VK_DOWN if control=>{tool(hwnd,if message.wParam as u16==VK_UP{MOVE_UP}else{MOVE_DOWN});continue;},_=>{}}}}
+            if message.message == WM_KEYDOWN {
+                let control = GetKeyState(VK_CONTROL as i32) < 0;
+                let focus = GetFocus();
+                if control && message.wParam == b'S' as usize {
+                    SendMessageW(hwnd, WM_COMMAND, SAVE, 0);
+                    continue;
+                }
+                if focus == list {
+                    match message.wParam as u16 {
+                        VK_INSERT => {
+                            SendMessageW(hwnd, WM_COMMAND, ADD, 0);
+                            continue;
+                        }
+                        VK_DELETE => {
+                            SendMessageW(hwnd, WM_COMMAND, DELETE, 0);
+                            continue;
+                        }
+                        VK_F1 => {
+                            crate::native::show_error(
+                                "选择快捷项后在右侧修改。工具菜单支持验证、路径转换、备份、恢复和测试。保存后更新启动面板。",
+                            );
+                            continue;
+                        }
+                        VK_UP | VK_DOWN if control => {
+                            tool(
+                                hwnd,
+                                if message.wParam as u16 == VK_UP {
+                                    MOVE_UP
+                                } else {
+                                    MOVE_DOWN
+                                },
+                            );
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             if message.message == WM_KEYDOWN
                 && message.wParam == VK_TAB as usize
                 && IsDialogMessageW(hwnd, &message) != 0
@@ -1176,9 +1268,79 @@ pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf>
     }
 }
 fn tool(hwnd: HWND, id: usize) {
-    if id==MIGRATE{if let Some(source)=pick_path(hwnd,false,true){let base=EDITOR.with(|c|c.borrow().as_ref().unwrap().file.path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf());let output=base.join(format!("migration-{}",library::new_id()));match altrun_probe::migration::Migration::read(&source,false).and_then(|import|import.write_new(&output)){Ok(path)=>{let message=format!("完整配置已迁移到新目录：{}\n\n原文件保持不变。迁移说明保存在 migration-report.txt。\n使用 --data 参数选择新 shortcuts.tsv；当前草稿和运行配置未切换。",path.display());unsafe{MessageBoxW(hwnd,wide(&message).as_ptr(),ui("迁移完成").as_ptr(),MB_OK|MB_ICONINFORMATION);}},Err(e)=>status(&e,true)}}return;}
-    if id==TEST{test_selected(hwnd);return;}
-    if matches!(id,SORT_ALIAS|SORT_NAME|SORT_FREQUENCY|MOVE_UP|MOVE_DOWN){remember();EDITOR.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let selected=s.draft.get(s.selected).map(|e|e.id.clone());match id{SORT_ALIAS=>s.draft.sort_by_key(|e|e.alias.to_lowercase()),SORT_NAME=>s.draft.sort_by_key(|e|e.name.to_lowercase()),SORT_FREQUENCY=>s.draft.sort_by(|a,b|b.frequency.cmp(&a.frequency)),MOVE_UP if s.selected>0=>{let i=s.selected;s.draft.swap(i,i-1);},MOVE_DOWN if s.selected+1<s.draft.len()=>{let i=s.selected;s.draft.swap(i,i+1);},_=>{}}if let Some(id)=selected&&let Some(index)=s.draft.iter().position(|e|e.id==id){s.selected=index;}s.dirty=true;});refresh_list();status("顺序已更新，保存后生效。",false);return;}
+    if id == MIGRATE {
+        if let Some(source) = pick_path(hwnd, false, true) {
+            let base = EDITOR.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .file
+                    .path
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .to_path_buf()
+            });
+            let output = base.join(format!("migration-{}", library::new_id()));
+            match altrun_probe::migration::Migration::read(&source, false)
+                .and_then(|import| import.write_new(&output))
+            {
+                Ok(path) => {
+                    let message = format!(
+                        "完整配置已迁移到新目录：{}\n\n原文件保持不变。迁移说明保存在 migration-report.txt。\n使用 --data 参数选择新 shortcuts.tsv；当前草稿和运行配置未切换。",
+                        path.display()
+                    );
+                    unsafe {
+                        MessageBoxW(
+                            hwnd,
+                            wide(&message).as_ptr(),
+                            ui("迁移完成").as_ptr(),
+                            MB_OK | MB_ICONINFORMATION,
+                        );
+                    }
+                }
+                Err(e) => status(&e, true),
+            }
+        }
+        return;
+    }
+    if id == TEST {
+        test_selected(hwnd);
+        return;
+    }
+    if matches!(
+        id,
+        SORT_ALIAS | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN
+    ) {
+        remember();
+        EDITOR.with(|c| {
+            let mut s = c.borrow_mut();
+            let s = s.as_mut().unwrap();
+            let selected = s.draft.get(s.selected).map(|e| e.id.clone());
+            match id {
+                SORT_ALIAS => s.draft.sort_by_key(|e| e.alias.to_lowercase()),
+                SORT_NAME => s.draft.sort_by_key(|e| e.name.to_lowercase()),
+                SORT_FREQUENCY => s.draft.sort_by_key(|e| std::cmp::Reverse(e.frequency)),
+                MOVE_UP if s.selected > 0 => {
+                    let i = s.selected;
+                    s.draft.swap(i, i - 1);
+                }
+                MOVE_DOWN if s.selected + 1 < s.draft.len() => {
+                    let i = s.selected;
+                    s.draft.swap(i, i + 1);
+                }
+                _ => {}
+            }
+            if let Some(id) = selected
+                && let Some(index) = s.draft.iter().position(|e| e.id == id)
+            {
+                s.selected = index;
+            }
+            s.dirty = true;
+        });
+        refresh_list();
+        status("顺序已更新，保存后生效。", false);
+        return;
+    }
     if id == ADD_FILE || id == ADD_FOLDER {
         if let Some(path) = pick_path(hwnd, false, id == ADD_FOLDER) {
             add_paths(vec![path]);
@@ -1398,7 +1560,10 @@ fn resize(hwnd: HWND) {
         if child.id == LIST {
             height += dh;
         }
-        if dh<0&&child.id!=LIST{y=r.top*client.bottom/base.1;height=(r.bottom-r.top)*client.bottom/base.1;}else if r.top >= scaled(318, dpi) {
+        if dh < 0 && child.id != LIST {
+            y = r.top * client.bottom / base.1;
+            height = (r.bottom - r.top) * client.bottom / base.1;
+        } else if r.top >= scaled(318, dpi) {
             y += dh;
         }
         if r.left >= scaled(560, dpi) {
@@ -1409,7 +1574,13 @@ fn resize(hwnd: HWND) {
         } else if r.left >= scaled(280, dpi) {
             width += if child.id == ALIAS { dw / 2 } else { dw };
         }
-        if dw<0&&child.id==KIND{width=client.right-scaled(386,dpi);}if dw<0&&child.id==ENABLED{x=client.right-scaled(90,dpi);width=scaled(72,dpi);}
+        if dw < 0 && child.id == KIND {
+            width = client.right - scaled(386, dpi);
+        }
+        if dw < 0 && child.id == ENABLED {
+            x = client.right - scaled(90, dpi);
+            width = scaled(72, dpi);
+        }
         unsafe {
             SetWindowPos(
                 child.handle as HWND,
@@ -1456,6 +1627,59 @@ fn publish_geometry(hwnd: HWND) {
     }
 }
 
-fn test_selected(hwnd:HWND){let(entry,base)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.draft.get(s.selected).cloned(),s.file.path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf())});let Some(entry)=entry else{return;};if entry.kind!=library::EntryKind::Command||entry.command.trim().is_empty(){status("所选项没有可测试的启动命令。",true);return;}let mut context=TEST_CONTEXT.lock().map(|c|c.clone()).unwrap_or_default();if context.base_directory.is_empty(){context.base_directory=base.to_string_lossy().into_owned();}let needs_input=entry.param_type.needs_input(&entry.command)&&(altrun_probe::launch::has_parameter(&entry.command)||!altrun_probe::launch::has_context(&entry.command));let parameter=if needs_input{let Some(value)=crate::input_dialog::ask(hwnd,&format!("{} · 输入测试参数",entry.name))else{return;};Some(value)}else{None};status("已发出测试启动请求。草稿尚未保存。",false);std::thread::spawn(move||{if altrun_probe::launch::has_context(&entry.command)&&entry.command.contains("%c"){context.clipboard=crate::native::clipboard_text();}let result=altrun_probe::launch::resolve_context(&entry.command,parameter.as_deref(),entry.param_type,&entry.working_directory,&context).and_then(|(request,mode,directory)|crate::native::execute_request_with(&request,mode,directory.as_deref()));if let Err(error)=result{crate::native::show_error(&error);}});}
-
-
+fn test_selected(hwnd: HWND) {
+    let (entry, base) = EDITOR.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (
+            s.draft.get(s.selected).cloned(),
+            s.file
+                .path
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf(),
+        )
+    });
+    let Some(entry) = entry else {
+        return;
+    };
+    if entry.kind != library::EntryKind::Command || entry.command.trim().is_empty() {
+        status("所选项没有可测试的启动命令。", true);
+        return;
+    }
+    let mut context = TEST_CONTEXT.lock().map(|c| c.clone()).unwrap_or_default();
+    if context.base_directory.is_empty() {
+        context.base_directory = base.to_string_lossy().into_owned();
+    }
+    let needs_input = entry.param_type.needs_input(&entry.command)
+        && (altrun_probe::launch::has_parameter(&entry.command)
+            || !altrun_probe::launch::has_context(&entry.command));
+    let parameter = if needs_input {
+        let Some(value) = crate::input_dialog::ask(hwnd, &format!("{} · 输入测试参数", entry.name))
+        else {
+            return;
+        };
+        Some(value)
+    } else {
+        None
+    };
+    status("已发出测试启动请求。草稿尚未保存。", false);
+    std::thread::spawn(move || {
+        if altrun_probe::launch::has_context(&entry.command) && entry.command.contains("%c") {
+            context.clipboard = crate::native::clipboard_text();
+        }
+        let result = altrun_probe::launch::resolve_context(
+            &entry.command,
+            parameter.as_deref(),
+            entry.param_type,
+            &entry.working_directory,
+            &context,
+        )
+        .and_then(|(request, mode, directory)| {
+            crate::native::execute_request_with(&request, mode, directory.as_deref())
+        });
+        if let Err(error) = result {
+            crate::native::show_error(&error);
+        }
+    });
+}
