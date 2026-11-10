@@ -3,7 +3,7 @@ use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessagin
 
 pub fn save(hwnd: HWND, name: &str) {
     unsafe {
-        UpdateWindow(hwnd);
+        RedrawWindow(hwnd, std::ptr::null(), std::ptr::null_mut(), RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
         let mut rect: RECT = zeroed();
         GetWindowRect(hwnd, &mut rect);
         let width = rect.right - rect.left;

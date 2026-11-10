@@ -5,8 +5,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+use windows_sys::Win32::UI::WindowsAndMessaging::*;
 mod native_snapshot;
 
 fn wide(s: &str) -> Vec<u16> {
@@ -103,7 +103,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             SetWindowTextW(edit, wide("param").as_ptr());
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_eq!(
-                GetWindowTextLengthW(edit),
+                SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0),
                 0,
                 "parameter mode accepts a separate value"
             );
@@ -120,7 +120,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "cancelling parameters restores list navigation"
             );
             let mut restored = [0_u16; 32];
-            GetWindowTextW(edit, restored.as_mut_ptr(), 32);
+            SendMessageW(edit, WM_GETTEXT, 32, restored.as_mut_ptr() as isize);
             assert_eq!(String::from_utf16_lossy(&restored[..5]), "param");
             SetWindowTextW(edit, wide("np").as_ptr());
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
@@ -134,7 +134,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             }
             let command = GetDlgItem(hwnd, 1003);
             let mut error = [0_u16; 256];
-            let length = GetWindowTextW(command, error.as_mut_ptr(), 256);
+            let length = SendMessageW(command, WM_GETTEXT, 256, error.as_mut_ptr() as isize);
             assert!(String::from_utf16_lossy(&error[..length as usize]).contains("无法启动"));
             native_snapshot::save(hwnd, &format!("error-{scale}"));
             SetWindowTextW(edit, wide("no-matching-synthetic-shortcut").as_ptr());

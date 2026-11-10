@@ -34,6 +34,13 @@ pub fn resolve(command: &str, parameter: Option<&str>) -> Result<LaunchRequest, 
         (expanded.as_str(), "")
     } else {
         let split = expanded.find(char::is_whitespace).unwrap_or(expanded.len());
+        let first = &expanded[..split];
+        let path = first.contains(['\\', '/']) || first.as_bytes().get(1) == Some(&b':');
+        let explicit_executable = [".exe", ".com", ".bat", ".cmd", ".lnk"]
+            .iter().any(|extension| first.to_ascii_lowercase().ends_with(extension));
+        if split < expanded.len() && path && !explicit_executable {
+            return Err("请给带空格的程序路径加双引号，再填写启动参数".into());
+        }
         (&expanded[..split], expanded[split..].trim_start())
     };
     if file.is_empty() || (!url && file.contains("%p")) {
