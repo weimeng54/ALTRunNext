@@ -17,6 +17,8 @@
 
 ## Tasks
 
+状态：任务 1–3 已完成。最终源码 884d9d3，Actions 42785763218 全部检查通过；75 项 Rust/Python 测试、独立完整审查及三个 Important 修复回归、管理窗口工作区修复与截图检查均完成。本机已安装并验证，原版保持运行。普通外部变更检查仍是乐观并发检查，不声明文件系统原子 CAS；完整兼容未完成的范围按上述边界继续记录。
+
 1. Define Entry ParamType, import/store/encoding interfaces and regression tests with stubs; observe cloud failures. Tests: 4/5-column compatibility, legacy delimiters and command tails, malformed rows, type roundtrip, safe saves/conflicts, %p vs %path%, raw/UTF8/ANSI encoding, wildcard selection.
 2. Implement pure functions and Windows codecs/atomic save. Add lazy native manager (Alt+S/tray), add/edit/delete/import, clear dirty/error states, Save/Close, parent data refresh only after success. Integrate typed parameter launch; ensure default safe mode remains non-executing. Native synthetic tests exercise management persistence without touching original data.
 3. One whole-change read-only review, fix important findings with regressions; cloud fmt/tests/clippy/release; inspect synthetic UI; verify commit/hashes and update the existing D: trial with backup. Record actual supported scope and no false parity claims.
