@@ -96,17 +96,20 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "list selection must not steal subsequent Enter/Esc/text input"
             );
             native_snapshot::save(hwnd, &format!("normal-{scale}"));
+            SendMessageW(edit, WM_SETTEXT, 0, wide("np").as_ptr() as isize);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
             SendMessageW(edit, WM_IME_STARTCOMPOSITION, 0, 0);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_ne!(IsWindowVisible(hwnd), 0, "IME Enter must not launch");
             SendMessageW(edit, WM_IME_ENDCOMPOSITION, 0, 0);
-            SetWindowTextW(edit, wide("a").as_ptr());
+            SendMessageW(edit, WM_SETTEXT, 0, wide("a").as_ptr() as isize);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_eq!(
                 SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0),
                 0,
                 "parameter mode accepts a separate value"
             );
+            assert_ne!(IsWindowVisible(hwnd), 0);
             native_snapshot::save(hwnd, &format!("parameter-{scale}"));
             assert_eq!(
                 IsWindowEnabled(list),
@@ -114,7 +117,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "parameter mode must lock the displayed execution target"
             );
             // Ignore list notifications already queued when parameter entry began.
-            SendMessageW(hwnd, WM_COMMAND, 1002 | ((LBN_DBLCLK as usize) << 16), list as isize);
+            SendMessageW(
+                hwnd,
+                WM_COMMAND,
+                1002 | ((LBN_DBLCLK as usize) << 16),
+                list as isize,
+            );
             assert_ne!(IsWindowVisible(hwnd), 0);
             SendMessageW(edit, WM_KEYDOWN, 27, 0);
             assert_ne!(
@@ -125,7 +133,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             let mut restored = [0_u16; 32];
             SendMessageW(edit, WM_GETTEXT, 32, restored.as_mut_ptr() as isize);
             assert_eq!(String::from_utf16_lossy(&restored[..1]), "a");
-            SetWindowTextW(edit, wide("np").as_ptr());
+            SendMessageW(edit, WM_SETTEXT, 0, wide("np").as_ptr() as isize);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             let failure_deadline = Instant::now() + Duration::from_secs(8);
             while IsWindowVisible(hwnd) == 0 {
@@ -140,7 +148,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             let length = SendMessageW(command, WM_GETTEXT, 256, error.as_mut_ptr() as isize);
             assert!(String::from_utf16_lossy(&error[..length as usize]).contains("无法启动"));
             native_snapshot::save(hwnd, &format!("error-{scale}"));
-            SetWindowTextW(edit, wide("no-matching-synthetic-shortcut").as_ptr());
+            SendMessageW(edit, WM_SETTEXT, 0, wide("no-matching-synthetic-shortcut").as_ptr() as isize);
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
             assert_ne!(IsWindowVisible(GetDlgItem(hwnd, 1004)), 0);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);

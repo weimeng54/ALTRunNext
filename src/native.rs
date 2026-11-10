@@ -213,7 +213,7 @@ fn cancel_parameter() -> bool {
         let s = s.as_mut().unwrap();
         s.parameter_entry
             .take()
-                .map(|_| (s.edit, s.list, s.saved_query.clone()))
+            .map(|_| (s.edit, s.list, s.saved_query.clone()))
     });
     if let Some((edit, list, query)) = restore {
         unsafe {
