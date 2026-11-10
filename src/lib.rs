@@ -97,7 +97,7 @@ pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
         return Ok(std::path::PathBuf::from(directory).join("notepad.exe"));
     }
 }
-pub mod desktop_frame;
-pub mod observation;
 #[cfg(windows)]
 pub mod capture_bridge;
+pub mod desktop_frame;
+pub mod observation;
