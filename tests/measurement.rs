@@ -128,19 +128,38 @@ fn probe_replay_never_requires_or_falls_back_to_an_original_process() {
 
 #[test]
 fn desktop_frame_replay_has_its_own_pending_kind_without_original_access() {
-    let unique = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-    let output = std::env::current_dir().unwrap().join("target").join(format!("desktop-frame-isolation-{unique}.json"));
+    let unique = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let output = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join(format!("desktop-frame-isolation-{unique}.json"));
     let status = Command::new(env!("CARGO_BIN_EXE_altrun-measure"))
-        .args(["--probe-only-replay", "--dxgi-observer", "--probe-pid", "4294967294", "--output"])
-        .arg(&output).status().unwrap();
+        .args([
+            "--probe-only-replay",
+            "--dxgi-observer",
+            "--probe-pid",
+            "4294967294",
+            "--output",
+        ])
+        .arg(&output)
+        .status()
+        .unwrap();
     assert!(!status.success());
-    let validated = Command::new("python").arg("-c").arg(concat!(
-        "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
-        "assert r['decision']=='pending'; assert not r['content_verified']; ",
-        "assert r['measurement_kind']=='desktop-frame-self-replay'; ",
-        "assert r['target']=='probe'; assert r['samples']==[]; ",
-        "assert r['current_desktop_trace']==[]"
-    )).arg(&output).status().unwrap();
+    let validated = Command::new("python")
+        .arg("-c")
+        .arg(concat!(
+            "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
+            "assert r['decision']=='pending'; assert not r['content_verified']; ",
+            "assert r['measurement_kind']=='desktop-frame-self-replay'; ",
+            "assert r['target']=='probe'; assert r['samples']==[]; ",
+            "assert r['current_desktop_trace']==[]"
+        ))
+        .arg(&output)
+        .status()
+        .unwrap();
     assert!(validated.success());
 }
 

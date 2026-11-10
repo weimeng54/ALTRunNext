@@ -63,7 +63,12 @@ fn a_slow_application_is_not_discarded_as_a_sampling_hole() {
         update.image_ns = Some(101_000_000);
         frames.push(update);
     }
-    assert_eq!(analyze(1, 2, &frames, 2_000_000, 50_000_000).unwrap().image_update_ns, 101_000_000);
+    assert_eq!(
+        analyze(1, 2, &frames, 2_000_000, 50_000_000)
+            .unwrap()
+            .image_update_ns,
+        101_000_000
+    );
 }
 
 #[test]
