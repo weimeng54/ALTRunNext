@@ -170,7 +170,9 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             );
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
             assert_ne!(IsWindowVisible(GetDlgItem(hwnd, 1004)), 0);
-            SendMessageW(edit, WM_KEYDOWN, 13, 0);
+            let target=edit as usize;let pending=thread::spawn(move||{SendMessageW(target as _,WM_KEYDOWN,13,0);});
+            let prompt_deadline=Instant::now()+Duration::from_secs(8);
+            loop{let mut prompt=FindWindowExW(std::ptr::null_mut(),std::ptr::null_mut(),wide("#32770").as_ptr(),std::ptr::null());let mut found=false;while !prompt.is_null(){let mut pid=0;GetWindowThreadProcessId(prompt,&mut pid);if pid==_child.0.id(){SendMessageW(prompt,WM_COMMAND,IDCANCEL as usize,0);found=true;break;}prompt=FindWindowExW(std::ptr::null_mut(),prompt,wide("#32770").as_ptr(),std::ptr::null());}if found{break;}assert!(Instant::now()<prompt_deadline,"empty-result confirmation did not appear");thread::sleep(Duration::from_millis(15));}pending.join().unwrap();
             assert_ne!(
                 IsWindowVisible(hwnd),
                 0,

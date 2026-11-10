@@ -49,7 +49,9 @@ def request(route, raw=False, data=None, method=None):
         if parsed.scheme!='https' or not any((parsed.hostname or '').endswith(s) for s in ('.githubusercontent.com','.blob.core.windows.net','.github.com')):
             raise RuntimeError('Unexpected artifact download host') from None
         # No GitHub credential is sent to this signed, temporary download URL.
-        result=subprocess.run(['curl.exe','--fail','--silent','--show-error','--max-time','40',location],capture_output=True,check=True)
+        result=subprocess.run(['curl.exe','--fail','--silent','--show-error','--max-time','40',location],capture_output=True)
+        if result.returncode:
+            raise RuntimeError('Cloud artifact/log download is unavailable; signed download URL was withheld.') from None
         body=result.stdout
     return body if raw else json.loads(body)
 
