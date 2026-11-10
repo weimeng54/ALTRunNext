@@ -4,6 +4,8 @@
 mod native;
 #[cfg(windows)]
 mod theme;
+#[cfg(windows)]
+mod manager;
 
 fn main() {
     if std::env::args().any(|arg| arg == "--check") {

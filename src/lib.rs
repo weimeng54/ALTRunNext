@@ -14,7 +14,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
         .filter(|(_, line)| !line.is_empty())
         .map(|(i, line)| {
             let fields: Vec<_> = line.split('\t').collect();
-            if fields.len() != 4 || fields[0].is_empty() {
+            if !(4..=5).contains(&fields.len()) || fields[0].is_empty() {
                 return Err(format!("Invalid dataset row {}", i + 1));
             }
             Ok(Entry {
@@ -24,7 +24,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 frequency: fields[3]
                     .parse()
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
-                param_type: library::ParamType::Auto,
+                param_type: if fields.len()==5 { library::ParamType::parse(fields[4])? } else { library::ParamType::Auto },
             })
         })
         .collect()
@@ -33,6 +33,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
 pub struct SearchIndex {
     aliases: Vec<String>,
     frequencies: Vec<i64>,
+    characters: Vec<Vec<char>>,
 }
 
 impl SearchIndex {
@@ -40,11 +41,15 @@ impl SearchIndex {
         Self {
             aliases: entries.iter().map(|e| e.alias.to_lowercase()).collect(),
             frequencies: entries.iter().map(|e| e.frequency).collect(),
+            characters: entries.iter().map(|e| e.alias.to_lowercase().chars().collect()).collect(),
         }
     }
 
     pub fn query(&self, input: &str) -> Vec<usize> {
+        if input == " " || input.chars().count() > 256 { return Vec::new(); }
         let input = input.to_lowercase();
+        let wildcard = input.contains(['*', '?']);
+        let pattern: Vec<char> = input.chars().collect();
         let mut hits: Vec<(usize, i64)> = self
             .aliases
             .iter()
@@ -53,8 +58,9 @@ impl SearchIndex {
                 if input.is_empty() {
                     return Some((i, self.frequencies[i]));
                 }
-                alias.find(&input).map(|pos| {
-                    let position = alias[..pos].chars().count() as i64 + 1;
+                let position = if wildcard { wildcard_position(&pattern, &self.characters[i]) } else { alias.find(&input).map(|pos| alias[..pos].chars().count()) };
+                position.map(|pos| {
+                    let position = pos as i64 + 1;
                     let length_delta = alias.chars().count() as i64 - input.chars().count() as i64;
                     let score = 1024_i64
                         .saturating_add(self.frequencies[i].saturating_mul(4))
@@ -105,4 +111,24 @@ pub mod desktop_frame;
 pub mod desktop_observation;
 pub mod launch;
 pub mod library;
+pub mod textcodec;
 pub mod observation;
+
+fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
+    fn merge(slot: &mut Option<usize>, value: usize) { *slot = Some(slot.map_or(value, |old| old.min(value))); }
+    let mut states = vec![None; pattern.len() + 1];
+    let mut next = states.clone(); let mut best = None;
+    for offset in 0..=alias.len() {
+        merge(&mut states[0], offset);
+        for i in 0..pattern.len() { if pattern[i] == '*' && let Some(start) = states[i] { merge(&mut states[i+1], start); } }
+        if let Some(start) = states[pattern.len()] { merge(&mut best, start); }
+        if offset == alias.len() { break; }
+        next.fill(None);
+        for i in 0..pattern.len() { if let Some(start) = states[i] {
+            if pattern[i] == '*' { merge(&mut next[i], start); }
+            else if pattern[i] == '?' || pattern[i] == alias[offset] { merge(&mut next[i+1], start); }
+        } }
+        std::mem::swap(&mut states, &mut next);
+    }
+    best
+}

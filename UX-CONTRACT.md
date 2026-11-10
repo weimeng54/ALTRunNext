@@ -1,43 +1,24 @@
-# ALTRun 原型交互约定
+# ALTRun native interaction contract
 
-状态：设计提案，只适用于本次预览；正式原生契约见 `docs/ALTRun-modernization-plan.md`。视觉 token 和布局见 `DESIGN.md`。业务依据是用户本次复刻要求及原版源码/说明，没有外部账户、权限角色或计费流程。
+Audience: experienced Chinese Windows ALTRun users. Sources: user-approved compact design, DESIGN.md, docs/ALTRun-modernization-plan.md feature matrix and current execution plan. Actual perceived responsiveness is the acceptance criterion.
 
-## Canonical UI Map
+## Canonical ownership
 
-| Capability | Canonical owner | Source of truth | Allowed variants | Verification |
-|---|---|---|---|---|
-| Table Selection | 命令管理编辑入口与统一 edit 函数 | 本文 | 单项编辑 | 原型交互检查 |
-| Select/Listbox | 浏览器原生 select，接受系统弹层 | DESIGN.md | native | 原生选择器与主题检查 |
-| Form | ar-editor / ar-param-form | 本文 | create / edit / parameter | 校验、保存、取消检查 |
-| Scrollbar | 原型根作用域全局 scrollbar 规则 | DESIGN.md | forced-colors | 窄屏检查 |
-| Toast | 单一 ar-status live region | 本文 | success / info | 状态更新检查 |
-| CRUD | 内存 commands + edit/renderTable/renderResults | 本文 | return / stay | 创建编辑撤销检查 |
-
-## 导航、输入与数据
-
-- 四个预览页面切换，使用 aria-pressed 按钮，不伪装成未实现键盘语义的 ARIA tab。
-- 查询/筛选为不分享的临时状态，不进入 URL；本地即时过滤，不做网络防抖。IME composition 结束后更新，组词 Enter 不触发执行。
-- 预置数据为原版常用命令中的 10 项，原型最多显示 10 项；仅按快捷字本地过滤。正式版大列表虚拟化、全部功能见方案；此处不假装已实现旧排序、参数历史或全局热键。
-- 用户反馈后启动面板缩至 420px，20px 单行列表；顶部选中名、输入提示、编号/参数星号/快捷字/名称、底部 CMD 保留原版结构。无应用图标、逐行路径、类型标签或操作页脚。
-- 单击选中，双击/中键执行；Enter/Space 和 Alt/Control+数字执行。Alt+S/Alt+C 在输入框聚焦时打开管理/设置。原型焦点范围内的快捷键不等同于系统全局热键。
-- 管理页名称、路径可换行，长文本不遮住操作；启动列表保持单行，长名称省略但可从选中标题/命令行访问目标，CMD 输入框可选取和横向查看。原型不使用 localStorage，不写文件，无服务器失败/会话/网络重试状态。
-- 新建/编辑使用同一表单、缺项错误、重复快捷字错误；出错聚焦相应输入，保留字段。单项保存为内存同步提交，无远程 loading。
-
-## Flow ledger
-
-| 操作 | 成功/离开 | 失败与恢复 | 焦点 |
+| Capability | Owner | Contract | Verification |
 |---|---|---|---|
-| 搜索 | 更新结果、选中第一项 | 无结果提供添加命令 | 保留查询 |
-| 选择执行 | 无参数显示模拟状态；有参数打开对话框 | 不访问本机 | 参数框/原触发控件 |
-| 添加 | 留在管理页并选中新项 | 内联错误，保留输入 | 首个错误字段 |
-| 编辑 | 留在管理页、保留筛选 | 重复别名拒绝保存 | 表单内 |
-| 取消/切页 | 无改动直接离开 | 有修改先显示继续/放弃 | 取消后恢复触发焦点 |
-| 删除 | 仅从预览删除，提供撤销 | 不触碰目标文件 | 编辑器/撤销按钮 |
-| 模拟迁移 | 显示示例结果 | 未选择停用问题项则禁用提交 | 保留页面 |
+| Launcher selection | native.rs resident owner-drawn LISTBOX | mouse selects; input retains focus; frozen parameter target cannot change | native regression |
+| Management list/form | manager.rs on-demand native window | draft edits, add/delete/import, explicit Save, unsaved-close confirmation | management regression and synthetic screenshots |
+| Parameter type | library.rs ParamType plus native COMBOBOX | Automatic, None, Raw, ANSI URL, UTF-8 URL share one enum/serializer | roundtrip and encoding tests |
+| Scrollbars/focus | Windows native controls | visible native scrollbars, tab navigation, focus cue | native interaction |
+| Validation/persistence | library.rs Snapshot | validate complete dataset; stage/flush; backup previous file; reject changed source; publish after success | file save/failure/conflict tests |
+| Feedback | owning window's status field | errors remain visible with edits intact; successful save stays in manager | UI regression |
 
-## 对话框、反馈和验证
+## State and recovery
 
-- 对话框使用 native dialog；模态背景不可交互，Esc 取消。放弃修改默认焦点在“继续编辑”。
-- 删除可撤销所以不强制确认；正式版批量清理和不可恢复操作先预览再确认。
-- 状态统一写入 ar-status，错误是字段附近持久文本；不使用 alert/confirm/prompt。
-- 原型校验搜索清空、空结果、参数弹层、保存/重复错误、未保存离开、删除/撤销、主题切换、窄屏和长路径。原生软件验收独立进行，不从网页检查推导 UIA、系统 IME 或性能结论。
+Main launcher uses only its resident snapshot. Management opens on a separate UI thread; it never makes hotkey/search wait for file operations. The manager loads a fresh file snapshot when opened. Failed saves leave the draft and active launcher data intact. Successful saves update the resident launcher without stealing focus and cancel any stale parameter selection. Original files are read-only import sources; the new data file is the editing destination.
+
+List changes remain a draft until Save. Duplicate aliases are supported. Delete confirms the named entry; importing replaces only the draft after confirmation. Closing a dirty manager asks before discarding. A main-program exit with a manager open directs the user to save/close it first. Empty libraries are valid and keep Add/Import available. Parameter input Enter only launches after composition is committed; manager form Enter does not implicitly save while typing.
+
+Keyboard: Ctrl+Alt+R launcher hotkey; Alt+S manager; Up/Down/Tab result selection. Manager controls use native Tab/Shift+Tab navigation and Space for focused buttons. Search is immediate, with no debounce. Search state is transient and private; no URL state, telemetry or network lookup.
+
+Theme values live in theme.rs and are documented in DESIGN.md. Native controls own input, IME, selection and dropdown geometry. Light theme only for this iteration; high contrast and dynamic cross-monitor DPI remain explicitly unfinished.
