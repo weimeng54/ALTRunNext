@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 mod native_snapshot;
 
 fn wide(s: &str) -> Vec<u16> {
@@ -107,9 +108,17 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "parameter mode accepts a separate value"
             );
             native_snapshot::save(hwnd, &format!("parameter-{scale}"));
-            assert_eq!(IsWindowEnabled(list), 0, "parameter mode must lock the displayed execution target");
+            assert_eq!(
+                IsWindowEnabled(list),
+                0,
+                "parameter mode must lock the displayed execution target"
+            );
             SendMessageW(edit, WM_KEYDOWN, 27, 0);
-            assert_ne!(IsWindowEnabled(list), 0, "cancelling parameters restores list navigation");
+            assert_ne!(
+                IsWindowEnabled(list),
+                0,
+                "cancelling parameters restores list navigation"
+            );
             let mut restored = [0_u16; 32];
             GetWindowTextW(edit, restored.as_mut_ptr(), 32);
             assert_eq!(String::from_utf16_lossy(&restored[..5]), "param");
