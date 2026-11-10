@@ -23,3 +23,9 @@
 下一实验使用 DXGI Desktop Duplication，分别记录系统 LastPresentTime（QPC）、取帧前后、GPU 区域复制/CPU Map/哈希结束时间，显式记录积累帧、鼠标专属更新、受保护内容和超时。LastPresentTime 只是桌面图像更新时间，不是物理屏幕或正确字形的证明；所有输出仍 pending。先在云端以可预期的 GPU 纹理验证区域裁剪、RowPitch 和 RGB，再在本机无窗口采样现有画面，不人为制造桌面更新，不接触原版。
 
 独立辅助实验使用 Windows SDK 的 C++ DXGI 接口，原因是复用云端现有 SDK 并减少引入新的 Rust COM 依赖；启动器仍为 Rust/Win32，本机不安装编译工具。显示旋转、跨显示器区域及访问丢失先明确拒收，不做隐式桌面切换或权限回退。
+
+初始未实现校验在云端实际退出 2。审查发现零有效帧可能误报完成，已补充并观察到拒收测试失败，再修正为至少一次成功读回；`desktop_sampled` 只在读回成功后设置。GPU 自测另定位并修正 immutable 纹理缺少 BindFlags 的参数错误。
+
+提交 `a67ca5eeb075af149c506df741708ffce4b7d454` 的 [完整云端构建](https://github.com/weimeng54/altrun/actions/runs/42753515495) 通过原有 35 项测试、GPU 内容及零帧自测、格式、静态检查和 Release 编译；四个 EXE 及自测 JSON 已逐项核对提交与 SHA256。
+
+首次本机隐藏采样成功启动，但系统 `ProtectedContentMaskedOut` 标记导致严格拒收，保存 0 条有效帧、1 次鼠标专属更新，合成 GPU 校验通过。该标记针对桌面图像，不能据此确定具体哪个窗口或认定启动器有问题。尚无本机 DXGI 开销结论；后续仅在用户确认短暂可用后切到普通资源管理器窗口排查，不修改安全/隐私设置或尝试读取被遮罩内容。
