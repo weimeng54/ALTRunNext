@@ -255,6 +255,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     if store_value().is_ok()
                         && let Some(path) = choose_file(true)
                     {
+                        let source=EDITOR.with(|c|c.borrow().as_ref().unwrap().file.path.clone());if path==source||std::fs::canonicalize(&path).ok().is_some_and(|p|Some(p)==std::fs::canonicalize(&source).ok()){status("请选择不同的导出文件；应用当前设置请使用保存。");return 0;}
                         let t = EDITOR.with(|c| c.borrow().as_ref().unwrap().prefs.text());
                         match TextFile::open(&path).and_then(|(mut f, _)| f.save(&t)) {
                             Ok(()) => status("设置已导出。"),
@@ -358,17 +359,18 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     return Err("无法创建设置窗口".into());
                 }
                 WINDOW.store(hwnd as usize, Ordering::Release);
-                let font = make_font(14, 400, "Microsoft YaHei UI", 96);
+                let dpi=crate::window_geometry::fit(hwnd,680,440,None);
+                let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
                 let control = |class: &str, label: &str, style: u32, x, y, width, height, id| {
                     let h = CreateWindowExW(
                         0,
                         wide(class).as_ptr(),
                         wide(&crate::localization::tr(label)).as_ptr(),
                         WS_CHILD | WS_VISIBLE | style,
-                        x,
-                        y,
-                        width,
-                        height,
+                        crate::native::scaled(x,dpi),
+                        crate::native::scaled(y,dpi),
+                        crate::native::scaled(width,dpi),
+                        crate::native::scaled(height,dpi),
                         hwnd,
                         id as HMENU,
                         instance,

@@ -162,7 +162,7 @@ pub fn import_legacy(text: &str) -> Result<Import, String> {
         ignored_lines,
     })
 }
-fn validate(e: &Entry) -> Result<(), String> {
+pub(crate) fn validate(e: &Entry) -> Result<(), String> {
     if e.alias.trim().is_empty() || (e.kind == EntryKind::Command && e.command.trim().is_empty()) {
         return Err("快捷字和命令不能为空".into());
     }

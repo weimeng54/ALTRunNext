@@ -203,3 +203,6 @@ fn search_preferences_keep_literal_and_regex_semantics_separate() {
     );
     assert!(index.query_options(r"(np)\1", true, true, true).is_err());
 }
+
+#[test]fn context_markers_do_not_capture_environment_prefixes_and_dynamic_target_is_explicit(){use altrun_probe::{launch::{self,LaunchContext},library::ParamType};let mut context=LaunchContext::default();let command=if cfg!(windows){"%comspec% /D /C echo ok"}else{"%PATH%"};assert!(!launch::has_context(command));if cfg!(windows){assert!(launch::resolve_context(command,None,ParamType::Auto,"",&context).is_ok());}assert!(launch::resolve_context("{%p}",Some("tool.exe"),ParamType::Raw,"",&context).is_err());context.allow_dynamic_target=true;assert_eq!(launch::resolve_context("{%p}",Some("tool.exe"),ParamType::Raw,"",&context).unwrap().0.file,"tool.exe");}
+#[test]fn list_format_is_bounded_and_does_not_treat_user_content_as_format(){assert_eq!(altrun_probe::list_format::render("%-4s | %s","中","%TEMP%").unwrap(),"中    | %TEMP%");assert!(altrun_probe::list_format::render("%999999s","a","b").is_err());assert!(altrun_probe::list_format::render("%n","a","b").is_err());}

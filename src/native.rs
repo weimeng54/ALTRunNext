@@ -31,13 +31,17 @@ const ID_CLEAN: usize = 18009;
 const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
+const STATE_ERROR:u32=WM_APP+17;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const STATIC_CENTER: u32 = 0x00000000;
 type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
 struct State {
-    buttons:[HWND;3],
+    input_paper:HBRUSH,
+    font_colours:[u32;3],
+    alias_font:HFONT,
+    buttons: [HWND; 3],
     skin: usize,
     skin_path: String,
     skin_sender: std::sync::mpsc::Sender<(String, Result<usize, String>)>,
@@ -213,10 +217,21 @@ fn render_hits() {
             s.title,
         )
     });
-    let labels=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.hits.iter().take(count).map(|i|format!("{} · {}",s.entries[*i].alias,s.entries[*i].name)).collect::<Vec<_>>()});
+    let labels = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        s.hits
+            .iter()
+            .take(count)
+            .map(|i| format!("{} · {}", s.entries[*i].alias, s.entries[*i].name))
+            .collect::<Vec<_>>()
+    });
     unsafe {
         SendMessageW(list, WM_SETREDRAW, 0, 0);
-        SendMessageW(list,LB_RESETCONTENT,0,0);for label in labels{SendMessageW(list,LB_ADDSTRING,0,wide(&label).as_ptr() as isize);}
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for label in labels {
+            SendMessageW(list, LB_ADDSTRING, 0, wide(&label).as_ptr() as isize);
+        }
         SendMessageW(list, LB_SETCURSEL, 0, 0);
         let height = scaled((count.max(1) as i32).min(max_rows) * row, dpi);
         SetWindowPos(
@@ -237,7 +252,45 @@ fn render_hits() {
             scaled(20, dpi),
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        let(buttons,flags)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.buttons,[s.preferences.flag("ShowShortCutButton"),s.preferences.flag("ShowConfigButton"),s.preferences.flag("ShowCloseButton")])});let mut offset=10;for(i,button)in buttons.into_iter().enumerate().rev(){ShowWindow(button,if flags[i]{SW_SHOWNOACTIVATE}else{SW_HIDE});if flags[i]{offset+=24;SetWindowPos(button,null_mut(),scaled(width-offset,dpi),scaled(4,dpi),scaled(22,dpi),scaled(22,dpi),SWP_NOZORDER|SWP_NOACTIVATE);}}if offset>10{SetWindowPos(title,null_mut(),scaled(12,dpi),scaled(6,dpi),scaled(width-offset-20,dpi),scaled(20,dpi),SWP_NOZORDER|SWP_NOACTIVATE);}
+        let (buttons, flags) = STATE.with(|c| {
+            let s = c.borrow();
+            let s = s.as_ref().unwrap();
+            (
+                s.buttons,
+                [
+                    s.preferences.flag("ShowShortCutButton"),
+                    s.preferences.flag("ShowConfigButton"),
+                    s.preferences.flag("ShowCloseButton"),
+                ],
+            )
+        });
+        let mut offset = 10;
+        for (i, button) in buttons.into_iter().enumerate().rev() {
+            ShowWindow(button, if flags[i] { SW_SHOWNOACTIVATE } else { SW_HIDE });
+            if flags[i] {
+                offset += 24;
+                SetWindowPos(
+                    button,
+                    null_mut(),
+                    scaled(width - offset, dpi),
+                    scaled(4, dpi),
+                    scaled(22, dpi),
+                    scaled(22, dpi),
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+        }
+        if offset > 10 {
+            SetWindowPos(
+                title,
+                null_mut(),
+                scaled(12, dpi),
+                scaled(6, dpi),
+                scaled(width - offset - 20, dpi),
+                scaled(20, dpi),
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
         SetWindowPos(
             list,
             null_mut(),
@@ -418,10 +471,7 @@ fn launch_selected() {
     }
     if entry.param_type.needs_input(&entry.command)
         && !parameter_mode
-        && (altrun_probe::launch::has_parameter(&entry.command)
-            || !["%c", "%wd", "%wt", "%wc"]
-                .iter()
-                .any(|t| entry.command.contains(t)))
+            && (altrun_probe::launch::has_parameter(&entry.command)||!altrun_probe::launch::has_context(&entry.command))
     {
         let query = edit_text(edit);
         let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
@@ -455,7 +505,7 @@ fn launch_selected() {
     let query = if parameter_mode {
         STATE.with(|c| c.borrow().as_ref().unwrap().saved_query.clone())
     } else {
-        edit_text(edit)
+        STATE.with(|c|c.borrow().as_ref().unwrap().current_query.clone())
     };
     let mut context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
     let working_directory = entry.working_directory;
@@ -471,7 +521,7 @@ fn launch_selected() {
     // All path checks, environment expansion, COM initialization and shell work
     // happen off the resident UI thread. No implicit cmd.exe is introduced.
     std::thread::spawn(move || {
-        if command.contains("%c") {
+        if altrun_probe::launch::has_context(&command)&&command.contains("%c") {
             context.clipboard = clipboard_text();
         }
         let result = altrun_probe::launch::resolve_context(
@@ -589,7 +639,7 @@ fn paint_panel(hwnd: HWND) {
                 SelectObject(memory, old);
                 DeleteDC(memory);
             }
-            let old_brush = SelectObject(dc, s.paper);
+            let old_brush = SelectObject(dc, s.input_paper);
             let old_pen = SelectObject(dc, s.border);
             RoundRect(
                 dc,
@@ -675,7 +725,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         STATE.with(|c| c.borrow_mut().as_mut().unwrap().composing = false);
     }
     let composing = STATE.with(|c| c.borrow().as_ref().unwrap().composing);
-    if matches!(msg,WM_KEYDOWN|WM_SYSKEYDOWN) && !composing {
+    if matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN) && !composing {
         let control = unsafe { GetKeyState(VK_CONTROL as i32) } < 0;
         let alt = unsafe { GetKeyState(VK_MENU as i32) } < 0;
         STATE.with(|c| c.borrow_mut().as_mut().unwrap().last_key = w as u16);
@@ -886,7 +936,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 STATE.with(|c| c.borrow().as_ref().unwrap().launch_results.try_recv().ok());
             STATE.with(|c| c.borrow_mut().as_mut().unwrap().launching = false);
             match result {
-                Some(Err(message)) => {trace_event("launch_failed");show_inline_error(&message);},
+                Some(Err(message)) => {
+                    trace_event("launch_failed");
+                    show_inline_error(&message);
+                }
                 Some(Ok(())) => {
                     trace_event("launch_succeeded");
                     STATE.with(|c| {
@@ -924,6 +977,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             apply_settings_messages();
             0
         }
+        STATE_ERROR=>{let errors=STATE.with(|c|c.borrow().as_ref().unwrap().usage_writer.errors.try_iter().collect::<Vec<_>>());if let Some(error)=errors.last(){show_inline_error(&format!("运行记录未能保存：{error}"));}0}
         SKIN_DONE => {
             let mut errors = Vec::new();
             STATE.with(|c| {
@@ -1077,6 +1131,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
             0
         }
+        crate::manager::GEOMETRY_CHANGED=>{let geometry=crate::manager::window_state();STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if let Some(rect)=geometry.rect{s.usage.positions.insert("manager".into(),rect);}s.usage.selection.insert("manager".into(),geometry.selected);s.usage_writer.publish(s.usage.text());});0}
         WM_COMMAND => {
             if w & 0xffff == ID_MANAGE {
                 open_manager();
@@ -1249,8 +1304,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         a.as_ptr(),
                         (a.len() - 1) as i32,
                     );
-                    SetTextColor(d.hDC, theme::text());
-                    SelectObject(d.hDC, s.title_font);
+                    let format=s.preferences.get("ListFormat");if format!="%-25s| %s"&&let Ok(line)=altrun_probe::list_format::render(&format,&e.alias,&e.name){let mut rect=d.rcItem;rect.left=scaled(34,s.dpi);SetTextColor(d.hDC,theme::text());DrawTextW(d.hDC,wide(&line).as_ptr(),-1,&mut rect,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX);return;}
+                    SetTextColor(d.hDC, s.font_colours[2]);
+                    SelectObject(d.hDC, s.alias_font);
                     let mut rect = RECT {
                         left: scaled(34, s.dpi),
                         top: d.rcItem.top,
@@ -1292,20 +1348,18 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         theme::ERROR
                     } else if l as HWND == s.command || l as HWND == s.empty {
                         theme::muted()
-                    } else {
-                        theme::text()
-                    },
+                    } else if l as HWND==s.edit{s.font_colours[1]}else if l as HWND==s.title{s.font_colours[0]}else{s.font_colours[2]},
                 );
                 SetBkColor(
                     dc,
-                    if paper {
+                    if l as HWND==s.edit{theme::keyword()}else if paper {
                         theme::paper()
                     } else {
                         theme::surface()
                     },
                 );
             }
-            if paper {
+            if l as HWND==s.edit{s.input_paper as LRESULT}else if paper {
                 s.paper as LRESULT
             } else {
                 s.background as LRESULT
@@ -1391,7 +1445,6 @@ pub fn run() -> Result<(), String> {
     let (state_file, state_text) =
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("state.tsv"))?;
     let usage = altrun_probe::usage::Usage::parse(&state_text)?;
-    let usage_writer = altrun_probe::state_store::Writer::start(state_file);
     let (settings_sender, settings_updates) = std::sync::mpsc::channel();
     let (match_sender, match_tasks) =
         std::sync::mpsc::channel::<(u64, String, Vec<String>, bool)>();
@@ -1409,6 +1462,7 @@ pub fn run() -> Result<(), String> {
         let background = CreateSolidBrush(theme::surface());
         let selected_brush = CreateSolidBrush(theme::selection());
         let paper = CreateSolidBrush(theme::paper());
+        let input_paper=CreateSolidBrush(theme::keyword());let alias_font=make_font(13,600,"Microsoft YaHei UI",96);
         let accent = CreateSolidBrush(theme::accent());
         let border = CreatePen(PS_SOLID, 1, theme::border());
         let mut wc: WNDCLASSW = zeroed();
@@ -1511,7 +1565,14 @@ pub fn run() -> Result<(), String> {
             16,
             1003,
         );
-        let buttons=[control("BUTTON",BS_FLAT as u32,0,0,22,22,ID_MANAGE),control("BUTTON",BS_FLAT as u32,0,0,22,22,ID_SETTINGS),control("BUTTON",BS_FLAT as u32,0,0,22,22,ID_HIDE)];for(button,text)in buttons.iter().zip(["≡","⚙","×"]){SetWindowTextW(*button,wide(text).as_ptr());}
+        let buttons = [
+            control("BUTTON", BS_FLAT as u32, 0, 0, 22, 22, ID_MANAGE),
+            control("BUTTON", BS_FLAT as u32, 0, 0, 22, 22, ID_SETTINGS),
+            control("BUTTON", BS_FLAT as u32, 0, 0, 22, 22, ID_HIDE),
+        ];
+        for (button, text) in buttons.iter().zip(["≡", "⚙", "×"]) {
+            SetWindowTextW(*button, wide(text).as_ptr());
+        }
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);
         SetWindowTextW(empty, ui("没有匹配项，换个快捷字试试").as_ptr());
         if [title, edit, list, command, empty]
@@ -1535,11 +1596,13 @@ pub fn run() -> Result<(), String> {
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(theme::ROW, dpi) as LPARAM);
         let (launch_sender, launch_results) = std::sync::mpsc::channel();
         let (library_sender, library_updates) = altrun_probe::library_updates::channel();
+        let owner=hwnd as usize;let usage_writer=altrun_probe::state_store::Writer::start_notified(state_file,move||{PostMessageW(owner as HWND,STATE_ERROR,0,0);});
         LAUNCH_SENDER.with(|s| *s.borrow_mut() = Some(launch_sender));
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
+                input_paper,alias_font,font_colours:[theme::text();3],
                 buttons,
                 skin: 0,
                 skin_path: String::new(),
@@ -1647,7 +1710,15 @@ pub fn run() -> Result<(), String> {
             }
         }
         apply_appearance();
-        if STATE.with(|c|c.borrow().as_ref().unwrap().preferences.flag("ShowStartNotification")){startup_notification(hwnd);}
+        if STATE.with(|c| {
+            c.borrow()
+                .as_ref()
+                .unwrap()
+                .preferences
+                .flag("ShowStartNotification")
+        }) {
+            startup_notification(hwnd);
+        }
         if !intake.is_empty() {
             crate::manager::enqueue(intake, None);
             open_manager();
@@ -1686,10 +1757,11 @@ pub fn run() -> Result<(), String> {
         }
         STATE.with(|c| {
             if let Some(s) = c.borrow_mut().take() {
-                for font in [s.font, s.title_font, s.input_font, s.command_font] {
+                for font in [s.font, s.title_font, s.input_font, s.command_font,s.alias_font] {
                     DeleteObject(font);
                 }
                 DeleteObject(s.paper);
+                DeleteObject(s.input_paper);
                 DeleteObject(s.accent);
                 DeleteObject(s.border);
                 DeleteObject(s.selected_brush);
@@ -1705,6 +1777,7 @@ pub fn run() -> Result<(), String> {
 }
 
 fn open_manager() {
+    let geometry=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();crate::manager::WindowState{rect:s.usage.positions.get("manager").copied(),selected:s.usage.selection.get("manager").cloned().unwrap_or_default()}});crate::manager::configure(geometry);
     let (path, entries, hwnd, sender) = STATE.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
@@ -1838,10 +1911,7 @@ fn capture_context() {
             s.context.window_title = title;
             s.context.window_class = String::from_utf16_lossy(&class[..n.max(0) as usize]);
             s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
-            let dir = s.preferences.get("WorkingDirectory");
-            if !dir.is_empty() {
-                s.context.base_directory = dir;
-            }
+            let dir = s.preferences.get("WorkingDirectory");s.context.base_directory=if !dir.is_empty(){dir}else{s.data_path.parent().unwrap_or(std::path::Path::new(".")).to_string_lossy().into_owned()};
         });
     }
 }
@@ -1893,19 +1963,32 @@ fn register_bindings(
     prefs: &altrun_probe::preferences::Preferences,
     old: &[(i32, Option<altrun_probe::preferences::Hotkey>)],
 ) -> Result<Bindings, String> {
-    let requested=["HotKey1","HotKey2","LastItemHotKey"].iter().map(|key|altrun_probe::preferences::parse_hotkey(&prefs.get(key))).collect::<Result<Vec<_>,_>>()?;
-    if requested.iter().all(Option::is_none)&&!prefs.flag("ShowTrayIcon"){return Err("至少保留一个呼出快捷键或托盘图标".into());}
-    for (i,value)in requested.iter().enumerate(){if value.is_some()&&requested[..i].contains(value){return Err("呼出和最近项目快捷键不能重复".into());}}
+    let requested = ["HotKey1", "HotKey2", "LastItemHotKey"]
+        .iter()
+        .map(|key| altrun_probe::preferences::parse_hotkey(&prefs.get(key)))
+        .collect::<Result<Vec<_>, _>>()?;
+    if requested.iter().all(Option::is_none) && !prefs.flag("ShowTrayIcon") {
+        return Err("至少保留一个呼出快捷键或托盘图标".into());
+    }
+    for (i, value) in requested.iter().enumerate() {
+        if value.is_some() && requested[..i].contains(value) {
+            return Err("呼出和最近项目快捷键不能重复".into());
+        }
+    }
     let mut next = Vec::new();
     let mut added = Vec::new();
     for (i, key) in ["HotKey1", "HotKey2", "LastItemHotKey"].iter().enumerate() {
         let value = requested[i];
-        if let Some(existing) = old.iter().find(|(_,old_value)|value.is_some()&&*old_value==value)
+        if let Some(existing) = old
+            .iter()
+            .find(|(_, old_value)| value.is_some() && *old_value == value)
         {
             next.push(*existing);
             continue;
         }
-        let id=(HOTKEY..HOTKEY+20).find(|id|!old.iter().any(|v|v.0==*id)&&!next.iter().any(|v|v.0==*id)).ok_or("没有可用热键编号")?;
+        let id = (HOTKEY..HOTKEY + 20)
+            .find(|id| !old.iter().any(|v| v.0 == *id) && !next.iter().any(|v| v.0 == *id))
+            .ok_or("没有可用热键编号")?;
         if let Some(value) = value {
             if unsafe { RegisterHotKey(hwnd, id, value.modifiers | MOD_NOREPEAT, value.key) } == 0 {
                 for id in added {
@@ -2030,6 +2113,7 @@ fn apply_appearance() {
                 (&mut s.paper, CreateSolidBrush(theme::paper())),
                 (&mut s.selected_brush, CreateSolidBrush(theme::selection())),
                 (&mut s.accent, CreateSolidBrush(theme::accent())),
+                (&mut s.input_paper,CreateSolidBrush(theme::keyword())),
             ] {
                 let old = std::mem::replace(slot, new);
                 DeleteObject(old);
@@ -2037,6 +2121,7 @@ fn apply_appearance() {
             let old = std::mem::replace(&mut s.border, CreatePen(PS_SOLID, 1, theme::border()));
             DeleteObject(old);
         });
+        STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.font_colours=[theme::font_colour(&prefs.get("TitleFont")),theme::font_colour(&prefs.get("KeywordFont")),theme::font_colour(&prefs.get("ListFont"))];});
         let definitions = [
             ("ListFont", list),
             ("TitleFont", title),
@@ -2080,12 +2165,22 @@ fn apply_appearance() {
                 DeleteObject(old);
             }
         });
+        if let Ok(font)=altrun_probe::preferences::Font::parse(&prefs.get("ListFont")){let alias=make_font(font.points*4/3,600,&font.name,dpi);let preview=make_font(11,400,"Consolas",dpi);SendMessageW(command,WM_SETFONT,preview as usize,1);STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();DeleteObject(std::mem::replace(&mut s.alias_font,alias));DeleteObject(std::mem::replace(&mut s.command_font,preview));});}
         let alpha = prefs.number("Alpha").clamp(40, 255) as u8;
         let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_LAYERED) as i32);
         SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-        if prefs.flag("ShowSkin")||prefs.get("AlphaColor")!="0"{let colour=altrun_probe::preferences::parse_colour(&prefs.get("AlphaColor")).unwrap_or(0);SetLayeredWindowAttributes(hwnd,colour,alpha,LWA_ALPHA|LWA_COLORKEY);}
-        let hint=if prefs.flag("ShowOperationHint"){ui("输入快捷字 · Enter 启动，Esc 隐藏")}else{ui("输入快捷字")};SendMessageW(edit,EM_SETCUEBANNER,0,hint.as_ptr() as isize);
+        if prefs.flag("ShowSkin") || prefs.get("AlphaColor") != "0" {
+            let colour =
+                altrun_probe::preferences::parse_colour(&prefs.get("AlphaColor")).unwrap_or(0);
+            SetLayeredWindowAttributes(hwnd, colour, alpha, LWA_ALPHA | LWA_COLORKEY);
+        }
+        let hint = if prefs.flag("ShowOperationHint") {
+            ui("输入快捷字 · Enter 启动，Esc 隐藏")
+        } else {
+            ui("输入快捷字")
+        };
+        SendMessageW(edit, EM_SETCUEBANNER, 0, hint.as_ptr() as isize);
         ShowWindow(
             command,
             if prefs.flag("ShowCommandLine") {
@@ -2379,7 +2474,7 @@ fn popup_sound() {
     let file = prefs.get("PopupFileName");
     unsafe {
         if file.is_empty() {
-            MessageBeep(MB_OK);
+            windows_sys::Win32::Media::Audio::PlaySoundW(wide("SystemAsterisk").as_ptr(),null_mut(),0x00010000|0x00000001);
         } else {
             windows_sys::Win32::Media::Audio::PlaySoundW(
                 wide(&file).as_ptr(),
@@ -2451,7 +2546,45 @@ fn lifecycle(clean: bool) {
     }
 }
 
-fn startup_notification(hwnd:HWND){unsafe{let mut icon:NOTIFYICONDATAW=zeroed();icon.cbSize=std::mem::size_of_val(&icon) as u32;icon.hWnd=hwnd;icon.uID=1;icon.uFlags=NIF_INFO;icon.dwInfoFlags=NIIF_INFO;let title=ui("ALTRun 已就绪");let n=title.len().min(icon.szInfoTitle.len());icon.szInfoTitle[..n].copy_from_slice(&title[..n]);let message=ui("使用已配置的快捷键呼出；托盘菜单可管理快捷项和设置。");let n=message.len().min(icon.szInfo.len());icon.szInfo[..n].copy_from_slice(&message[..n]);Shell_NotifyIconW(NIM_MODIFY,&icon);}}
-fn trace_event(event:&'static str){let path=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.preferences.flag("TraceEnable").then(||s.data_path.with_extension("diagnostic.log"))});if let Some(path)=path{std::thread::spawn(move||{use std::io::Write;let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();if let Ok(mut f)=std::fs::OpenOptions::new().create(true).append(true).open(path){let _=writeln!(f,"{stamp}\t{event}");}});}}
-
-
+fn startup_notification(hwnd: HWND) {
+    unsafe {
+        let mut icon: NOTIFYICONDATAW = zeroed();
+        icon.cbSize = std::mem::size_of_val(&icon) as u32;
+        icon.hWnd = hwnd;
+        icon.uID = 1;
+        icon.uFlags = NIF_INFO;
+        icon.dwInfoFlags = NIIF_INFO;
+        let title = ui("ALTRun 已就绪");
+        let n = title.len().min(icon.szInfoTitle.len());
+        icon.szInfoTitle[..n].copy_from_slice(&title[..n]);
+        let message = ui("使用已配置的快捷键呼出；托盘菜单可管理快捷项和设置。");
+        let n = message.len().min(icon.szInfo.len());
+        icon.szInfo[..n].copy_from_slice(&message[..n]);
+        Shell_NotifyIconW(NIM_MODIFY, &icon);
+    }
+}
+fn trace_event(event: &'static str) {
+    let path = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        s.preferences
+            .flag("TraceEnable")
+            .then(|| s.data_path.with_extension("diagnostic.log"))
+    });
+    if let Some(path) = path {
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(f, "{stamp}\t{event}");
+            }
+        });
+    }
+}

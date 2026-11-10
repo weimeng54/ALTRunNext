@@ -255,6 +255,7 @@ impl Preferences {
                 value.to_owned()
             }
             Kind::Text => {
+                if spec.key=="ListFormat"{crate::list_format::render(value,"a","b")?;}
                 if spec.key == "Theme" && !matches!(value, "light" | "dark" | "system") {
                     return Err("主题应为 light、dark 或 system".into());
                 }

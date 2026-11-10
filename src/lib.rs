@@ -49,6 +49,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
         })
         .collect::<Result<Vec<_>, _>>()
         .and_then(|rows| {
+            for entry in &rows{library::validate(entry)?;}
             let mut ids = std::collections::HashSet::new();
             if rows.iter().any(|e| !ids.insert(&e.id)) {
                 Err("Duplicate shortcut identity".into())
@@ -101,6 +102,7 @@ impl SearchIndex {
         anywhere: bool,
         standard: bool,
     ) -> Result<Vec<usize>, String> {
+        if input.is_empty(){return Ok(self.query(""));}
         if input.chars().count() > 256 {
             return Ok(Vec::new());
         }
@@ -231,6 +233,7 @@ pub mod library_updates;
 pub mod management;
 pub mod matching;
 pub mod migration;
+pub mod list_format;
 pub mod observation;
 pub mod preferences;
 pub mod state_store;

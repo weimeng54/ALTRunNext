@@ -16,6 +16,8 @@ mod skin;
 mod theme;
 #[cfg(windows)]
 mod window_actions;
+#[cfg(windows)]
+mod window_geometry;
 
 fn main() {
     #[cfg(windows)]

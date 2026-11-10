@@ -79,6 +79,7 @@ pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bo
         },
         request.parameters
     );
+    if relative{entry.working_directory=base.to_string_lossy().into_owned();}
     Ok(true)
 }
 pub fn from_path(path: &Path) -> Result<Entry, String> {

@@ -27,6 +27,11 @@ use windows_sys::Win32::{
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
 const FOCUS: u32 = WM_APP + 1;
 pub const UPDATED: u32 = WM_APP + 6;
+pub const GEOMETRY_CHANGED:u32=WM_APP+16;
+#[derive(Clone,Default)]pub struct WindowState{pub rect:Option<(i32,i32,i32,i32)>,pub selected:String}
+static WINDOW_STATE:std::sync::Mutex<WindowState>=std::sync::Mutex::new(WindowState{rect:None,selected:String::new()});
+pub fn configure(state:WindowState){if !is_open()&&let Ok(mut current)=WINDOW_STATE.lock(){*current=state;}}
+pub fn window_state()->WindowState{WINDOW_STATE.lock().map(|s|s.clone()).unwrap_or_default()}
 const LIST: usize = 2101;
 const ALIAS: usize = 2102;
 const NAME: usize = 2103;
@@ -56,6 +61,8 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
 struct Editor {
+    layout:Vec<crate::window_geometry::Child>,
+    client_size:(i32,i32),
     workdir: HWND,
     enabled: HWND,
     entry_kind: HWND,
@@ -206,10 +213,22 @@ fn refresh_list() {
     let (list, labels, selected) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.list,s.draft.iter().map(|e|format!("{} · {}",e.alias,e.name)).collect::<Vec<_>>(), s.selected)
+        (
+            s.list,
+            s.draft
+                .iter()
+                .map(|e| format!("{} · {}", e.alias, e.name))
+                .collect::<Vec<_>>(),
+            s.selected,
+        )
     });
     unsafe {
-        SendMessageW(list,WM_SETREDRAW,0,0);SendMessageW(list,LB_RESETCONTENT,0,0);for label in &labels{SendMessageW(list,LB_ADDSTRING,0,wide(label).as_ptr() as isize);}SendMessageW(list,WM_SETREDRAW,1,0);
+        SendMessageW(list, WM_SETREDRAW, 0, 0);
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for label in &labels {
+            SendMessageW(list, LB_ADDSTRING, 0, wide(label).as_ptr() as isize);
+        }
+        SendMessageW(list, WM_SETREDRAW, 1, 0);
         if !labels.is_empty() {
             SendMessageW(list, LB_SETCURSEL, selected, 0);
         }
@@ -405,6 +424,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if msg == WM_CLOSE {
         let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| s.dirty));
         if !dirty || confirm(hwnd, "有尚未保存的修改。放弃修改并关闭？") {
+            publish_geometry(hwnd);
             unsafe {
                 DestroyWindow(hwnd);
             }
@@ -416,6 +436,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return unsafe { DefWindowProcW(hwnd, msg, w, l) };
     }
     match msg {
+        WM_SIZE=>{resize(hwnd);0}
+        WM_EXITSIZEMOVE=>{publish_geometry(hwnd);0}
+        WM_GETMINMAXINFO=>{let info=unsafe{&mut *(l as *mut MINMAXINFO)};let dpi=EDITOR.with(|c|c.borrow().as_ref().unwrap().dpi);info.ptMinTrackSize=POINT{x:scaled(600,dpi),y:scaled(430,dpi)};0}
         WM_DROPFILES => {
             let paths = drop_paths(w as _);
             add_paths(paths);
@@ -624,7 +647,7 @@ fn run(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
             ui("ALTRun · 管理快捷项").as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX|WS_THICKFRAME|WS_MAXIMIZEBOX,
             450,
             180,
             760,
@@ -850,6 +873,7 @@ fn run(
         let selection = CreateSolidBrush(theme::selection());
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
+                layout:Vec::new(),client_size:(scaled(760,dpi),scaled(420,dpi)),
                 workdir,
                 enabled,
                 entry_kind,
@@ -915,6 +939,11 @@ fn run(
         AppendMenuW(menu, MF_POPUP, add as usize, ui("添加").as_ptr());
         AppendMenuW(menu, MF_POPUP, tools as usize, ui("工具").as_ptr());
         SetMenu(hwnd, menu);
+        let remembered=window_state();let mut outer:RECT=zeroed();GetWindowRect(hwnd,&mut outer);let desired=remembered.rect.unwrap_or((outer.left,outer.top,outer.right-outer.left,outer.bottom-outer.top+GetSystemMetricsForDpi(SM_CYMENU,GetDpiForWindow(hwnd))));
+        // The menu is installed before fitting so the bottom command row retains
+        // the full client height at each monitor's non-client DPI.
+        crate::window_geometry::fit(hwnd,760,420,Some(desired));
+        let layout=crate::window_geometry::children(hwnd);EDITOR.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.layout=layout;if let Some(index)=s.draft.iter().position(|e|e.id==remembered.selected){s.selected=index;}});resize(hwnd);refresh_list();
         windows_sys::Win32::UI::Shell::DragAcceptFiles(hwnd, 1);
         WINDOW.store(hwnd as usize, Ordering::Release);
         ShowWindow(hwnd, SW_SHOWNORMAL);
@@ -978,7 +1007,10 @@ fn apply_intake(hwnd: HWND) {
         unsafe {
             if action == VK_INSERT {
                 SendMessageW(hwnd, WM_COMMAND, ADD, 0);
-                if !id.is_empty(){let alias=EDITOR.with(|c|c.borrow().as_ref().unwrap().alias);SetWindowTextW(alias,wide(&id).as_ptr());}
+                if !id.is_empty() {
+                    let alias = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
+                    SetWindowTextW(alias, wide(&id).as_ptr());
+                }
             } else if action == VK_DELETE {
                 SendMessageW(hwnd, WM_COMMAND, DELETE, 0);
             } else {
@@ -1233,6 +1265,7 @@ fn tool(hwnd: HWND, id: usize) {
         }
         EXPORT => {
             if let Some(destination) = pick_path(hwnd, true, false) {
+                if destination==path||std::fs::canonicalize(&destination).ok().is_some_and(|p|Some(p)==std::fs::canonicalize(&path).ok()){status("请选择不同的备份文件；保存数据请使用“保存”。",true);return;}
                 let result = library::serialize(&rows).and_then(|text| {
                     altrun_probe::state_store::TextFile::open(&destination)
                         .and_then(|(mut file, _)| file.save(&text))
@@ -1282,3 +1315,8 @@ fn tool(hwnd: HWND, id: usize) {
         _ => {}
     }
 }
+
+fn resize(hwnd:HWND){let mut client:RECT=unsafe{zeroed()};unsafe{GetClientRect(hwnd,&mut client);}let(layout,dpi,base)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.layout.clone(),s.dpi,s.client_size)});let dw=client.right-base.0;let dh=client.bottom-base.1;for child in layout{let r=child.rectangle;let mut x=r.left;let mut y=r.top;let mut width=r.right-r.left;let mut height=r.bottom-r.top;if child.id==LIST{height+=dh;}if r.top>=scaled(318,dpi){y+=dh;}if r.left>=scaled(560,dpi){x+=dw;}else if r.left>=scaled(512,dpi){x+=dw/2;width+=dw/2;}else if r.left>=scaled(280,dpi){width+=if child.id==ALIAS{dw/2}else{dw};}unsafe{SetWindowPos(child.handle as HWND,null_mut(),x,y,width.max(20),height.max(20),SWP_NOZORDER|SWP_NOACTIVATE);}}unsafe{InvalidateRect(hwnd,std::ptr::null(),1);}}
+fn publish_geometry(hwnd:HWND){let mut rect:RECT=unsafe{zeroed()};unsafe{GetWindowRect(hwnd,&mut rect);}let(parent,selected)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.parent,s.draft.get(s.selected).map(|e|e.id.clone()).unwrap_or_default())});if let Ok(mut state)=WINDOW_STATE.lock(){state.rect=Some((rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top));state.selected=selected;}unsafe{PostMessageW(parent as HWND,GEOMETRY_CHANGED,0,0);}}
+
+

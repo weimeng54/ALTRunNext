@@ -20,6 +20,7 @@ pub enum ShowMode {
     Minimized,
     Hidden,
 }
+pub fn has_context(command:&str)->bool{["c","wd","wt","wc"].iter().any(|token|{let marker=format!("%{token}");command.match_indices(&marker).any(|(index,_)|!command[index+marker.len()..].chars().next().is_some_and(|c|c.is_ascii_alphanumeric()||c=='_'))})}
 pub fn resolve_context(
     command: &str,
     parameter: Option<&str>,
@@ -38,31 +39,33 @@ pub fn resolve_context(
     } else {
         (command, ShowMode::Normal)
     };
-    if command.contains(['\u{e000}', '\u{e001}']) {
+    if command.contains(['\u{e000}', '\u{e001}'])||parameter.is_some_and(|p|p.contains(['\u{e000}','\u{e001}'])) {
         return Err("命令含保留字符".into());
     }
-    let values = [
+    let mut values = vec![
         context.clipboard.clone().unwrap_or_default(),
         context.window_id.to_string(),
         context.window_title.clone(),
         context.window_class.clone(),
     ];
-    let tokens = ["c", "wd", "wt", "wc"];
+    let mut tokens = vec!["c", "wd", "wt", "wc"];
+    if context.allow_dynamic_target&&has_parameter(command){if kind==ParamType::None{return Err("命令含参数标记，请先设置参数类型".into());}values.push(parameter.ok_or("请输入参数")?.to_owned());tokens.push("p");}
     let mut masked = command.to_owned();
     let mut had_context = false;
     for (i, token) in tokens.iter().enumerate() {
         let brace = format!("{{%{token}}}");
         let bare = format!("%{token}");
         let marker = format!("\u{e000}{i}\u{e001}");
-        if masked.contains(&brace) || masked.contains(&bare) {
+        if masked.contains(&brace) || masked.match_indices(&bare).any(|(index,_)|!masked[index+bare.len()..].chars().next().is_some_and(|c|c.is_ascii_alphanumeric()||c=='_')) {
             had_context = true;
             if i == 0 && context.clipboard.is_none() {
                 return Err("剪贴板没有可用文本".into());
             }
-            masked = masked.replace(&brace, &marker).replace(&bare, &marker);
+            masked=masked.replace(&brace,&marker);
+            let mut result=String::new();let mut rest=masked.as_str();while let Some(index)=rest.find(&bare){result.push_str(&rest[..index]);let tail=&rest[index+bare.len()..];if tail.chars().next().is_some_and(|c|c.is_ascii_alphanumeric()||c=='_'){result.push_str(&bare);}else{result.push_str(&marker);}rest=tail;}result.push_str(rest);masked=result;
         }
     }
-    let actual_kind = if had_context && !has_parameter(command) && parameter.is_none() {
+    let actual_kind = if values.len()==5||(had_context && !has_parameter(command) && parameter.is_none()) {
         ParamType::Auto
     } else {
         kind
@@ -106,6 +109,7 @@ pub fn resolve_context(
     } else {
         None
     };
+    if directory.as_ref().is_some_and(|d|d.contains(['\0','\r','\n'])){return Err("工作目录包含无效字符".into());}
     Ok((result, mode, directory))
 }
 
