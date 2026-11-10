@@ -6,6 +6,7 @@ fn entry(alias: &str, frequency: i64) -> Entry {
         name: "test".into(),
         command: "notepad.exe".into(),
         frequency,
+        param_type: altrun_probe::library::ParamType::Auto,
     }
 }
 

@@ -5,6 +5,9 @@ pub struct LaunchRequest {
     pub parameters: String,
 }
 
+pub fn has_parameter(command: &str) -> bool { command.contains("%p") }
+pub fn resolve_typed(_command: &str, _parameter: Option<&str>, _kind: crate::library::ParamType) -> Result<LaunchRequest, String> { Err("not implemented".into()) }
+
 pub fn resolve(command: &str, parameter: Option<&str>) -> Result<LaunchRequest, String> {
     if command.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
         || parameter.is_some_and(|p| p.chars().any(|c| matches!(c, '\0' | '\r' | '\n')))

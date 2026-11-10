@@ -4,6 +4,7 @@ pub struct Entry {
     pub name: String,
     pub command: String,
     pub frequency: i64,
+    pub param_type: library::ParamType,
 }
 
 pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
@@ -23,6 +24,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 frequency: fields[3]
                     .parse()
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
+                param_type: library::ParamType::Auto,
             })
         })
         .collect()
@@ -102,4 +104,5 @@ pub mod capture_bridge;
 pub mod desktop_frame;
 pub mod desktop_observation;
 pub mod launch;
+pub mod library;
 pub mod observation;
