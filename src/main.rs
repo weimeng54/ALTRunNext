@@ -3,6 +3,8 @@
 #[cfg(windows)]
 mod instance;
 #[cfg(windows)]
+mod localization;
+#[cfg(windows)]
 mod manager;
 #[cfg(windows)]
 mod native;
@@ -11,18 +13,49 @@ mod settings;
 #[cfg(windows)]
 mod skin;
 #[cfg(windows)]
-mod localization;
+mod theme;
 #[cfg(windows)]
 mod window_actions;
-#[cfg(windows)]
-mod theme;
 
 fn main() {
     #[cfg(windows)]
-    if let Some(pid)=std::env::args().collect::<Vec<_>>().windows(2).find(|p|p[0]=="--wait-pid").and_then(|p|p[1].parse::<u32>().ok()){unsafe{use windows_sys::Win32::{System::Threading::*,Foundation::*};let process=OpenProcess(0x00100000,0,pid);if !process.is_null(){WaitForSingleObject(process,10000);CloseHandle(process);}}}
-    if std::env::args().any(|arg|arg=="--migrate"){
-        let args=std::env::args_os().collect::<Vec<_>>();let value=|key:&str|args.iter().position(|a|a==key).and_then(|i|args.get(i+1)).map(std::path::PathBuf::from).ok_or_else(||format!("Missing {key}"));
-        let result=value("--migrate").and_then(|source|value("--output-dir").and_then(|destination|altrun_probe::migration::Migration::read(&source,args.iter().any(|a|a=="--legacy-appearance")).and_then(|m|m.write_new(&destination))));if let Err(error)=&result{eprintln!("{error}");}std::process::exit(i32::from(result.is_err()));
+    if let Some(pid) = std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|p| p[0] == "--wait-pid")
+        .and_then(|p| p[1].parse::<u32>().ok())
+    {
+        unsafe {
+            use windows_sys::Win32::{Foundation::*, System::Threading::*};
+            let process = OpenProcess(0x00100000, 0, pid);
+            if !process.is_null() {
+                WaitForSingleObject(process, 10000);
+                CloseHandle(process);
+            }
+        }
+    }
+    if std::env::args().any(|arg| arg == "--migrate") {
+        let args = std::env::args_os().collect::<Vec<_>>();
+        let value = |key: &str| {
+            args.iter()
+                .position(|a| a == key)
+                .and_then(|i| args.get(i + 1))
+                .map(std::path::PathBuf::from)
+                .ok_or_else(|| format!("Missing {key}"))
+        };
+        let result = value("--migrate").and_then(|source| {
+            value("--output-dir").and_then(|destination| {
+                altrun_probe::migration::Migration::read(
+                    &source,
+                    args.iter().any(|a| a == "--legacy-appearance"),
+                )
+                .and_then(|m| m.write_new(&destination))
+            })
+        });
+        if let Err(error) = &result {
+            eprintln!("{error}");
+        }
+        std::process::exit(i32::from(result.is_err()));
     }
     if std::env::args().any(|arg| arg == "--regex-worker") {
         std::process::exit(i32::from(

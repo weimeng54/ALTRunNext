@@ -1,6 +1,6 @@
 //! On-demand shortcut editor, isolated from the resident launcher's UI thread.
 use crate::{
-    native::{make_font, scaled, wide,ui},
+    native::{make_font, scaled, ui, wide},
     theme,
 };
 use altrun_probe::{
@@ -203,14 +203,14 @@ fn sync_fields() {
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
 }
 fn refresh_list() {
-    let (list, count, selected) = EDITOR.with(|c| {
+    let (list, labels, selected) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.list, s.draft.len(), s.selected)
+        (s.list,s.draft.iter().map(|e|format!("{} · {}",e.alias,e.name)).collect::<Vec<_>>(), s.selected)
     });
     unsafe {
-        SendMessageW(list, LB_SETCOUNT, count, 0);
-        if count != 0 {
+        SendMessageW(list,WM_SETREDRAW,0,0);SendMessageW(list,LB_RESETCONTENT,0,0);for label in &labels{SendMessageW(list,LB_ADDSTRING,0,wide(label).as_ptr() as isize);}SendMessageW(list,WM_SETREDRAW,1,0);
+        if !labels.is_empty() {
             SendMessageW(list, LB_SETCURSEL, selected, 0);
         }
     }
@@ -599,7 +599,16 @@ fn run(
     } else {
         Snapshot::new(path, initial)?
     };
-    if let Ok((_,text))=altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))&&let Ok(prefs)=altrun_probe::preferences::Preferences::parse(&text){theme::install(&prefs);let _=crate::localization::install(&prefs.get("Lang"),file.path.parent().unwrap_or(std::path::Path::new(".")));}
+    if let Ok((_, text)) =
+        altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))
+        && let Ok(prefs) = altrun_probe::preferences::Preferences::parse(&text)
+    {
+        theme::install(&prefs);
+        let _ = crate::localization::install(
+            &prefs.get("Lang"),
+            file.path.parent().unwrap_or(std::path::Path::new(".")),
+        );
+    }
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let background = CreateSolidBrush(theme::surface());
@@ -697,7 +706,7 @@ fn run(
                 | WS_TABSTOP
                 | LBS_NOTIFY as u32
                 | LBS_OWNERDRAWFIXED as u32
-                | LBS_NODATA as u32
+                | LBS_HASSTRINGS as u32
                 | LBS_NOINTEGRALHEIGHT as u32,
             12,
             52,
@@ -757,7 +766,12 @@ fn run(
             "旧式 URL 编码",
             "UTF-8 URL 编码",
         ] {
-            SendMessageW(kind, CB_ADDSTRING, 0, wide(&crate::localization::tr(label)).as_ptr() as LPARAM);
+            SendMessageW(
+                kind,
+                CB_ADDSTRING,
+                0,
+                wide(&crate::localization::tr(label)).as_ptr() as LPARAM,
+            );
         }
         control(
             "STATIC",
@@ -800,7 +814,12 @@ fn run(
             ENTRY_KIND,
         );
         for label in ["启动命令", "分隔行", "备注"] {
-            SendMessageW(entry_kind, CB_ADDSTRING, 0, wide(&crate::localization::tr(label)).as_ptr() as isize);
+            SendMessageW(
+                entry_kind,
+                CB_ADDSTRING,
+                0,
+                wide(&crate::localization::tr(label)).as_ptr() as isize,
+            );
         }
         let status = control(
             "STATIC",
@@ -869,7 +888,12 @@ fn run(
             ("添加分隔行", SEPARATOR),
             ("添加备注", REMARK),
         ] {
-            AppendMenuW(add, MF_STRING, id, wide(&crate::localization::tr(label)).as_ptr());
+            AppendMenuW(
+                add,
+                MF_STRING,
+                id,
+                wide(&crate::localization::tr(label)).as_ptr(),
+            );
         }
         for (label, id) in [
             ("验证快捷项…", VALIDATE),
@@ -881,7 +905,12 @@ fn run(
             ("用文本编辑器打开数据", EDIT_TEXT),
             ("撤销上一次批量操作", UNDO),
         ] {
-            AppendMenuW(tools, MF_STRING, id, wide(&crate::localization::tr(label)).as_ptr());
+            AppendMenuW(
+                tools,
+                MF_STRING,
+                id,
+                wide(&crate::localization::tr(label)).as_ptr(),
+            );
         }
         AppendMenuW(menu, MF_POPUP, add as usize, ui("添加").as_ptr());
         AppendMenuW(menu, MF_POPUP, tools as usize, ui("工具").as_ptr());
@@ -949,6 +978,7 @@ fn apply_intake(hwnd: HWND) {
         unsafe {
             if action == VK_INSERT {
                 SendMessageW(hwnd, WM_COMMAND, ADD, 0);
+                if !id.is_empty(){let alias=EDITOR.with(|c|c.borrow().as_ref().unwrap().alias);SetWindowTextW(alias,wide(&id).as_ptr());}
             } else if action == VK_DELETE {
                 SendMessageW(hwnd, WM_COMMAND, DELETE, 0);
             } else {

@@ -41,8 +41,12 @@ pub fn load(path: &Path) -> Result<usize, String> {
         }
         let mut image = null_mut();
         let mut bitmap = null_mut();
-        let loaded=GdipLoadImageFromFile(wide.as_ptr(),&mut image)==0;
-        let(mut width,mut height)=(0,0);if loaded{GdipGetImageWidth(image,&mut width);GdipGetImageHeight(image,&mut height);}
+        let loaded = GdipLoadImageFromFile(wide.as_ptr(), &mut image) == 0;
+        let (mut width, mut height) = (0, 0);
+        if loaded {
+            GdipGetImageWidth(image, &mut width);
+            GdipGetImageHeight(image, &mut height);
+        }
         let result = if !loaded {
             Err("无法读取背景图片；支持 PNG、JPEG、BMP".into())
         } else if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 4_000_000 {

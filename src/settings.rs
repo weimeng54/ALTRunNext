@@ -1,5 +1,5 @@
 //! Lazy native property editor, running independently of the launch window.
-use crate::native::{make_font, wide,ui};
+use crate::native::{make_font, ui, wide};
 use altrun_probe::{
     preferences::{Kind, Preferences, SPECS},
     state_store::TextFile,
@@ -320,7 +320,10 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
         let result = (|| -> Result<(), String> {
             let (file, _) = TextFile::open(&path.with_extension("settings.ini"))?;
             let mut prefs = prefs;
-            let _=crate::localization::install(&prefs.get("Lang"),path.parent().unwrap_or(std::path::Path::new(".")));
+            let _ = crate::localization::install(
+                &prefs.get("Lang"),
+                path.parent().unwrap_or(std::path::Path::new(".")),
+            );
             if let Ok(integration) = altrun_probe::integration::Integration::for_data(&path)
                 && let Ok((startup, send_to)) = integration.status()
             {
@@ -385,7 +388,12 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     2301,
                 );
                 for spec in SPECS {
-                    SendMessageW(list, LB_ADDSTRING, 0, wide(&crate::localization::tr(spec.label)).as_ptr() as isize);
+                    SendMessageW(
+                        list,
+                        LB_ADDSTRING,
+                        0,
+                        wide(&crate::localization::tr(spec.label)).as_ptr() as isize,
+                    );
                 }
                 control("STATIC", "选中设置的值", 0, 310, 20, 350, 24, 0);
                 let value = control(
