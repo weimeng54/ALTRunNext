@@ -69,3 +69,11 @@ fn malformed_commands_cannot_be_truncated_by_native_apis() {
     }
     assert!(resolve("notepad.exe %p", Some("text\0more")).is_err());
 }
+
+#[test]
+fn ambiguous_unquoted_paths_never_launch_a_shorter_executable() {
+    for command in [r"D:\Program Files\App\app.exe --flag", r"D:\Missing folder\missing.exe --flag", r"\\server\shared folder\app.exe --flag"] {
+        assert!(resolve(command, None).is_err(), "must request quotes rather than execute the first path token: {command}");
+    }
+    assert_eq!(resolve(r"D:\Tools\app.exe --flag", None).unwrap(), request(r"D:\Tools\app.exe", "--flag"));
+}

@@ -91,7 +91,7 @@ jobs:
           target\altrun-frame-calibrate.exe --self-test --output "%CD%\target\frame-self-test.json"
       - name: Unit tests (performance gate logic)
         if: ${{ !cancelled() }}
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
       - name: Evidence gate tests
         if: ${{ !cancelled() }}
         run: python -m unittest discover -s tests -p 'test_*.py' -v
