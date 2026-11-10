@@ -108,6 +108,7 @@ void self_test() {
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = 41; desc.Height = 29; desc.MipLevels = 1; desc.ArraySize = 1;
         desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; desc.SampleDesc.Count = 1; desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         D3D11_SUBRESOURCE_DATA data{}; data.pSysMem = pixels.data(); data.SysMemPitch = 41 * 4;
         ComPtr<ID3D11Texture2D> texture;
         check(gpu.device->CreateTexture2D(&desc, &data, &texture), "create_controlled_texture");
