@@ -39,3 +39,7 @@
 首次集成 `61c0db76c2d88eac76b3f7feee0c9a3db81d5eee` 的 [完整构建](https://github.com/weimeng54/altrun/actions/runs/42761494402) 通过 51 项 Rust/Python 测试和原生自测。独立审查随后发现 PointerOnly 状态可能绕过保护/元数据校验，尚未运行这版本机回放；已用四种穿过真实 ABI 的异常 fixture 及原生守卫测试实际复现失败，再修正两层校验。修正版须完整验证并重新校验产物后才能本机自测。
 
 所有新回放种类固定为 `desktop-frame-self-replay` 或 `desktop-frame-settling-observations`，仍 `pending/content_verified=false`。首次图像更新、发送请求到返回的区间、可输入状态观测区间分别记录。该接入不完成独立字形校验、真实物理输入、原版对照、IME/闲置/负载/长期资源验收；完整功能继续暂停。
+
+审查修复最终提交 `0a450142e6c37987cb838da31c9fd66762f18442` 的 [完整构建](https://github.com/weimeng54/altrun/actions/runs/42764622363) 通过 55 项 Rust/Python 测试、原生 GPU/ABI 自测、格式、静态检查及 Release 编译。四种异常无更新状态均已实际观察到 RED→GREEN；五个二进制（含 DLL）、COMMIT 与原生自测报告均已本机校验。
+
+合成自测包位于本地忽略目录 `temp/observer-dxgi-selftest`，显式 profile 只选择自建候选及 12 条非可执行合成数据。提供 `temp/capture-calibration/03-DXGI-SELF-TEST.lnk` 指向该独立目录，避免误运行旧工具；不改变原版对照目录或真实配置。本机完整回放尚待用户手动启动，不能从编译/自动测试通过推断原版性能对标完成。
