@@ -1,103 +1,216 @@
 //! An owned, versioned boundary to the independent desktop-frame observer.
 use crate::desktop_frame::DesktopFrame;
-use std::{ffi::{CStr, c_void}, marker::PhantomData, mem::{size_of, transmute_copy}, os::windows::ffi::OsStrExt, path::Path, ptr::{NonNull, null_mut}, rc::Rc};
+use std::{
+    ffi::{CStr, c_void},
+    marker::PhantomData,
+    mem::{size_of, transmute_copy},
+    os::windows::ffi::OsStrExt,
+    path::Path,
+    ptr::{NonNull, null_mut},
+    rc::Rc,
+};
 use windows_sys::Win32::{Foundation::*, System::LibraryLoader::*};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct Region { pub left: i32, pub top: i32, pub width: i32, pub height: i32 }
+pub struct Region {
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+}
 #[repr(C)]
 #[derive(Default, Debug)]
 struct FrameInfo {
-    size: u32, version: u32,
-    present_qpc: i64, acquire_begin_qpc: i64, acquire_end_qpc: i64, readback_end_qpc: i64,
-    accumulated_frames: u32, protected_content: u32,
+    size: u32,
+    version: u32,
+    present_qpc: i64,
+    acquire_begin_qpc: i64,
+    acquire_end_qpc: i64,
+    readback_end_qpc: i64,
+    accumulated_frames: u32,
+    protected_content: u32,
 }
 const _: () = assert!(size_of::<FrameInfo>() == 48);
 type Open = unsafe extern "C" fn(*const Region, *mut *mut c_void) -> i32;
 type NativePoll = unsafe extern "C" fn(*mut c_void, u32, *mut u8, u64, *mut FrameInfo) -> i32;
 type Close = unsafe extern "C" fn(*mut c_void);
 struct Module(HMODULE);
-impl Drop for Module { fn drop(&mut self) { unsafe { FreeLibrary(self.0); } } }
+impl Drop for Module {
+    fn drop(&mut self) {
+        unsafe {
+            FreeLibrary(self.0);
+        }
+    }
+}
 
 pub struct Bridge {
-    module: HMODULE, open: Open, poll: NativePoll, close: Close,
+    module: HMODULE,
+    open: Open,
+    poll: NativePoll,
+    close: Close,
     _single_thread: PhantomData<Rc<()>>,
 }
 pub struct Capture {
-    bridge: Rc<Bridge>, handle: NonNull<c_void>, pixels: Vec<u8>,
+    bridge: Rc<Bridge>,
+    handle: NonNull<c_void>,
+    pixels: Vec<u8>,
 }
 #[derive(Debug)]
-pub enum Poll { Timeout, PointerOnly, Frame(DesktopFrame) }
+pub enum Poll {
+    Timeout,
+    PointerOnly,
+    Frame(DesktopFrame),
+}
 
 unsafe fn symbol<T: Copy>(module: HMODULE, name: &CStr) -> Result<T, String> {
     let raw = unsafe { GetProcAddress(module, name.as_ptr().cast()) }
         .ok_or_else(|| format!("Missing capture ABI symbol {}", name.to_string_lossy()))?;
-    if size_of::<T>() != size_of_val(&raw) { return Err("Capture ABI symbol size mismatch".into()); }
+    if size_of::<T>() != size_of_val(&raw) {
+        return Err("Capture ABI symbol size mismatch".into());
+    }
     // Only private, explicitly declared C function-pointer types use this helper.
     Ok(unsafe { transmute_copy(&raw) })
 }
 impl Bridge {
     pub fn load_adjacent() -> Result<Rc<Self>, String> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        Self::load_exact(&exe.parent().ok_or("Missing executable parent")?.join("altrun-frame-capture.dll"))
+        Self::load_exact(
+            &exe.parent()
+                .ok_or("Missing executable parent")?
+                .join("altrun-frame-capture.dll"),
+        )
     }
     fn load_exact(path: &Path) -> Result<Rc<Self>, String> {
-        if !path.is_absolute() { return Err("Capture DLL load path must be absolute".into()); }
+        if !path.is_absolute() {
+            return Err("Capture DLL load path must be absolute".into());
+        }
         let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
-        if wide.contains(&0) { return Err("Capture DLL load path contains NUL".into()); }
+        if wide.contains(&0) {
+            return Err("Capture DLL load path contains NUL".into());
+        }
         wide.push(0);
-        let module = unsafe { LoadLibraryExW(wide.as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32) };
-        if module.is_null() { return Err(format!("Capture DLL load failed (Win32 {})", unsafe { GetLastError() })); }
+        let module = unsafe {
+            LoadLibraryExW(
+                wide.as_ptr(),
+                null_mut(),
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+            )
+        };
+        if module.is_null() {
+            return Err(format!("Capture DLL load failed (Win32 {})", unsafe {
+                GetLastError()
+            }));
+        }
         let guard = Module(module);
-        let version: unsafe extern "C" fn() -> u32 = unsafe { symbol(module, c"altrun_capture_abi_version")? };
-        if unsafe { version() } != 1 { return Err("Unsupported capture ABI version".into()); }
+        let version: unsafe extern "C" fn() -> u32 =
+            unsafe { symbol(module, c"altrun_capture_abi_version")? };
+        if unsafe { version() } != 1 {
+            return Err("Unsupported capture ABI version".into());
+        }
         let open = unsafe { symbol(module, c"altrun_capture_open")? };
         let poll = unsafe { symbol(module, c"altrun_capture_poll")? };
         let close = unsafe { symbol(module, c"altrun_capture_close")? };
-        let bridge = Self { module, open, poll, close, _single_thread: PhantomData };
+        let bridge = Self {
+            module,
+            open,
+            poll,
+            close,
+            _single_thread: PhantomData,
+        };
         std::mem::forget(guard);
         Ok(Rc::new(bridge))
     }
     pub fn open(self: &Rc<Self>, region: Region) -> Result<Capture, String> {
-        if region.width <= 0 || region.height <= 0 || region.width > 4096 || region.height > 4096 { return Err("Invalid capture region".into()); }
+        if region.width <= 0 || region.height <= 0 || region.width > 4096 || region.height > 4096 {
+            return Err("Invalid capture region".into());
+        }
         let length = region.width as usize * region.height as usize * 4;
         let mut pixels = Vec::new();
-        pixels.try_reserve_exact(length).map_err(|_| "Cannot allocate capture pixels")?;
+        pixels
+            .try_reserve_exact(length)
+            .map_err(|_| "Cannot allocate capture pixels")?;
         pixels.resize(length, 0);
         let mut handle = null_mut();
         let status = unsafe { (self.open)(&region, &mut handle) };
         if status != 0 {
-            if !handle.is_null() { unsafe { (self.close)(handle); } }
-            return Err(format!("Capture open failed (HRESULT {:#x})", status as u32));
+            if !handle.is_null() {
+                unsafe {
+                    (self.close)(handle);
+                }
+            }
+            return Err(format!(
+                "Capture open failed (HRESULT {:#x})",
+                status as u32
+            ));
         }
         let handle = NonNull::new(handle).ok_or("Capture ABI returned a null owner")?;
-        Ok(Capture { bridge: self.clone(), handle, pixels })
+        Ok(Capture {
+            bridge: self.clone(),
+            handle,
+            pixels,
+        })
     }
 }
-impl Drop for Bridge { fn drop(&mut self) { unsafe { FreeLibrary(self.module); } } }
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        unsafe {
+            FreeLibrary(self.module);
+        }
+    }
+}
 impl Capture {
     pub fn poll(&mut self, timeout_ms: u32) -> Result<Poll, String> {
-        if timeout_ms > 50 { return Err("Capture poll timeout must be at most 50ms".into()); }
-        let mut info = FrameInfo { size: size_of::<FrameInfo>() as u32, version: 1, ..FrameInfo::default() };
-        let status = unsafe { (self.bridge.poll)(self.handle.as_ptr(), timeout_ms, self.pixels.as_mut_ptr(), self.pixels.len() as u64, &mut info) };
+        if timeout_ms > 50 {
+            return Err("Capture poll timeout must be at most 50ms".into());
+        }
+        let mut info = FrameInfo {
+            size: size_of::<FrameInfo>() as u32,
+            version: 1,
+            ..FrameInfo::default()
+        };
+        let status = unsafe {
+            (self.bridge.poll)(
+                self.handle.as_ptr(),
+                timeout_ms,
+                self.pixels.as_mut_ptr(),
+                self.pixels.len() as u64,
+                &mut info,
+            )
+        };
         match status {
             0 => {
-                if info.size != size_of::<FrameInfo>() as u32 || info.version != 1 { return Err("Capture ABI frame layout mismatch".into()); }
+                if info.size != size_of::<FrameInfo>() as u32 || info.version != 1 {
+                    return Err("Capture ABI frame layout mismatch".into());
+                }
                 Ok(Poll::Frame(DesktopFrame {
-                    present_qpc: info.present_qpc, acquire_begin_qpc: info.acquire_begin_qpc,
-                    acquire_end_qpc: info.acquire_end_qpc, readback_end_qpc: info.readback_end_qpc,
-                    accumulated_frames: info.accumulated_frames, protected_content: info.protected_content != 0,
+                    present_qpc: info.present_qpc,
+                    acquire_begin_qpc: info.acquire_begin_qpc,
+                    acquire_end_qpc: info.acquire_end_qpc,
+                    readback_end_qpc: info.readback_end_qpc,
+                    accumulated_frames: info.accumulated_frames,
+                    protected_content: info.protected_content != 0,
                 }))
             }
             1 => Ok(Poll::Timeout),
             2 => Ok(Poll::PointerOnly),
-            other => Err(format!("Capture poll failed (HRESULT {:#x}); metadata {info:?}", other as u32)),
+            other => Err(format!(
+                "Capture poll failed (HRESULT {:#x}); metadata {info:?}",
+                other as u32
+            )),
         }
     }
-    pub fn pixels(&self) -> &[u8] { &self.pixels }
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
 }
-impl Drop for Capture { fn drop(&mut self) { unsafe { (self.bridge.close)(self.handle.as_ptr()); } } }
+impl Drop for Capture {
+    fn drop(&mut self) {
+        unsafe {
+            (self.bridge.close)(self.handle.as_ptr());
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
