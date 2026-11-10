@@ -86,7 +86,7 @@ struct Readback {
         hash_sink = hash; hash_end = now();
     }
 };
-void require_desktop_frames(size_t) {}
+void require_desktop_frames(size_t count) { require(count > 0, "no_valid_desktop_frame"); }
 void self_test() {
     bool empty_rejected = false;
     try { require_desktop_frames(0); } catch (const Failure&) { empty_rejected = true; }
@@ -152,7 +152,6 @@ void sample_desktop(Report& report) {
     Readback reader(gpu, 840, 459);
     const UINT left = static_cast<UINT>(400 - output_desc.DesktopCoordinates.left);
     const UINT top = static_cast<UINT>(329 - output_desc.DesktopCoordinates.top);
-    report.desktop = true;
     const int64_t start = now();
     while (now() - start < report.frequency * 8 && report.rows.size() < 200) {
         DXGI_OUTDUPL_FRAME_INFO info{};
@@ -169,6 +168,7 @@ void sample_desktop(Report& report) {
         ComPtr<ID3D11Texture2D> texture; check(resource.As(&texture), "query_frame_texture");
         const int64_t copy_begin = now();
         reader.read(texture.Get(), left, top);
+        report.desktop = true;
         acquired.release();
         const int64_t release_end = now();
         std::ostringstream row;
