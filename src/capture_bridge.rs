@@ -190,16 +190,14 @@ impl Capture {
             }
         }
         match status {
-            0 => {
-                Ok(Poll::Frame(DesktopFrame {
-                    present_qpc: info.present_qpc,
-                    acquire_begin_qpc: info.acquire_begin_qpc,
-                    acquire_end_qpc: info.acquire_end_qpc,
-                    readback_end_qpc: info.readback_end_qpc,
-                    accumulated_frames: info.accumulated_frames,
-                    protected_content: info.protected_content != 0,
-                }))
-            }
+            0 => Ok(Poll::Frame(DesktopFrame {
+                present_qpc: info.present_qpc,
+                acquire_begin_qpc: info.acquire_begin_qpc,
+                acquire_end_qpc: info.acquire_end_qpc,
+                readback_end_qpc: info.readback_end_qpc,
+                accumulated_frames: info.accumulated_frames,
+                protected_content: info.protected_content != 0,
+            })),
             1 => Ok(Poll::Timeout),
             2 => Ok(Poll::PointerOnly),
             other => Err(format!(
