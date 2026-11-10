@@ -35,6 +35,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
     let data = std::env::current_dir()
         .unwrap()
         .join("target/ui-fixture.tsv");
+    let marker = std::env::current_dir()
+        .unwrap()
+        .join("target/ui-launch-marker.txt");
+    let shell = altrun_probe::safe_notepad_path()
+        .unwrap()
+        .with_file_name("cmd.exe");
     std::fs::write(&data, concat!(
         "np\t记事本 · 日常文本与临时笔记\t__altrun_missing_test__.exe\t10\n",
         "param\t参数命令 · 中文文件名与带空格路径\t__altrun_missing_test__.exe %p\t9\n",
@@ -42,6 +48,14 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
         "browser\t浏览器\thttps://example.com/\t7\n",
         "long-shortcut-alias-for-ellipsis\t这是一个很长的中文名称，用于检查名称列截断和紧凑排版\tD:\\A long synthetic path\\application.exe\t6\n"
     )).unwrap();
+    let success_command = format!(
+        "self\t启动成功自检\t\"{}\" /D /C echo ok>\"{}\"\t0\n",
+        shell.display(),
+        marker.display()
+    );
+    let mut fixture = std::fs::read_to_string(&data).unwrap();
+    fixture.push_str(&success_command);
+    std::fs::write(&data, fixture).unwrap();
     for scale in ["100", "150"] {
         let _child = Running(
             Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
@@ -148,7 +162,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             let length = SendMessageW(command, WM_GETTEXT, 256, error.as_mut_ptr() as isize);
             assert!(String::from_utf16_lossy(&error[..length as usize]).contains("无法启动"));
             native_snapshot::save(hwnd, &format!("error-{scale}"));
-            SendMessageW(edit, WM_SETTEXT, 0, wide("no-matching-synthetic-shortcut").as_ptr() as isize);
+            SendMessageW(
+                edit,
+                WM_SETTEXT,
+                0,
+                wide("no-matching-synthetic-shortcut").as_ptr() as isize,
+            );
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
             assert_ne!(IsWindowVisible(GetDlgItem(hwnd, 1004)), 0);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
@@ -158,6 +177,19 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "empty result must not launch or hide"
             );
             native_snapshot::save(hwnd, &format!("empty-{scale}"));
+            let _ = std::fs::remove_file(&marker);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("self").as_ptr() as isize);
+            SendMessageW(edit, WM_KEYDOWN, 13, 0);
+            let launch_deadline = Instant::now() + Duration::from_secs(10);
+            while std::fs::read_to_string(&marker).unwrap_or_default().trim() != "ok" {
+                assert!(
+                    Instant::now() < launch_deadline,
+                    "selected command did not run"
+                );
+                thread::sleep(Duration::from_millis(20));
+            }
+            assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "ok");
+            assert_eq!(IsWindowVisible(hwnd), 0);
         }
     }
 }
