@@ -5,6 +5,10 @@ pub struct Entry {
     pub command: String,
     pub frequency: i64,
     pub param_type: library::ParamType,
+    pub id:String,
+    pub working_directory:String,
+    pub enabled:bool,
+    pub kind:library::EntryKind,
 }
 
 pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
@@ -24,6 +28,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 frequency: fields[3]
                     .parse()
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
+                id:String::new(),working_directory:String::new(),enabled:true,kind:library::EntryKind::Command,
                 param_type: if fields.len() == 5 {
                     library::ParamType::parse(fields[4])?
                 } else {
@@ -126,6 +131,7 @@ pub mod launch;
 pub mod library;
 pub mod library_updates;
 pub mod matching;
+pub mod isolated_matching;
 pub mod observation;
 pub mod preferences;
 pub mod textcodec;

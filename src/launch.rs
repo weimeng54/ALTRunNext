@@ -4,6 +4,11 @@ pub struct LaunchRequest {
     pub file: String,
     pub parameters: String,
 }
+#[derive(Clone,Debug,Default)]
+pub struct LaunchContext {pub clipboard:Option<String>,pub window_id:usize,pub window_title:String,pub window_class:String,pub base_directory:String,pub allow_dynamic_target:bool}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum ShowMode{Normal,Maximized,Minimized,Hidden}
+pub fn resolve_context(_command:&str,_parameter:Option<&str>,_kind:crate::library::ParamType,_working_directory:&str,_context:&LaunchContext)->Result<(LaunchRequest,ShowMode,Option<String>),String>{Err("not implemented".into())}
 
 pub fn has_parameter(command: &str) -> bool {
     let mut rest = command;

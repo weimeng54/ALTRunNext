@@ -8,6 +8,9 @@ mod native;
 mod theme;
 
 fn main() {
+    if std::env::args().any(|arg|arg=="--regex-worker") {
+        std::process::exit(i32::from(altrun_probe::isolated_matching::worker_main().is_err()));
+    }
     if std::env::args().any(|arg| arg == "--convert-legacy") {
         let result = convert_legacy();
         if let Err(error) = &result {

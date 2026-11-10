@@ -70,3 +70,30 @@ fn advanced_expression_features_are_available_for_isolated_worker() {
         vec![None, None, Some(3)]
     );
 }
+
+#[test]
+fn stable_ids_and_working_directories_survive_editing_and_roundtrip(){
+    let mut rows=altrun_probe::parse_entries("np\t记事本\tnotepad.exe\t7\nnp\t另一个\tother.exe\t0\n").unwrap();
+    assert!(!rows[0].id.is_empty());assert_ne!(rows[0].id,rows[1].id);
+    let id=rows[0].id.clone();rows[0].alias="renamed".into();rows[0].working_directory=r"D:\Work Folder".into();rows[1].enabled=false;
+    let text=altrun_probe::library::serialize(&rows).unwrap();let restored=altrun_probe::parse_entries(&text).unwrap();
+    assert_eq!(restored[0].id,id);assert_eq!(restored[0].working_directory,r"D:\Work Folder");assert!(!restored[1].enabled);
+    assert_eq!(altrun_probe::search(&restored,""),vec![0]);
+}
+
+#[test]
+fn templates_preserve_context_literals_and_window_display_flags(){
+    use altrun_probe::{launch::{self,LaunchContext,ShowMode},library::ParamType};
+    let context=LaunchContext{clipboard:Some("literal %TEMP% & 中文".into()),window_id:123,window_title:"编辑器".into(),window_class:"EditorClass".into(),base_directory:r"D:\Work".into(),allow_dynamic_target:false};
+    let (request,show,directory)=launch::resolve_context("@+ tool.exe --paste {%c} --window {%wd} --title {%wt} --class {%wc}",None,ParamType::Raw,"",&context).unwrap();
+    assert_eq!(request.file,"tool.exe");assert!(request.parameters.contains("literal %TEMP% & 中文"));assert!(request.parameters.contains("--window 123"));assert!(request.parameters.contains("编辑器"));assert_eq!(show,ShowMode::Maximized);assert_eq!(directory,Some(r"D:\Work".into()));
+    let (request,show,_)=launch::resolve_context("@- https://example.com/?q={%c}",None,ParamType::Utf8Url,"",&context).unwrap();
+    assert!(request.file.contains("literal+%25TEMP%25+%26+%E4%B8%AD%E6%96%87"));assert_eq!(show,ShowMode::Minimized);
+}
+
+#[test]
+fn advanced_matching_worker_returns_results_and_is_time_bounded(){
+    let aliases=vec!["abab".into(),"abac".into()];let program=std::path::Path::new(env!("CARGO_BIN_EXE_altrun-probe"));
+    assert_eq!(altrun_probe::isolated_matching::run(program,r"^(ab)\1$",&aliases,false,std::time::Duration::from_secs(3)).unwrap(),vec![Some(0),None]);
+    assert!(altrun_probe::isolated_matching::run(program,r"^(ab)\1$",&aliases,false,std::time::Duration::ZERO).is_err());
+}

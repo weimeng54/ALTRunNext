@@ -1,4 +1,6 @@
 use crate::Entry;
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum EntryKind{Command,Separator,Remark}
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -99,6 +101,7 @@ pub fn import_legacy(text: &str) -> Result<Import, String> {
             command,
             frequency,
             param_type: kind,
+            id:String::new(),working_directory:String::new(),enabled:true,kind:EntryKind::Command,
         };
         validate(&entry).map_err(|e| format!("第 {} 行：{e}", number + 1))?;
         entries.push(entry);

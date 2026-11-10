@@ -359,6 +359,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 command: String::new(),
                                 frequency: 0,
                                 param_type: ParamType::None,
+                                id:String::new(),working_directory:String::new(),enabled:true,kind:library::EntryKind::Command,
                             });
                             s.selected = s.draft.len() - 1;
                             s.dirty = true;
