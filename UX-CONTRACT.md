@@ -19,6 +19,14 @@ Main launcher uses only its resident snapshot. Management opens on a separate UI
 
 List changes remain a draft until Save. Duplicate aliases are supported. Delete confirms the named entry; importing replaces only the draft after confirmation. Closing a dirty manager asks before discarding. A main-program exit with a manager open directs the user to save/close it first. Empty libraries are valid and keep Add/Import available. Parameter input Enter only launches after composition is committed; manager form Enter does not implicitly save while typing.
 
-Keyboard: Ctrl+Alt+R launcher hotkey; Alt+S manager; Up/Down/Tab result selection. Manager controls use native Tab/Shift+Tab navigation and Space for focused buttons. Search is immediate, with no debounce. Search state is transient and private; no URL state, telemetry or network lookup.
+Keyboard: Ctrl+Alt+R launcher hotkey; Alt+S manager; Up/Down/Tab result selection. Manager controls use native Tab/Shift+Tab navigation and Space for focused buttons. Search is immediate, with no debounce. Queries are private; selected-query preferences and execution/parameter history remain only in the local sidecar. No URL state, telemetry or network lookup.
 
-Theme values live in theme.rs and are documented in DESIGN.md. Native controls own input, IME, selection and dropdown geometry. Light theme only for this iteration; high contrast and dynamic cross-monitor DPI remain explicitly unfinished.
+Theme values live in theme.rs and are documented in DESIGN.md. Native controls own input, IME, selection and dropdown geometry. Light/dark/system and high contrast are supported; main fonts and layout update on DPI changes. Real multi-monitor behavior is also subject to user day-to-day acceptance.
+
+## Settings, background state and execution
+
+Settings run on an independent UI thread. Validate values and language files before saving. Hotkey reservation failure preserves current bindings; file failure cancels reservations and restores integrations where possible. Startup/SendTo changes occur only on explicit Save, under separate names. Reload/import cannot overwrite a newer saved library.
+
+Stable IDs associate counts, favourites, recents and parameters across edits and reorderings. State writes coalesce off the UI thread; errors are visible, and shutdown flushes the writer. Advanced regex runs in a bounded cancellable child with generation checks; stale results cannot launch or replace a newer query. Automatic unique-result execution requires user text input, and asynchronous results require the launch window still active.
+
+No-match Enter confirms adding; cancelling leaves the search visible. F2/Delete require a selected result, Insert prefills the query. Parameter entry freezes its target and supports history; Esc returns without execution. Sorting, path conversion and missing-target removal remain drafts, can be undone, and require Save. Unknown/network/special targets are not automatically classified as missing.

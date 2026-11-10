@@ -25,6 +25,8 @@ const ID_RECENT: usize = 18006;
 const ID_ABOUT: usize = 18007;
 const ID_RESTART: usize = 18008;
 const ID_CLEAN: usize = 18009;
+const ID_COPY:usize=18010;
+const ID_OPEN_FOLDER:usize=18011;
 const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
@@ -688,6 +690,7 @@ fn show_menu(hwnd: HWND) {
         AppendMenuW(menu, MF_STRING, ID_ABOUT, ui("帮助和关于\tF1").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_RESTART, ui("重启启动器").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_CLEAN, ui("移除新版系统集成…").as_ptr());
+        AppendMenuW(menu,MF_STRING,ID_COPY,ui("复制所选命令\tCtrl+C").as_ptr());AppendMenuW(menu,MF_STRING,ID_OPEN_FOLDER,ui("打开所选目录\tCtrl+D").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
         AppendMenuW(menu, MF_STRING, ID_HIDE, ui("隐藏").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
@@ -1163,6 +1166,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         WM_COMMAND => {
+            if w&65535==ID_COPY{selected_action(true);return 0;}if w&65535==ID_OPEN_FOLDER{selected_action(false);return 0;}
             if w & 0xffff == ID_MANAGE {
                 open_manager();
                 return 0;

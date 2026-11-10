@@ -2,7 +2,7 @@ name: Native launcher validation
 on:
   push:
     branches: ['codex/performance-spike']
-    paths: ['src/**', 'tests/**', 'tools/**', 'assets/**', 'build.rs', 'Cargo.*', 'rust-toolchain.toml', 'scripts/**', '.github/workflows/performance-probe.yml']
+    paths: ['src/**', 'tests/**', 'tools/**', 'assets/**', '.cargo/**', 'build.rs', 'Cargo.*', 'rust-toolchain.toml', 'scripts/**', '.github/workflows/performance-probe.yml']
   workflow_dispatch:
 permissions:
   contents: read

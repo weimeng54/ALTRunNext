@@ -8,6 +8,7 @@ use std::{
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::System::{DataExchange::*,Memory::*};
 #[repr(C)]
 #[derive(Default)]
 struct Memory {
@@ -160,6 +161,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         thread::sleep(Duration::from_millis(250));
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
         assert!(text(GetDlgItem(launcher, 1003)).contains("cmd.exe"));
+        command(launcher,18010);assert_ne!(OpenClipboard(null_mut()),0);let handle=GetClipboardData(13);let copied=if handle.is_null(){None}else{let p=GlobalLock(handle)as *const u16;if p.is_null(){None}else{let data=std::slice::from_raw_parts(p,GlobalSize(handle)/2);let s=String::from_utf16(data.split(|c|*c==0).next().unwrap_or_default()).ok();GlobalUnlock(handle);s}};CloseClipboard();assert!(copied.is_some_and(|s|s.contains("cmd.exe")),"copy command must transfer Unicode text to the clipboard");
         command(launcher, 18005);
         let mut dialog = null_mut();
         wait(|| {
