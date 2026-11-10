@@ -118,5 +118,6 @@ jobs:
             dist/
             Cargo.lock
             rustfmt.patch
+            target/ui/
             target/frame-self-test.json
           retention-days: 3
