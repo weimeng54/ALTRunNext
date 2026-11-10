@@ -1,6 +1,6 @@
 use crate::native::wide;
 use std::{path::{Path,PathBuf},ptr::null_mut};
-use windows_sys::Win32::{Foundation::*,System::Threading::*,UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{Foundation::*,System::{Threading::*,DataExchange::COPYDATASTRUCT},UI::WindowsAndMessaging::*};
 const PROPERTY:&str="ALTRun.Modern.Dataset";
 const MAGIC:usize=0x4152544d;
 pub struct Instance{handle:HANDLE,pub identity:usize}

@@ -28,10 +28,15 @@ const ID_RECENT:usize=18006;
 const ID_ABOUT:usize=18007;
 const MATCH_DONE:u32=WM_APP+13;
 const AUTO_HIDE:usize=17030;
+const SKIN_DONE:u32=WM_APP+15;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const STATIC_CENTER: u32 = 0x00000000;
 
 struct State {
+    skin:usize,
+    skin_path:String,
+    skin_sender:std::sync::mpsc::Sender<(String,Result<usize,String>)>,
+    skin_results:std::sync::mpsc::Receiver<(String,Result<usize,String>)>,
     preferences:altrun_probe::preferences::Preferences,
     usage:altrun_probe::usage::Usage,
     usage_writer:altrun_probe::state_store::Writer,
@@ -156,17 +161,20 @@ fn refresh() {
 
 fn render_hits(){
     let (hwnd,list,command,dpi,count)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.hwnd,s.list,s.command,s.dpi,visible_count(s))});
+    let(width,row,max_rows,show_command,radius,edit,title)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.preferences.number("FormWidth"),s.preferences.number("RowHeight"),s.preferences.number("MaxRows"),s.preferences.flag("ShowCommandLine"),s.preferences.number("RoundBorderRadius"),s.edit,s.title)});
     unsafe {
         SendMessageW(list, WM_SETREDRAW, 0, 0);
         SendMessageW(list, LB_SETCOUNT, count, 0);
         SendMessageW(list, LB_SETCURSEL, 0, 0);
-        let height = scaled(count.max(1) as i32 * theme::ROW, dpi);
+        let height = scaled((count.max(1) as i32).min(max_rows)*row, dpi);
+        SetWindowPos(edit,null_mut(),scaled(18,dpi),scaled(35,dpi),scaled(width-36,dpi),scaled(22,dpi),SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(title,null_mut(),scaled(12,dpi),scaled(6,dpi),scaled(width-24,dpi),scaled(20,dpi),SWP_NOZORDER|SWP_NOACTIVATE);
         SetWindowPos(
             list,
             null_mut(),
             scaled(8, dpi),
             scaled(theme::LIST_Y, dpi),
-            scaled(404, dpi),
+            scaled(width-16, dpi),
             height,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
@@ -175,7 +183,7 @@ fn render_hits(){
             null_mut(),
             scaled(12, dpi),
             scaled(73, dpi) + height,
-            scaled(396, dpi),
+            scaled(width-24, dpi),
             scaled(16, dpi),
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
@@ -184,10 +192,11 @@ fn render_hits(){
             null_mut(),
             0,
             0,
-            scaled(420, dpi),
-            scaled(theme::BASE_HEIGHT, dpi) + height,
+            scaled(width, dpi),
+            scaled(if show_command{theme::BASE_HEIGHT}else{70}, dpi) + height,
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
+        let mut rect:RECT=zeroed();GetWindowRect(hwnd,&mut rect);if radius>0{let region=CreateRoundRectRgn(0,0,rect.right-rect.left+1,rect.bottom-rect.top+1,scaled(radius*2,dpi),scaled(radius*2,dpi));SetWindowRgn(hwnd,region,1);}else{SetWindowRgn(hwnd,null_mut(),1);}
         SendMessageW(list, WM_SETREDRAW, 1, 0);
         InvalidateRect(list, std::ptr::null(), 0);
         let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
@@ -416,13 +425,14 @@ fn paint_panel(hwnd: HWND) {
             let Some(s) = s.as_ref() else {
                 return;
             };
+            if s.skin!=0{let memory=CreateCompatibleDC(dc);let old=SelectObject(memory,s.skin as HBITMAP);let mut bitmap:BITMAP=zeroed();GetObjectW(s.skin as _,std::mem::size_of_val(&bitmap) as i32,&mut bitmap as *mut _ as _);let mut rect:RECT=zeroed();GetClientRect(hwnd,&mut rect);StretchBlt(dc,0,0,rect.right,rect.bottom,memory,0,0,bitmap.bmWidth,bitmap.bmHeight,SRCCOPY);SelectObject(memory,old);DeleteDC(memory);}
             let old_brush = SelectObject(dc, s.paper);
             let old_pen = SelectObject(dc, s.border);
             RoundRect(
                 dc,
                 scaled(10, s.dpi),
                 scaled(29, s.dpi),
-                scaled(410, s.dpi),
+                scaled(s.preferences.number("FormWidth")-10, s.dpi),
                 scaled(60, s.dpi),
                 scaled(8, s.dpi),
                 scaled(8, s.dpi),
@@ -582,6 +592,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         WM_DROPFILES=>{let paths=crate::manager::drop_paths(w as _);crate::manager::enqueue(paths,None);open_manager();0}
         WM_HOTKEY | SHOW => {
             capture_context();
+            position_panel();
             if msg==WM_HOTKEY&&STATE.with(|c|c.borrow().as_ref().unwrap().hotkeys.get(2).is_some_and(|h|h.0==w as i32)){recent();}
             let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
             unsafe {
@@ -625,6 +636,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         crate::settings::UPDATED=>{apply_settings_messages();0}
+        SKIN_DONE=>{let mut errors=Vec::new();STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();while let Ok((path,result))=s.skin_results.try_recv(){match result{Ok(bitmap)if path==s.skin_path=>{if s.skin!=0{unsafe{DeleteObject(s.skin as _);}}s.skin=bitmap;},Ok(bitmap)=>unsafe{DeleteObject(bitmap as _);},Err(e)if path==s.skin_path=>errors.push(e),Err(_)=>{}}}});unsafe{InvalidateRect(hwnd,std::ptr::null(),1);}if let Some(e)=errors.pop(){show_inline_error(&e);}0}
+        WM_SETTINGCHANGE|WM_THEMECHANGED=>{apply_appearance();render_hits();0}
+        WM_DPICHANGED=>{STATE.with(|c|c.borrow_mut().as_mut().unwrap().dpi=(w&65535) as i32);apply_appearance();render_hits();position_panel();0}
+        WM_NCHITTEST=>{let result=unsafe{DefWindowProcW(hwnd,msg,w,l)};let point_y=(l>>16)as i16 as i32;let mut rect:RECT=unsafe{zeroed()};unsafe{GetWindowRect(hwnd,&mut rect);}if result==HTCLIENT as isize&&point_y-rect.top<26{HTCAPTION as isize}else{result}}
+        WM_EXITSIZEMOVE=>{let mut rect:RECT=unsafe{zeroed()};unsafe{GetWindowRect(hwnd,&mut rect);}STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.usage.positions.insert("launcher".into(),(rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top));s.usage_writer.publish(s.usage.text());});0}
         MATCH_DONE=>{let result=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let mut latest=None;while let Ok((generation,result))=s.match_results.try_recv(){if generation==s.generation{latest=Some(result);}}if let Some(result)=latest{s.matching=false;s.hits=result.as_ref().map(|p|s.index.rank_positions(p,&s.current_query)).unwrap_or_default();s.selected=0;Some(result.err())}else{None}});if let Some(error)=result{render_hits();if let Some(error)=error{show_inline_error(&error);}}0}
         WM_TIMER if w==AUTO_HIDE=>{unsafe{KillTimer(hwnd,AUTO_HIDE);ShowWindow(hwnd,SW_HIDE);}0}
         WM_ACTIVATE if w&65535==WA_INACTIVE as usize=>{if STATE.with(|c|c.borrow().as_ref().is_some_and(|s|s.preferences.number("HideDelay")>0)){unsafe{ShowWindow(hwnd,SW_HIDE);}}0}
@@ -738,7 +754,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         FillRect(d.hDC, &rail, s.accent);
                     }
                     SetBkMode(d.hDC, TRANSPARENT as i32);
-                    SetTextColor(d.hDC, theme::MUTED);
+                    SetTextColor(d.hDC, theme::muted());
                     SelectObject(d.hDC, s.font);
                     let number = format!(
                         "{}{}",
@@ -747,7 +763,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         } else {
                             ' '
                         },
-                        (d.itemID + 1) % 10
+                        if s.preferences.flag("IndexFrom0to9"){d.itemID%10}else{(d.itemID+1)%10}
                     );
                     let a = wide(&number);
                     let b = wide(&e.alias);
@@ -759,7 +775,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         a.as_ptr(),
                         (a.len() - 1) as i32,
                     );
-                    SetTextColor(d.hDC, theme::TEXT);
+                    SetTextColor(d.hDC, theme::text());
                     SelectObject(d.hDC, s.title_font);
                     let mut rect = RECT {
                         left: scaled(34, s.dpi),
@@ -801,12 +817,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     if l as HWND == s.command && s.error {
                         theme::ERROR
                     } else if l as HWND == s.command || l as HWND == s.empty {
-                        theme::MUTED
+                        theme::muted()
                     } else {
-                        theme::TEXT
+                        theme::text()
                     },
                 );
-                SetBkColor(dc, if paper { theme::PAPER } else { theme::SURFACE });
+                SetBkColor(dc, if paper { theme::paper() } else { theme::surface() });
             }
             if paper {
                 s.paper as LRESULT
@@ -879,15 +895,17 @@ pub fn run() -> Result<(), String> {
     let(settings_sender,settings_updates)=std::sync::mpsc::channel();
     let(match_sender,match_tasks)=std::sync::mpsc::channel::<(u64,String,Vec<String>,bool)>();
     let(match_sender_result,match_results)=std::sync::mpsc::channel();
+    let(skin_sender,skin_results)=std::sync::mpsc::channel();
+    theme::install(&preferences);
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide("ALTRun.Native.PerformanceProbe");
-        let background = CreateSolidBrush(theme::SURFACE);
-        let selected_brush = CreateSolidBrush(theme::SELECTION);
-        let paper = CreateSolidBrush(theme::PAPER);
-        let accent = CreateSolidBrush(theme::ACCENT);
-        let border = CreatePen(PS_SOLID, 1, theme::BORDER);
+        let background = CreateSolidBrush(theme::surface());
+        let selected_brush = CreateSolidBrush(theme::selection());
+        let paper = CreateSolidBrush(theme::paper());
+        let accent = CreateSolidBrush(theme::accent());
+        let border = CreatePen(PS_SOLID, 1, theme::border());
         let mut wc: WNDCLASSW = zeroed();
         wc.lpfnWndProc = Some(window_proc);
         wc.hInstance = instance;
@@ -926,7 +944,7 @@ pub fn run() -> Result<(), String> {
         };
         let rounded = 2_i32;
         DwmSetWindowAttribute(hwnd, 33, &rounded as *const _ as *const _, 4);
-        DwmSetWindowAttribute(hwnd, 34, &theme::BORDER as *const _ as *const _, 4);
+        DwmSetWindowAttribute(hwnd, 34, &theme::border() as *const _ as *const _, 4);
         let font = CreateFontW(
             -scaled(13, dpi),
             0,
@@ -969,7 +987,7 @@ pub fn run() -> Result<(), String> {
             LBS_NOTIFY as u32
                 | LBS_OWNERDRAWFIXED as u32
                 | LBS_NODATA as u32
-                | LBS_NOINTEGRALHEIGHT as u32,
+                | LBS_NOINTEGRALHEIGHT as u32|WS_VSCROLL,
             8,
             theme::LIST_Y,
             404,
@@ -1012,6 +1030,7 @@ pub fn run() -> Result<(), String> {
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
+                skin:0,skin_path:String::new(),skin_sender,skin_results,
                 preferences,usage,usage_writer,settings_sender,settings_updates,hotkeys:Vec::new(),pending_settings:None,generation:0,match_sender,match_results,current_query:String::new(),matching:false,last_key:0,context:altrun_probe::launch::LaunchContext{base_directory:std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned(),..Default::default()},successful:None,history_position:0,
                 entries,
                 index,
@@ -1091,6 +1110,7 @@ pub fn run() -> Result<(), String> {
                 DeleteObject(s.border);
                 DeleteObject(s.selected_brush);
                 DeleteObject(s.background);
+                if s.skin!=0{DeleteObject(s.skin as _);}
             }
         });
         UnregisterClassW(class.as_ptr(), instance);
@@ -1169,7 +1189,9 @@ fn apply_settings_messages(){
 }
 fn apply_appearance(){
     let(hwnd,edit,list,title,command,prefs,dpi)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.hwnd,s.edit,s.list,s.title,s.command,s.preferences.clone(),s.dpi)});
+    theme::install(&prefs);
     unsafe{
+        STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let background=CreateSolidBrush(theme::surface());SetClassLongPtrW(hwnd,GCLP_HBRBACKGROUND,background as isize);for(slot,new)in[(&mut s.background,background),(&mut s.paper,CreateSolidBrush(theme::paper())),(&mut s.selected_brush,CreateSolidBrush(theme::selection())),(&mut s.accent,CreateSolidBrush(theme::accent()))]{let old=std::mem::replace(slot,new);DeleteObject(old);}let old=std::mem::replace(&mut s.border,CreatePen(PS_SOLID,1,theme::border()));DeleteObject(old);});
         let definitions=[("ListFont",list),("TitleFont",title),("KeywordFont",edit)];let mut fonts=Vec::new();
         for(key,control)in definitions{if let Ok(f)=altrun_probe::preferences::Font::parse(&prefs.get(key)){let font=CreateFontW(-f.points*dpi/72,0,0,0,f.weight,u32::from(f.italic),u32::from(f.underline),0,DEFAULT_CHARSET as u32,0,0,CLEARTYPE_QUALITY as u32,0,wide(&f.name).as_ptr());if !font.is_null(){SendMessageW(control,WM_SETFONT,font as usize,1);fonts.push((key,font));}}}
         STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();for(key,font)in fonts{let slot=match key{"ListFont"=>&mut s.font,"TitleFont"=>&mut s.title_font,_=>&mut s.input_font};let old=std::mem::replace(slot,font);DeleteObject(old);}});
@@ -1178,9 +1200,15 @@ fn apply_appearance(){
         tray_icon(hwnd,if prefs.flag("ShowTrayIcon"){NIM_ADD}else{NIM_DELETE});
         SendMessageW(list,LB_SETITEMHEIGHT,0,scaled(prefs.number("RowHeight"),dpi) as isize);
     }
+    load_skin();
 }
 fn choose_number(digit:usize){let chosen=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if s.parameter_entry.is_some()||s.matching{return false;}let index=if s.preferences.flag("IndexFrom0to9"){digit}else{(digit+9)%10};if index<visible_count(s){s.selected=index;true}else{false}});if chosen{launch_selected();}}
 fn parameter_history(delta:isize)->bool{let value=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let index=s.parameter_entry?;let history=s.usage.parameters.get(&s.entries[index].id).or_else(||s.usage.parameters.get("*"))?;if history.is_empty(){return None;}s.history_position=advance(s.history_position,history.len(),delta);Some((s.edit,history[s.history_position].clone()))});if let Some((edit,value))=value{unsafe{SetWindowTextW(edit,wide(&value).as_ptr());SendMessageW(edit,EM_SETSEL,0,-1);}true}else{false}}
 fn selected_action(copy:bool){let entry=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.hits.get(s.selected).map(|i|s.entries[*i].clone())});if let Some(entry)=entry{if copy{if let Err(e)=copy_text(&entry.command){show_inline_error(&e);}}else{std::thread::spawn(move||{let context=altrun_probe::launch::LaunchContext::default();match altrun_probe::launch::resolve_context(&entry.command,None,entry.param_type,&entry.working_directory,&context){Ok((request,_,_))=>{if let Some(parent)=std::path::Path::new(&request.file).parent().filter(|p|!p.as_os_str().is_empty()){let _=execute_request(&altrun_probe::launch::LaunchRequest{file:parent.to_string_lossy().into_owned(),parameters:String::new()});}},Err(e)=>crate::native::show_error(&e)}});}}}
 
+
+
+
+fn load_skin(){let task=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let path=if s.preferences.flag("ShowSkin"){s.preferences.get("BGFileName")}else{String::new()};if path==s.skin_path{return None;}s.skin_path=path.clone();if s.skin!=0{unsafe{DeleteObject(s.skin as _);}s.skin=0;}if path.is_empty(){return None;}let resolved=std::path::PathBuf::from(&path);let resolved=if resolved.is_absolute(){resolved}else{s.data_path.parent().unwrap_or(std::path::Path::new(".")).join(resolved)};Some((path,resolved,s.skin_sender.clone(),s.hwnd as usize))});if let Some((path,resolved,sender,owner))=task{std::thread::spawn(move||{let result=crate::skin::load(&resolved);if let Err(undelivered)=sender.send((path,result)){if let Ok(bitmap)=undelivered.0.1{unsafe{DeleteObject(bitmap as _);}}}else{unsafe{PostMessageW(owner as HWND,SKIN_DONE,0,0);}}});}}
+fn position_panel(){let(hwnd,prefs,remembered)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.hwnd,s.preferences.clone(),s.usage.positions.get("launcher").copied())});unsafe{let mut rect:RECT=zeroed();GetWindowRect(hwnd,&mut rect);let mut cursor:POINT=zeroed();GetCursorPos(&mut cursor);let mode=prefs.get("PositionMode");let (mut x,mut y)=if mode=="mouse"{(cursor.x,cursor.y)}else{remembered.map(|p|(p.0,p.1)).unwrap_or((prefs.number("WinLeft"),prefs.number("WinTop")))};let monitor=if mode=="mouse"||mode=="center"{MonitorFromPoint(cursor,MONITOR_DEFAULTTONEAREST)}else{MonitorFromPoint(POINT{x,y},MONITOR_DEFAULTTONEAREST)};let mut info:MONITORINFO=zeroed();info.cbSize=std::mem::size_of_val(&info) as u32;if GetMonitorInfoW(monitor,&mut info)!=0{let work=info.rcWork;let width=rect.right-rect.left;let height=rect.bottom-rect.top;if mode=="center"{x=work.left+(work.right-work.left-width)/2;y=work.top+(work.bottom-work.top-height)/2;}x=x.clamp(work.left,(work.right-width).max(work.left));y=y.clamp(work.top,(work.bottom-height).max(work.top));SetWindowPos(hwnd,null_mut(),x,y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);}}}
 

@@ -454,7 +454,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         },
                     );
                     SetBkMode(d.hDC, TRANSPARENT as i32);
-                    SetTextColor(d.hDC, theme::TEXT);
+                    SetTextColor(d.hDC, theme::text());
                     SelectObject(d.hDC, s.font);
                     let mut rect = d.rcItem;
                     rect.left += scaled(8, s.dpi);
@@ -473,7 +473,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     );
                     rect.left = scaled(106, s.dpi);
                     rect.right = d.rcItem.right - scaled(6, s.dpi);
-                    SetTextColor(d.hDC, theme::MUTED);
+                    SetTextColor(d.hDC, theme::muted());
                     DrawTextW(
                         d.hDC,
                         wide(&entry.name).as_ptr(),
@@ -494,15 +494,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     if l as HWND == s.status && s.error {
                         theme::ERROR
                     } else {
-                        theme::TEXT
+                        theme::text()
                     },
                 );
                 SetBkColor(
                     w as HDC,
                     if msg == WM_CTLCOLORSTATIC {
-                        theme::SURFACE
+                        theme::surface()
                     } else {
-                        theme::PAPER
+                        theme::paper()
                     },
                 );
             }
@@ -537,7 +537,7 @@ fn run(
     };
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
-        let background = CreateSolidBrush(theme::SURFACE);
+        let background = CreateSolidBrush(theme::surface());
         let mut class: WNDCLASSW = zeroed();
         class.lpfnWndProc = Some(procedure);
         class.hInstance = instance;
@@ -724,8 +724,8 @@ fn run(
         );
         control("BUTTON", "关闭", WS_TABSTOP, 656, 374, 88, 30, CLOSE);
         let draft = file.entries.clone();
-        let paper = CreateSolidBrush(theme::PAPER);
-        let selection = CreateSolidBrush(theme::SELECTION);
+        let paper = CreateSolidBrush(theme::paper());
+        let selection = CreateSolidBrush(theme::selection());
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
                 workdir,enabled,entry_kind,undo:Vec::new(),
@@ -810,4 +810,5 @@ fn tool(hwnd:HWND,id:usize){
         EDIT_TEXT=>{if EDITOR.with(|c|c.borrow().as_ref().unwrap().dirty){status("请先保存或关闭草稿，再用文本编辑器修改文件。",true);}else if let Ok(notepad)=altrun_probe::safe_notepad_path(){match std::process::Command::new(notepad).arg(&path).spawn(){Ok(_)=>status("文本修改后请重新打开管理窗口；外部冲突会阻止覆盖。",false),Err(e)=>status(&e.to_string(),true)}}},_=>{}
     }
 }
+
 

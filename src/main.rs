@@ -10,6 +10,8 @@ mod theme;
 mod settings;
 #[cfg(windows)]
 mod instance;
+#[cfg(windows)]
+mod skin;
 
 fn main() {
     if std::env::args().any(|arg|arg=="--regex-worker") {

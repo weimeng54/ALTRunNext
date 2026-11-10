@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
+    pub positions:BTreeMap<String,(i32,i32,i32,i32)>,
     pub counts: BTreeMap<String, u64>,
     pub recent: Vec<String>,
     pub favourites: BTreeMap<String, String>,
@@ -16,6 +17,7 @@ impl Usage {
             let fields: Vec<_> = line.split('\t').collect();
             let bad = || format!("运行记录第 {} 行无效", number + 1);
             match fields.as_slice() {
+                ["W",name,x,y,width,height]=>{out.positions.insert(unescape(name)?,(x.parse().map_err(|_|bad())?,y.parse().map_err(|_|bad())?,width.parse().map_err(|_|bad())?,height.parse().map_err(|_|bad())?));}
                 ["F", id, count] => {
                     out.counts
                         .insert(unescape(id)?, count.parse().map_err(|_| bad())?);
@@ -36,6 +38,7 @@ impl Usage {
     }
     pub fn text(&self) -> String {
         let mut out = String::new();
+        for(name,(x,y,w,h))in &self.positions{out.push_str(&format!("W\t{}\t{x}\t{y}\t{w}\t{h}\n",escape(name)));}
         for (id, count) in &self.counts {
             out.push_str(&format!("F\t{}\t{count}\n", escape(id)));
         }
