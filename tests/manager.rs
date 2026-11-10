@@ -35,11 +35,20 @@ fn window(class: &str, pid: u32) -> HWND {
     unsafe {
         let mut hwnd = std::ptr::null_mut();
         loop {
-            hwnd = FindWindowExW(std::ptr::null_mut(), hwnd, wide(class).as_ptr(), std::ptr::null());
-            if hwnd.is_null() { return hwnd; }
+            hwnd = FindWindowExW(
+                std::ptr::null_mut(),
+                hwnd,
+                wide(class).as_ptr(),
+                std::ptr::null(),
+            );
+            if hwnd.is_null() {
+                return hwnd;
+            }
             let mut owner = 0;
             GetWindowThreadProcessId(hwnd, &mut owner);
-            if owner == pid { return hwnd; }
+            if owner == pid {
+                return hwnd;
+            }
         }
     }
 }
@@ -53,13 +62,22 @@ fn set(hwnd: HWND, value: &str) {
     }
 }
 fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answer: i32) {
-    let address=owner as usize;
-    let pending=thread::spawn(move || unsafe { SendMessageW(address as HWND,message,command,0) });
-    let mut dialog=std::ptr::null_mut();
-    wait(||{dialog=window("#32770",pid);!dialog.is_null()&&unsafe{GetWindow(dialog,GW_OWNER)==owner&&IsWindowVisible(dialog)!=0}});
-    unsafe{let button=GetDlgItem(dialog,answer);assert!(!button.is_null());SendMessageW(button,BM_CLICK,0,0);}
+    let address = owner as usize;
+    let pending =
+        thread::spawn(move || unsafe { SendMessageW(address as HWND, message, command, 0) });
+    let mut dialog = std::ptr::null_mut();
+    wait(|| {
+        dialog = window("#32770", pid);
+        !dialog.is_null()
+            && unsafe { GetWindow(dialog, GW_OWNER) == owner && IsWindowVisible(dialog) != 0 }
+    });
+    unsafe {
+        let button = GetDlgItem(dialog, answer);
+        assert!(!button.is_null());
+        SendMessageW(button, BM_CLICK, 0, 0);
+    }
     pending.join().unwrap();
-    wait(||unsafe{IsWindow(dialog)==0});
+    wait(|| unsafe { IsWindow(dialog) == 0 });
 }
 
 #[test]
@@ -146,16 +164,34 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
                 && bounds.bottom <= monitor.rcWork.bottom,
             "manager controls must fit the work area"
         );
-        answer_confirmation(manager,pid,WM_COMMAND,2111,IDCANCEL);
-        assert_eq!(SendMessageW(GetDlgItem(manager,2101),LB_GETCOUNT,0,0),3);
-        answer_confirmation(manager,pid,WM_COMMAND,2111,IDOK);
-        assert_eq!(SendMessageW(GetDlgItem(manager,2101),LB_GETCOUNT,0,0),2);
-        assert_eq!(altrun_probe::library::Snapshot::open(&path).unwrap().entries.len(),3);
-        answer_confirmation(manager,pid,WM_CLOSE,0,IDCANCEL);
-        assert_ne!(IsWindowVisible(manager),0);
-        SendMessageW(manager,WM_COMMAND,2113,0);
-        assert_eq!(altrun_probe::library::Snapshot::open(&path).unwrap().entries.len(),2);
-        wait(||SendMessageW(list,LB_GETCOUNT,0,0)==0);
+        answer_confirmation(manager, pid, WM_COMMAND, 2111, IDCANCEL);
+        assert_eq!(
+            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            3
+        );
+        answer_confirmation(manager, pid, WM_COMMAND, 2111, IDOK);
+        assert_eq!(
+            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            2
+        );
+        assert_eq!(
+            altrun_probe::library::Snapshot::open(&path)
+                .unwrap()
+                .entries
+                .len(),
+            3
+        );
+        answer_confirmation(manager, pid, WM_CLOSE, 0, IDCANCEL);
+        assert_ne!(IsWindowVisible(manager), 0);
+        SendMessageW(manager, WM_COMMAND, 2113, 0);
+        assert_eq!(
+            altrun_probe::library::Snapshot::open(&path)
+                .unwrap()
+                .entries
+                .len(),
+            2
+        );
+        wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 0);
         SendMessageW(manager, WM_COMMAND, 2114, 0);
         wait(|| IsWindow(manager) == 0);
         SendMessageW(root, WM_COMMAND, 18003, 0);
