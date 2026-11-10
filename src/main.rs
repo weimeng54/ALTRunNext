@@ -18,6 +18,10 @@ mod theme;
 mod window_actions;
 #[cfg(windows)]
 mod window_geometry;
+#[cfg(windows)]
+mod settings_pickers;
+#[cfg(windows)]
+mod input_dialog;
 
 fn main() {
     #[cfg(windows)]

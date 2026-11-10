@@ -31,16 +31,17 @@ const ID_CLEAN: usize = 18009;
 const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
-const STATE_ERROR:u32=WM_APP+17;
+const STATE_ERROR: u32 = WM_APP + 17;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const STATIC_CENTER: u32 = 0x00000000;
 type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
 struct State {
-    input_paper:HBRUSH,
-    font_colours:[u32;3],
-    alias_font:HFONT,
+    match_generation:std::sync::Arc<std::sync::atomic::AtomicU64>,
+    input_paper: HBRUSH,
+    font_colours: [u32; 3],
+    alias_font: HFONT,
     buttons: [HWND; 3],
     skin: usize,
     skin_path: String,
@@ -160,6 +161,7 @@ fn refresh() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
+        s.match_generation.store(s.generation,std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
         s.matching = false;
         s.hits = match s.index.query_options(
@@ -471,7 +473,8 @@ fn launch_selected() {
     }
     if entry.param_type.needs_input(&entry.command)
         && !parameter_mode
-            && (altrun_probe::launch::has_parameter(&entry.command)||!altrun_probe::launch::has_context(&entry.command))
+        && (altrun_probe::launch::has_parameter(&entry.command)
+            || !altrun_probe::launch::has_context(&entry.command))
     {
         let query = edit_text(edit);
         let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
@@ -505,7 +508,7 @@ fn launch_selected() {
     let query = if parameter_mode {
         STATE.with(|c| c.borrow().as_ref().unwrap().saved_query.clone())
     } else {
-        STATE.with(|c|c.borrow().as_ref().unwrap().current_query.clone())
+        STATE.with(|c| c.borrow().as_ref().unwrap().current_query.clone())
     };
     let mut context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
     let working_directory = entry.working_directory;
@@ -521,7 +524,7 @@ fn launch_selected() {
     // All path checks, environment expansion, COM initialization and shell work
     // happen off the resident UI thread. No implicit cmd.exe is introduced.
     std::thread::spawn(move || {
-        if altrun_probe::launch::has_context(&command)&&command.contains("%c") {
+        if altrun_probe::launch::has_context(&command) && command.contains("%c") {
             context.clipboard = clipboard_text();
         }
         let result = altrun_probe::launch::resolve_context(
@@ -544,7 +547,7 @@ fn launch_selected() {
 fn execute_request(request: &altrun_probe::launch::LaunchRequest) -> Result<(), String> {
     execute_request_with(request, altrun_probe::launch::ShowMode::Normal, None)
 }
-fn execute_request_with(
+pub(crate) fn execute_request_with(
     request: &altrun_probe::launch::LaunchRequest,
     mode: altrun_probe::launch::ShowMode,
     directory: Option<&str>,
@@ -728,7 +731,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN) && !composing {
         let control = unsafe { GetKeyState(VK_CONTROL as i32) } < 0;
         let alt = unsafe { GetKeyState(VK_MENU as i32) } < 0;
-        STATE.with(|c| c.borrow_mut().as_mut().unwrap().last_key = w as u16);
+        STATE.with(|c| c.borrow_mut().as_mut().unwrap().last_key =if control&&matches!(w as u16,0x56|0x58|0x5a){u16::MAX}else{0});
         if control || alt {
             let digit = match w as u16 {
                 0x30..=0x39 => Some(w - 0x30),
@@ -740,6 +743,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 return 0;
             }
         }
+        let(delay,parent)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.preferences.number("HideDelay"),s.hwnd)});if delay>0{unsafe{SetTimer(parent,AUTO_HIDE,delay as u32*1000,None);}}
         if control {
             match w as u16 {
                 0x43 => {
@@ -769,11 +773,13 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let id = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
+                    if w as u16==VK_INSERT{return s.current_query.clone();}
                     s.hits
                         .get(s.selected)
                         .map(|i| s.entries[*i].id.clone())
                         .unwrap_or_default()
                 });
+                if id.is_empty()&&w as u16!=VK_INSERT{return 0;}
                 crate::manager::enqueue(Vec::new(), Some((id, w as u16)));
                 open_manager();
                 return 0;
@@ -832,17 +838,9 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             _ => {}
         }
-        let (delay, parent) = STATE.with(|c| {
-            let s = c.borrow();
-            let s = s.as_ref().unwrap();
-            (s.preferences.number("HideDelay"), s.hwnd)
-        });
-        if delay > 0 {
-            unsafe {
-                SetTimer(parent, AUTO_HIDE, delay as u32 * 1000, None);
-            }
-        }
     }
+    if msg==WM_CHAR&&!composing&&!matches!(w,3|4|12|13|27|9|59|39){let control=unsafe{GetKeyState(VK_CONTROL as i32)}<0;if control&&(0x30..=0x39).contains(&w){return 0;}STATE.with(|c|c.borrow_mut().as_mut().unwrap().last_key=if w==32{VK_SPACE}else if (0x30..=0x39).contains(&w){w as u16}else{u16::MAX});}
+    if msg==WM_SYSCHAR&&(0x30..=0x39).contains(&w){return 0;}
     if msg == WM_CHAR && unsafe { GetKeyState(VK_CONTROL as i32) } < 0 && matches!(w, 3 | 4 | 12) {
         return 0;
     }
@@ -892,7 +890,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         WM_HOTKEY | SHOW => {
             capture_context();
             position_panel();
-            if msg == WM_HOTKEY
+            let is_recent = msg == WM_HOTKEY
                 && STATE.with(|c| {
                     c.borrow()
                         .as_ref()
@@ -901,18 +899,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         .get(2)
                         .is_some_and(|h| h.0 == w as i32)
                 })
-            {
-                recent();
-            }
+            ; if is_recent {recent();}
             let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
             unsafe {
-                if msg == WM_HOTKEY && IsWindowVisible(hwnd) != 0 {
+                if msg == WM_HOTKEY && !is_recent && IsWindowVisible(hwnd) != 0 {
                     ShowWindow(hwnd, SW_HIDE);
                 } else {
                     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
                     SetForegroundWindow(hwnd);
                     SetFocus(edit);
                     popup_sound();
+                    let delay=STATE.with(|c|c.borrow().as_ref().unwrap().preferences.number("HideDelay"));if delay>0{SetTimer(hwnd,AUTO_HIDE,delay as u32*1000,None);}
                 }
             }
             0
@@ -977,7 +974,21 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             apply_settings_messages();
             0
         }
-        STATE_ERROR=>{let errors=STATE.with(|c|c.borrow().as_ref().unwrap().usage_writer.errors.try_iter().collect::<Vec<_>>());if let Some(error)=errors.last(){show_inline_error(&format!("运行记录未能保存：{error}"));}0}
+        STATE_ERROR => {
+            let errors = STATE.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .usage_writer
+                    .errors
+                    .try_iter()
+                    .collect::<Vec<_>>()
+            });
+            if let Some(error) = errors.last() {
+                show_inline_error(&format!("运行记录未能保存：{error}"));
+            }
+            0
+        }
         SKIN_DONE => {
             let mut errors = Vec::new();
             STATE.with(|c| {
@@ -1131,7 +1142,21 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
             0
         }
-        crate::manager::GEOMETRY_CHANGED=>{let geometry=crate::manager::window_state();STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if let Some(rect)=geometry.rect{s.usage.positions.insert("manager".into(),rect);}s.usage.selection.insert("manager".into(),geometry.selected);s.usage_writer.publish(s.usage.text());});0}
+        crate::manager::GEOMETRY_CHANGED => {
+            let geometry = crate::manager::window_state();
+            STATE.with(|c| {
+                let mut s = c.borrow_mut();
+                let s = s.as_mut().unwrap();
+                if let Some(rect) = geometry.rect {
+                    s.usage.positions.insert("manager".into(), rect);
+                }
+                s.usage
+                    .selection
+                    .insert("manager".into(), geometry.selected);
+                s.usage_writer.publish(s.usage.text());
+            });
+            0
+        }
         WM_COMMAND => {
             if w & 0xffff == ID_MANAGE {
                 open_manager();
@@ -1177,12 +1202,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 return 0;
             }
             if id == ID_EDIT && code == EN_CHANGE as usize {
-                let (previous, key, edit, number, composing) = STATE.with(|c| {
+                let (previous,previous_selected, key, edit, number, composing) = STATE.with(|c| {
                     let mut s = c.borrow_mut();
                     let s = s.as_mut().unwrap();
                     let key = std::mem::take(&mut s.last_key);
                     (
                         s.hits.clone(),
+                        s.selected,
                         key,
                         s.edit,
                         s.preferences.flag("NumberKey"),
@@ -1203,11 +1229,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         _ => None,
                     };
                     if (number && digit.is_some()) || key == VK_SPACE {
-                        STATE.with(|c| {
-                            let mut s = c.borrow_mut();
-                            let s = s.as_mut().unwrap();
-                            s.hits = previous;
-                        });
+                        let trimmed=query.char_indices().next_back().map(|(i,_)|&query[..i]).unwrap_or("");unsafe{SetWindowTextW(edit,wide(trimmed).as_ptr());}STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.hits=previous;s.selected=previous_selected.min(visible_count(s).saturating_sub(1));});
                         if let Some(digit) = digit {
                             choose_number(digit);
                         } else {
@@ -1304,7 +1326,23 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         a.as_ptr(),
                         (a.len() - 1) as i32,
                     );
-                    let format=s.preferences.get("ListFormat");if format!="%-25s| %s"&&let Ok(line)=altrun_probe::list_format::render(&format,&e.alias,&e.name){let mut rect=d.rcItem;rect.left=scaled(34,s.dpi);SetTextColor(d.hDC,theme::text());DrawTextW(d.hDC,wide(&line).as_ptr(),-1,&mut rect,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX);return;}
+                    let format = s.preferences.get("ListFormat");
+                    if format != "%-25s| %s"
+                        && let Ok(line) =
+                            altrun_probe::list_format::render(&format, &e.alias, &e.name)
+                    {
+                        let mut rect = d.rcItem;
+                        rect.left = scaled(34, s.dpi);
+                        SetTextColor(d.hDC, theme::text());
+                        DrawTextW(
+                            d.hDC,
+                            wide(&line).as_ptr(),
+                            -1,
+                            &mut rect,
+                            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
+                        );
+                        return;
+                    }
                     SetTextColor(d.hDC, s.font_colours[2]);
                     SelectObject(d.hDC, s.alias_font);
                     let mut rect = RECT {
@@ -1348,18 +1386,28 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         theme::ERROR
                     } else if l as HWND == s.command || l as HWND == s.empty {
                         theme::muted()
-                    } else if l as HWND==s.edit{s.font_colours[1]}else if l as HWND==s.title{s.font_colours[0]}else{s.font_colours[2]},
+                    } else if l as HWND == s.edit {
+                        s.font_colours[1]
+                    } else if l as HWND == s.title {
+                        s.font_colours[0]
+                    } else {
+                        s.font_colours[2]
+                    },
                 );
                 SetBkColor(
                     dc,
-                    if l as HWND==s.edit{theme::keyword()}else if paper {
+                    if l as HWND == s.edit {
+                        theme::keyword()
+                    } else if paper {
                         theme::paper()
                     } else {
                         theme::surface()
                     },
                 );
             }
-            if l as HWND==s.edit{s.input_paper as LRESULT}else if paper {
+            if l as HWND == s.edit {
+                s.input_paper as LRESULT
+            } else if paper {
                 s.paper as LRESULT
             } else {
                 s.background as LRESULT
@@ -1449,6 +1497,7 @@ pub fn run() -> Result<(), String> {
     let (match_sender, match_tasks) =
         std::sync::mpsc::channel::<(u64, String, Vec<String>, bool)>();
     let (match_sender_result, match_results) = std::sync::mpsc::channel();
+    let match_generation=std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));let worker_generation=match_generation.clone();
     let (skin_sender, skin_results) = std::sync::mpsc::channel();
     theme::install(&preferences);
     crate::localization::install(
@@ -1462,7 +1511,8 @@ pub fn run() -> Result<(), String> {
         let background = CreateSolidBrush(theme::surface());
         let selected_brush = CreateSolidBrush(theme::selection());
         let paper = CreateSolidBrush(theme::paper());
-        let input_paper=CreateSolidBrush(theme::keyword());let alias_font=make_font(13,600,"Microsoft YaHei UI",96);
+        let input_paper = CreateSolidBrush(theme::keyword());
+        let alias_font = make_font(13, 600, "Microsoft YaHei UI", 96);
         let accent = CreateSolidBrush(theme::accent());
         let border = CreatePen(PS_SOLID, 1, theme::border());
         let mut wc: WNDCLASSW = zeroed();
@@ -1596,13 +1646,19 @@ pub fn run() -> Result<(), String> {
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(theme::ROW, dpi) as LPARAM);
         let (launch_sender, launch_results) = std::sync::mpsc::channel();
         let (library_sender, library_updates) = altrun_probe::library_updates::channel();
-        let owner=hwnd as usize;let usage_writer=altrun_probe::state_store::Writer::start_notified(state_file,move||{PostMessageW(owner as HWND,STATE_ERROR,0,0);});
+        let owner = hwnd as usize;
+        let usage_writer =
+            altrun_probe::state_store::Writer::start_notified(state_file, move || {
+                PostMessageW(owner as HWND, STATE_ERROR, 0, 0);
+            });
         LAUNCH_SENDER.with(|s| *s.borrow_mut() = Some(launch_sender));
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
-                input_paper,alias_font,font_colours:[theme::text();3],
+                input_paper,
+                alias_font,
+                font_colours: [theme::text(); 3],
                 buttons,
                 skin: 0,
                 skin_path: String::new(),
@@ -1618,6 +1674,7 @@ pub fn run() -> Result<(), String> {
                 generation: 0,
                 match_sender,
                 match_results,
+                match_generation,
                 current_query: String::new(),
                 matching: false,
                 last_key: 0,
@@ -1675,12 +1732,13 @@ pub fn run() -> Result<(), String> {
                 let result = std::env::current_exe()
                     .map_err(|e| e.to_string())
                     .and_then(|exe| {
-                        altrun_probe::isolated_matching::run(
+                        altrun_probe::isolated_matching::run_cancellable(
                             &exe,
                             &pattern,
                             &aliases,
                             prefix,
                             std::time::Duration::from_millis(100),
+                            ||worker_generation.load(std::sync::atomic::Ordering::Relaxed)!=generation,
                         )
                     });
                 if match_sender_result.send((generation, result)).is_err() {
@@ -1723,6 +1781,7 @@ pub fn run() -> Result<(), String> {
             crate::manager::enqueue(intake, None);
             open_manager();
         }
+        if args.iter().any(|a|matches!(a.as_str(),"--clean"|"Clean")){PostMessageW(hwnd,WM_COMMAND,ID_CLEAN,0);}
         if args.iter().any(|a| a == "--show")
             || STATE.with(|c| {
                 c.borrow()
@@ -1757,7 +1816,13 @@ pub fn run() -> Result<(), String> {
         }
         STATE.with(|c| {
             if let Some(s) = c.borrow_mut().take() {
-                for font in [s.font, s.title_font, s.input_font, s.command_font,s.alias_font] {
+                for font in [
+                    s.font,
+                    s.title_font,
+                    s.input_font,
+                    s.command_font,
+                    s.alias_font,
+                ] {
                     DeleteObject(font);
                 }
                 DeleteObject(s.paper);
@@ -1777,7 +1842,21 @@ pub fn run() -> Result<(), String> {
 }
 
 fn open_manager() {
-    let geometry=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();crate::manager::WindowState{rect:s.usage.positions.get("manager").copied(),selected:s.usage.selection.get("manager").cloned().unwrap_or_default()}});crate::manager::configure(geometry);
+    let context=STATE.with(|c|c.borrow().as_ref().unwrap().context.clone());crate::manager::configure_context(context);
+    let geometry = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        crate::manager::WindowState {
+            rect: s.usage.positions.get("manager").copied(),
+            selected: s
+                .usage
+                .selection
+                .get("manager")
+                .cloned()
+                .unwrap_or_default(),
+        }
+    });
+    crate::manager::configure(geometry);
     let (path, entries, hwnd, sender) = STATE.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
@@ -1836,7 +1915,7 @@ fn rebuild_index(s: &mut State) {
     }
     s.index = SearchIndex::new(&rows);
 }
-fn clipboard_text() -> Option<String> {
+pub(crate) fn clipboard_text() -> Option<String> {
     use windows_sys::Win32::System::{DataExchange::*, Memory::*};
     unsafe {
         if OpenClipboard(null_mut()) == 0 {
@@ -1911,16 +1990,27 @@ fn capture_context() {
             s.context.window_title = title;
             s.context.window_class = String::from_utf16_lossy(&class[..n.max(0) as usize]);
             s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
-            let dir = s.preferences.get("WorkingDirectory");s.context.base_directory=if !dir.is_empty(){dir}else{s.data_path.parent().unwrap_or(std::path::Path::new(".")).to_string_lossy().into_owned()};
+            let dir = s.preferences.get("WorkingDirectory");
+            s.context.base_directory = if !dir.is_empty() {
+                dir
+            } else {
+                s.data_path
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .to_string_lossy()
+                    .into_owned()
+            };
         });
     }
 }
 fn recent() {
     cancel_parameter();
+    let edit=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.last_key=0;s.edit});unsafe{SetWindowTextW(edit,wide("").as_ptr());}
     STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
+        s.match_generation.store(s.generation,std::sync::atomic::Ordering::Relaxed);
         s.matching = false;
         s.hits = s
             .usage
@@ -2113,7 +2203,7 @@ fn apply_appearance() {
                 (&mut s.paper, CreateSolidBrush(theme::paper())),
                 (&mut s.selected_brush, CreateSolidBrush(theme::selection())),
                 (&mut s.accent, CreateSolidBrush(theme::accent())),
-                (&mut s.input_paper,CreateSolidBrush(theme::keyword())),
+                (&mut s.input_paper, CreateSolidBrush(theme::keyword())),
             ] {
                 let old = std::mem::replace(slot, new);
                 DeleteObject(old);
@@ -2121,7 +2211,15 @@ fn apply_appearance() {
             let old = std::mem::replace(&mut s.border, CreatePen(PS_SOLID, 1, theme::border()));
             DeleteObject(old);
         });
-        STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.font_colours=[theme::font_colour(&prefs.get("TitleFont")),theme::font_colour(&prefs.get("KeywordFont")),theme::font_colour(&prefs.get("ListFont"))];});
+        STATE.with(|c| {
+            let mut s = c.borrow_mut();
+            let s = s.as_mut().unwrap();
+            s.font_colours = [
+                theme::font_colour(&prefs.get("TitleFont")),
+                theme::font_colour(&prefs.get("KeywordFont")),
+                theme::font_colour(&prefs.get("ListFont")),
+            ];
+        });
         let definitions = [
             ("ListFont", list),
             ("TitleFont", title),
@@ -2138,8 +2236,8 @@ fn apply_appearance() {
                     f.weight,
                     u32::from(f.italic),
                     u32::from(f.underline),
-                    0,
-                    DEFAULT_CHARSET as u32,
+                    u32::from(f.strike_out),
+                    u32::from(f.charset),
                     0,
                     0,
                     CLEARTYPE_QUALITY as u32,
@@ -2165,8 +2263,18 @@ fn apply_appearance() {
                 DeleteObject(old);
             }
         });
-        if let Ok(font)=altrun_probe::preferences::Font::parse(&prefs.get("ListFont")){let alias=make_font(font.points*4/3,600,&font.name,dpi);let preview=make_font(11,400,"Consolas",dpi);SendMessageW(command,WM_SETFONT,preview as usize,1);STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();DeleteObject(std::mem::replace(&mut s.alias_font,alias));DeleteObject(std::mem::replace(&mut s.command_font,preview));});}
-        let alpha = prefs.number("Alpha").clamp(40, 255) as u8;
+        if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("ListFont")) {
+            let alias = make_font(font.points * 4 / 3, 600, &font.name, dpi);
+            let preview = make_font(11, 400, "Consolas", dpi);
+            SendMessageW(command, WM_SETFONT, preview as usize, 1);
+            STATE.with(|c| {
+                let mut s = c.borrow_mut();
+                let s = s.as_mut().unwrap();
+                DeleteObject(std::mem::replace(&mut s.alias_font, alias));
+                DeleteObject(std::mem::replace(&mut s.command_font, preview));
+            });
+        }
+        let alpha = prefs.number("Alpha").clamp(0, 255) as u8;
         let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_LAYERED) as i32);
         SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
@@ -2474,7 +2582,11 @@ fn popup_sound() {
     let file = prefs.get("PopupFileName");
     unsafe {
         if file.is_empty() {
-            windows_sys::Win32::Media::Audio::PlaySoundW(wide("SystemAsterisk").as_ptr(),null_mut(),0x00010000|0x00000001);
+            windows_sys::Win32::Media::Audio::PlaySoundW(
+                wide("SystemAsterisk").as_ptr(),
+                null_mut(),
+                0x00010000 | 0x00000001,
+            );
         } else {
             windows_sys::Win32::Media::Audio::PlaySoundW(
                 wide(&file).as_ptr(),
@@ -2588,3 +2700,5 @@ fn trace_event(event: &'static str) {
         });
     }
 }
+
+

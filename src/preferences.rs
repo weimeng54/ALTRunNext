@@ -255,7 +255,9 @@ impl Preferences {
                 value.to_owned()
             }
             Kind::Text => {
-                if spec.key=="ListFormat"{crate::list_format::render(value,"a","b")?;}
+                if spec.key == "ListFormat" {
+                    crate::list_format::render(value, "a", "b")?;
+                }
                 if spec.key == "Theme" && !matches!(value, "light" | "dark" | "system") {
                     return Err("主题应为 light、dark 或 system".into());
                 }
@@ -376,6 +378,8 @@ pub fn parse_hotkey(value: &str) -> Result<Option<Hotkey>, String> {
 }
 #[derive(Clone, Debug)]
 pub struct Font {
+    pub strike_out:bool,
+    pub charset:u8,
     pub name: String,
     pub points: i32,
     pub weight: i32,
@@ -395,6 +399,7 @@ impl Font {
         }
         let colour = parse_colour(p.get(3).copied().unwrap_or("3812384"))?;
         Ok(Self {
+            strike_out:p[1].contains("fsStrikeOut"),charset:p.get(4).copied().unwrap_or("1").parse().map_err(|_|"字体字符集无效")?,
             name: p[0].trim().into(),
             points,
             weight: if p[1].contains("fsBold") { 600 } else { 400 },

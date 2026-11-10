@@ -36,6 +36,10 @@ pub fn run(
     prefix: bool,
     timeout: Duration,
 ) -> Result<Vec<Option<usize>>, String> {
+    run_cancellable(program,pattern,aliases,prefix,timeout,||false)
+}
+pub fn run_cancellable(program:&Path,pattern:&str,aliases:&[String],prefix:bool,timeout:Duration,cancelled:impl Fn()->bool)->Result<Vec<Option<usize>>,String>{
+    if cancelled(){return Err("匹配已取消".into());}
     if timeout.is_zero() {
         return Err("正则匹配超时".into());
     }
@@ -90,10 +94,7 @@ pub fn run(
             .map_err(|e| e.to_string());
         let _ = sender.send(result);
     });
-    let result = receiver
-        .recv_timeout(timeout.saturating_sub(start.elapsed()))
-        .map_err(|_| "正则匹配超时".to_owned())
-        .and_then(|r| r);
+    let result=loop{if cancelled(){break Err("匹配已取消".into());}let remaining=timeout.saturating_sub(start.elapsed());if remaining.is_zero(){break Err("正则匹配超时".into());}match receiver.recv_timeout(remaining.min(Duration::from_millis(5))){Ok(result)=>break result,Err(std::sync::mpsc::RecvTimeoutError::Timeout)=>{},Err(_)=>break Err("匹配进程已结束".into())}};
     if result.is_err() {
         let _ = child.kill();
     }

@@ -27,11 +27,26 @@ use windows_sys::Win32::{
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
 const FOCUS: u32 = WM_APP + 1;
 pub const UPDATED: u32 = WM_APP + 6;
-pub const GEOMETRY_CHANGED:u32=WM_APP+16;
-#[derive(Clone,Default)]pub struct WindowState{pub rect:Option<(i32,i32,i32,i32)>,pub selected:String}
-static WINDOW_STATE:std::sync::Mutex<WindowState>=std::sync::Mutex::new(WindowState{rect:None,selected:String::new()});
-pub fn configure(state:WindowState){if !is_open()&&let Ok(mut current)=WINDOW_STATE.lock(){*current=state;}}
-pub fn window_state()->WindowState{WINDOW_STATE.lock().map(|s|s.clone()).unwrap_or_default()}
+pub const GEOMETRY_CHANGED: u32 = WM_APP + 16;
+#[derive(Clone, Default)]
+pub struct WindowState {
+    pub rect: Option<(i32, i32, i32, i32)>,
+    pub selected: String,
+}
+static WINDOW_STATE: std::sync::Mutex<WindowState> = std::sync::Mutex::new(WindowState {
+    rect: None,
+    selected: String::new(),
+});
+pub fn configure(state: WindowState) {
+    if !is_open()
+        && let Ok(mut current) = WINDOW_STATE.lock()
+    {
+        *current = state;
+    }
+}
+pub fn window_state() -> WindowState {
+    WINDOW_STATE.lock().map(|s| s.clone()).unwrap_or_default()
+}
 const LIST: usize = 2101;
 const ALIAS: usize = 2102;
 const NAME: usize = 2103;
@@ -57,12 +72,21 @@ const EXPORT: usize = 2128;
 const RESTORE: usize = 2129;
 const EDIT_TEXT: usize = 2130;
 const UNDO: usize = 2131;
+const SORT_ALIAS:usize=2132;
+const SORT_NAME:usize=2133;
+const SORT_FREQUENCY:usize=2134;
+const MOVE_UP:usize=2135;
+const MOVE_DOWN:usize=2136;
+const TEST:usize=2137;
+const MIGRATE:usize=2138;
+static TEST_CONTEXT:std::sync::Mutex<altrun_probe::launch::LaunchContext>=std::sync::Mutex::new(altrun_probe::launch::LaunchContext{clipboard:None,window_id:0,window_title:String::new(),window_class:String::new(),base_directory:String::new(),allow_dynamic_target:false});
+pub fn configure_context(context:altrun_probe::launch::LaunchContext){if let Ok(mut current)=TEST_CONTEXT.lock(){*current=context;}}
 static OPEN: AtomicBool = AtomicBool::new(false);
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
 struct Editor {
-    layout:Vec<crate::window_geometry::Child>,
-    client_size:(i32,i32),
+    layout: Vec<crate::window_geometry::Child>,
+    client_size: (i32, i32),
     workdir: HWND,
     enabled: HWND,
     entry_kind: HWND,
@@ -436,9 +460,23 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return unsafe { DefWindowProcW(hwnd, msg, w, l) };
     }
     match msg {
-        WM_SIZE=>{resize(hwnd);0}
-        WM_EXITSIZEMOVE=>{publish_geometry(hwnd);0}
-        WM_GETMINMAXINFO=>{let info=unsafe{&mut *(l as *mut MINMAXINFO)};let dpi=EDITOR.with(|c|c.borrow().as_ref().unwrap().dpi);info.ptMinTrackSize=POINT{x:scaled(600,dpi),y:scaled(430,dpi)};0}
+        WM_SIZE => {
+            resize(hwnd);
+            0
+        }
+        WM_EXITSIZEMOVE => {
+            publish_geometry(hwnd);
+            0
+        }
+        WM_GETMINMAXINFO => {
+            let info = unsafe { &mut *(l as *mut MINMAXINFO) };
+            let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+            info.ptMinTrackSize = POINT {
+                x: scaled(600, dpi),
+                y: scaled(430, dpi),
+            };
+            0
+        }
         WM_DROPFILES => {
             let paths = drop_paths(w as _);
             add_paths(paths);
@@ -516,7 +554,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
                     ADD_FILE | ADD_FOLDER | SEPARATOR | REMARK | VALIDATE | CLEAN_MISSING
-                    | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO => tool(hwnd, id),
+                    | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO|SORT_ALIAS|SORT_NAME|SORT_FREQUENCY|MOVE_UP|MOVE_DOWN|TEST|MIGRATE => tool(hwnd, id),
                     _ => {}
                 }
             }
@@ -647,7 +685,12 @@ fn run(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
             ui("ALTRun · 管理快捷项").as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX|WS_THICKFRAME|WS_MAXIMIZEBOX,
+            WS_OVERLAPPED
+                | WS_CAPTION
+                | WS_SYSMENU
+                | WS_MINIMIZEBOX
+                | WS_THICKFRAME
+                | WS_MAXIMIZEBOX,
             450,
             180,
             760,
@@ -873,7 +916,8 @@ fn run(
         let selection = CreateSolidBrush(theme::selection());
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
-                layout:Vec::new(),client_size:(scaled(760,dpi),scaled(420,dpi)),
+                layout: Vec::new(),
+                client_size: (scaled(760, dpi), scaled(420, dpi)),
                 workdir,
                 enabled,
                 entry_kind,
@@ -928,6 +972,8 @@ fn run(
             ("从备份恢复草稿…", RESTORE),
             ("用文本编辑器打开数据", EDIT_TEXT),
             ("撤销上一次批量操作", UNDO),
+            ("完整迁移旧版配置到新目录…",MIGRATE),
+            ("按快捷字排序",SORT_ALIAS),("按名称排序",SORT_NAME),("按频率排序",SORT_FREQUENCY),("上移所选项",MOVE_UP),("下移所选项",MOVE_DOWN),("测试所选快捷项…",TEST),
         ] {
             AppendMenuW(
                 tools,
@@ -939,11 +985,29 @@ fn run(
         AppendMenuW(menu, MF_POPUP, add as usize, ui("添加").as_ptr());
         AppendMenuW(menu, MF_POPUP, tools as usize, ui("工具").as_ptr());
         SetMenu(hwnd, menu);
-        let remembered=window_state();let mut outer:RECT=zeroed();GetWindowRect(hwnd,&mut outer);let desired=remembered.rect.unwrap_or((outer.left,outer.top,outer.right-outer.left,outer.bottom-outer.top+GetSystemMetricsForDpi(SM_CYMENU,GetDpiForWindow(hwnd))));
+        let remembered = window_state();
+        let mut outer: RECT = zeroed();
+        GetWindowRect(hwnd, &mut outer);
+        let desired = remembered.rect.unwrap_or((
+            outer.left,
+            outer.top,
+            outer.right - outer.left,
+            outer.bottom - outer.top + GetSystemMetricsForDpi(SM_CYMENU, GetDpiForWindow(hwnd)),
+        ));
         // The menu is installed before fitting so the bottom command row retains
         // the full client height at each monitor's non-client DPI.
-        crate::window_geometry::fit(hwnd,760,420,Some(desired));
-        let layout=crate::window_geometry::children(hwnd);EDITOR.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.layout=layout;if let Some(index)=s.draft.iter().position(|e|e.id==remembered.selected){s.selected=index;}});resize(hwnd);refresh_list();
+        crate::window_geometry::fit(hwnd, 760, 420, Some(desired));
+        let layout = crate::window_geometry::children(hwnd);
+        EDITOR.with(|c| {
+            let mut s = c.borrow_mut();
+            let s = s.as_mut().unwrap();
+            s.layout = layout;
+            if let Some(index) = s.draft.iter().position(|e| e.id == remembered.selected) {
+                s.selected = index;
+            }
+        });
+        resize(hwnd);
+        refresh_list();
         windows_sys::Win32::UI::Shell::DragAcceptFiles(hwnd, 1);
         WINDOW.store(hwnd as usize, Ordering::Release);
         ShowWindow(hwnd, SW_SHOWNORMAL);
@@ -952,6 +1016,7 @@ fn run(
         apply_intake(hwnd);
         let mut message: MSG = zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+            if message.message==WM_KEYDOWN{let control=GetKeyState(VK_CONTROL as i32)<0;let focus=GetFocus();if control&&message.wParam==b'S' as usize{save();continue;}if focus==list{match message.wParam as u16{VK_INSERT=>{SendMessageW(hwnd,WM_COMMAND,ADD,0);continue;},VK_DELETE=>{SendMessageW(hwnd,WM_COMMAND,DELETE,0);continue;},VK_F1=>{crate::native::show_error("选择快捷项后在右侧修改。工具菜单支持验证、路径转换、备份、恢复和测试。保存后更新启动面板。");continue;},VK_UP|VK_DOWN if control=>{tool(hwnd,if message.wParam as u16==VK_UP{MOVE_UP}else{MOVE_DOWN});continue;},_=>{}}}}
             if message.message == WM_KEYDOWN
                 && message.wParam == VK_TAB as usize
                 && IsDialogMessageW(hwnd, &message) != 0
@@ -1073,7 +1138,7 @@ fn add_paths(paths: Vec<PathBuf>) {
     refresh_list();
     status("已添加到草稿。请调整快捷字后保存。", false);
 }
-fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf> {
+pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf> {
     unsafe {
         if folder {
             use windows_sys::Win32::{System::Com::*, UI::Shell::*};
@@ -1125,6 +1190,9 @@ fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf> {
     }
 }
 fn tool(hwnd: HWND, id: usize) {
+    if id==MIGRATE{if let Some(source)=pick_path(hwnd,false,true){let base=EDITOR.with(|c|c.borrow().as_ref().unwrap().file.path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf());let output=base.join(format!("migration-{}",library::new_id()));match altrun_probe::migration::Migration::read(&source,false).and_then(|import|import.write_new(&output)){Ok(path)=>{let message=format!("完整配置已迁移到新目录：{}\n\n原文件保持不变。迁移说明保存在 migration-report.txt。\n使用 --data 参数选择新 shortcuts.tsv；当前草稿和运行配置未切换。",path.display());unsafe{MessageBoxW(hwnd,wide(&message).as_ptr(),ui("迁移完成").as_ptr(),MB_OK|MB_ICONINFORMATION);}},Err(e)=>status(&e,true)}}return;}
+    if id==TEST{test_selected(hwnd);return;}
+    if matches!(id,SORT_ALIAS|SORT_NAME|SORT_FREQUENCY|MOVE_UP|MOVE_DOWN){remember();EDITOR.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let selected=s.draft.get(s.selected).map(|e|e.id.clone());match id{SORT_ALIAS=>s.draft.sort_by_key(|e|e.alias.to_lowercase()),SORT_NAME=>s.draft.sort_by_key(|e|e.name.to_lowercase()),SORT_FREQUENCY=>s.draft.sort_by(|a,b|b.frequency.cmp(&a.frequency)),MOVE_UP if s.selected>0=>{let i=s.selected;s.draft.swap(i,i-1);},MOVE_DOWN if s.selected+1<s.draft.len()=>{let i=s.selected;s.draft.swap(i,i+1);},_=>{}}if let Some(id)=selected&&let Some(index)=s.draft.iter().position(|e|e.id==id){s.selected=index;}s.dirty=true;});refresh_list();status("顺序已更新，保存后生效。",false);return;}
     if id == ADD_FILE || id == ADD_FOLDER {
         if let Some(path) = pick_path(hwnd, false, id == ADD_FOLDER) {
             add_paths(vec![path]);
@@ -1265,7 +1333,14 @@ fn tool(hwnd: HWND, id: usize) {
         }
         EXPORT => {
             if let Some(destination) = pick_path(hwnd, true, false) {
-                if destination==path||std::fs::canonicalize(&destination).ok().is_some_and(|p|Some(p)==std::fs::canonicalize(&path).ok()){status("请选择不同的备份文件；保存数据请使用“保存”。",true);return;}
+                if destination == path
+                    || std::fs::canonicalize(&destination)
+                        .ok()
+                        .is_some_and(|p| Some(p) == std::fs::canonicalize(&path).ok())
+                {
+                    status("请选择不同的备份文件；保存数据请使用“保存”。", true);
+                    return;
+                }
                 let result = library::serialize(&rows).and_then(|text| {
                     altrun_probe::state_store::TextFile::open(&destination)
                         .and_then(|(mut file, _)| file.save(&text))
@@ -1316,7 +1391,83 @@ fn tool(hwnd: HWND, id: usize) {
     }
 }
 
-fn resize(hwnd:HWND){let mut client:RECT=unsafe{zeroed()};unsafe{GetClientRect(hwnd,&mut client);}let(layout,dpi,base)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.layout.clone(),s.dpi,s.client_size)});let dw=client.right-base.0;let dh=client.bottom-base.1;for child in layout{let r=child.rectangle;let mut x=r.left;let mut y=r.top;let mut width=r.right-r.left;let mut height=r.bottom-r.top;if child.id==LIST{height+=dh;}if r.top>=scaled(318,dpi){y+=dh;}if r.left>=scaled(560,dpi){x+=dw;}else if r.left>=scaled(512,dpi){x+=dw/2;width+=dw/2;}else if r.left>=scaled(280,dpi){width+=if child.id==ALIAS{dw/2}else{dw};}unsafe{SetWindowPos(child.handle as HWND,null_mut(),x,y,width.max(20),height.max(20),SWP_NOZORDER|SWP_NOACTIVATE);}}unsafe{InvalidateRect(hwnd,std::ptr::null(),1);}}
-fn publish_geometry(hwnd:HWND){let mut rect:RECT=unsafe{zeroed()};unsafe{GetWindowRect(hwnd,&mut rect);}let(parent,selected)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.parent,s.draft.get(s.selected).map(|e|e.id.clone()).unwrap_or_default())});if let Ok(mut state)=WINDOW_STATE.lock(){state.rect=Some((rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top));state.selected=selected;}unsafe{PostMessageW(parent as HWND,GEOMETRY_CHANGED,0,0);}}
+fn resize(hwnd: HWND) {
+    let mut client: RECT = unsafe { zeroed() };
+    unsafe {
+        GetClientRect(hwnd, &mut client);
+    }
+    let (layout, dpi, base) = EDITOR.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (s.layout.clone(), s.dpi, s.client_size)
+    });
+    let dw = client.right - base.0;
+    let dh = client.bottom - base.1;
+    for child in layout {
+        let r = child.rectangle;
+        let mut x = r.left;
+        let mut y = r.top;
+        let mut width = r.right - r.left;
+        let mut height = r.bottom - r.top;
+        if child.id == LIST {
+            height += dh;
+        }
+        if r.top >= scaled(318, dpi) {
+            y += dh;
+        }
+        if r.left >= scaled(560, dpi) {
+            x += dw;
+        } else if r.left >= scaled(512, dpi) {
+            x += dw / 2;
+            width += dw / 2;
+        } else if r.left >= scaled(280, dpi) {
+            width += if child.id == ALIAS { dw / 2 } else { dw };
+        }
+        unsafe {
+            SetWindowPos(
+                child.handle as HWND,
+                null_mut(),
+                x,
+                y,
+                width.max(20),
+                height.max(20),
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+    unsafe {
+        InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+}
+fn publish_geometry(hwnd: HWND) {
+    let mut rect: RECT = unsafe { zeroed() };
+    unsafe {
+        GetWindowRect(hwnd, &mut rect);
+    }
+    let (parent, selected) = EDITOR.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (
+            s.parent,
+            s.draft
+                .get(s.selected)
+                .map(|e| e.id.clone())
+                .unwrap_or_default(),
+        )
+    });
+    if let Ok(mut state) = WINDOW_STATE.lock() {
+        state.rect = Some((
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+        ));
+        state.selected = selected;
+    }
+    unsafe {
+        PostMessageW(parent as HWND, GEOMETRY_CHANGED, 0, 0);
+    }
+}
 
+fn test_selected(hwnd:HWND){let(entry,base)=EDITOR.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.draft.get(s.selected).cloned(),s.file.path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf())});let Some(entry)=entry else{return;};if entry.kind!=library::EntryKind::Command||entry.command.trim().is_empty(){status("所选项没有可测试的启动命令。",true);return;}let mut context=TEST_CONTEXT.lock().map(|c|c.clone()).unwrap_or_default();if context.base_directory.is_empty(){context.base_directory=base.to_string_lossy().into_owned();}let needs_input=entry.param_type.needs_input(&entry.command)&&(altrun_probe::launch::has_parameter(&entry.command)||!altrun_probe::launch::has_context(&entry.command));let parameter=if needs_input{let Some(value)=crate::input_dialog::ask(hwnd,&format!("{} · 输入测试参数",entry.name))else{return;};Some(value)}else{None};status("已发出测试启动请求。草稿尚未保存。",false);std::thread::spawn(move||{if altrun_probe::launch::has_context(&entry.command)&&entry.command.contains("%c"){context.clipboard=crate::native::clipboard_text();}let result=altrun_probe::launch::resolve_context(&entry.command,parameter.as_deref(),entry.param_type,&entry.working_directory,&context).and_then(|(request,mode,directory)|crate::native::execute_request_with(&request,mode,directory.as_deref()));if let Err(error)=result{crate::native::show_error(&error);}});}
 

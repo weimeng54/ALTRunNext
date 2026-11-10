@@ -1,5 +1,6 @@
 """Bound synthetic Windows test runs and retain partial logs on a GUI deadlock."""
 import pathlib, subprocess, sys, threading
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 path = pathlib.Path('target/test-progress.log')
 path.parent.mkdir(exist_ok=True)

@@ -65,8 +65,10 @@ pub struct Writer {
     pub errors: mpsc::Receiver<String>,
 }
 impl Writer {
-    pub fn start(file: TextFile) -> Self {Self::start_notified(file,||{})}
-    pub fn start_notified(mut file:TextFile,notify:impl Fn()+Send+'static)->Self{
+    pub fn start(file: TextFile) -> Self {
+        Self::start_notified(file, || {})
+    }
+    pub fn start_notified(mut file: TextFile, notify: impl Fn() + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::channel::<String>();
         let (errors_tx, errors) = mpsc::channel();
         let worker = std::thread::spawn(move || {

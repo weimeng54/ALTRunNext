@@ -46,9 +46,19 @@ pub fn accent() -> u32 {
 pub fn border() -> u32 {
     PALETTE.with(|p| p.get().border)
 }
-thread_local!{static KEYWORD:std::cell::Cell<u32>=const{std::cell::Cell::new(PAPER)};static CONTRAST:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
-pub fn keyword()->u32{KEYWORD.with(std::cell::Cell::get)}
-pub fn font_colour(value:&str)->u32{if CONTRAST.with(std::cell::Cell::get){return text();}let colour=altrun_probe::preferences::Font::parse(value).map(|f|f.colour).unwrap_or(TEXT);if colour==TEXT{text()}else{colour}}
+thread_local! {static KEYWORD:std::cell::Cell<u32>=const{std::cell::Cell::new(PAPER)};static CONTRAST:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+pub fn keyword() -> u32 {
+    KEYWORD.with(std::cell::Cell::get)
+}
+pub fn font_colour(value: &str) -> u32 {
+    if CONTRAST.with(std::cell::Cell::get) {
+        return text();
+    }
+    let colour = altrun_probe::preferences::Font::parse(value)
+        .map(|f| f.colour)
+        .unwrap_or(TEXT);
+    if colour == TEXT { text() } else { colour }
+}
 pub fn install(prefs: &altrun_probe::preferences::Preferences) {
     use windows_sys::Win32::{Graphics::Gdi::*, System::Registry::*, UI::WindowsAndMessaging::*};
     #[repr(C)]
@@ -66,7 +76,8 @@ pub fn install(prefs: &altrun_probe::preferences::Preferences) {
         SystemParametersInfoW(0x42, contrast.size, &mut contrast as *mut _ as _, 0);
     }
     if contrast.flags & 1 != 0 {
-        CONTRAST.with(|c|c.set(true));KEYWORD.with(|c|c.set(unsafe{GetSysColor(COLOR_WINDOW)}));
+        CONTRAST.with(|c| c.set(true));
+        KEYWORD.with(|c| c.set(unsafe { GetSysColor(COLOR_WINDOW) }));
         unsafe {
             PALETTE.with(|p| {
                 p.set(Palette {
@@ -143,5 +154,13 @@ pub fn install(prefs: &altrun_probe::preferences::Preferences) {
         }
     }
     PALETTE.with(|p| p.set(palette));
-    CONTRAST.with(|c|c.set(false));let value=prefs.get("KeywordColor");KEYWORD.with(|c|c.set(if dark&&value==defaults.get("KeywordColor"){palette.paper}else{altrun_probe::preferences::parse_colour(&value).unwrap_or(palette.paper)}));
+    CONTRAST.with(|c| c.set(false));
+    let value = prefs.get("KeywordColor");
+    KEYWORD.with(|c| {
+        c.set(if dark && value == defaults.get("KeywordColor") {
+            palette.paper
+        } else {
+            altrun_probe::preferences::parse_colour(&value).unwrap_or(palette.paper)
+        })
+    });
 }

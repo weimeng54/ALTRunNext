@@ -1,5 +1,55 @@
-pub fn render(format:&str,alias:&str,name:&str)->Result<String,String>{
-    let values=[alias,name];let mut index=0;let mut out=String::new();let mut chars=format.chars().peekable();
-    while let Some(c)=chars.next(){if c!='%'{out.push(c);continue;}if chars.peek()==Some(&'%'){chars.next();out.push('%');continue;}if index>=2{return Err("列表格式最多包含两个 %s".into());}let left=if chars.peek()==Some(&'-'){chars.next();true}else{false};let mut width=String::new();while chars.peek().is_some_and(char::is_ascii_digit){width.push(chars.next().unwrap());}if chars.next()!=Some('s'){return Err("列表格式只支持 %s、%-25s 和 %%".into());}let width=if width.is_empty(){0}else{width.parse::<usize>().map_err(|_|"列表列宽无效")?};if width>256{return Err("列表列宽不能大于 256".into());}let value=values[index];let padding=width.saturating_sub(value.chars().count());if !left{out.extend(std::iter::repeat_n(' ',padding));}out.push_str(value);if left{out.extend(std::iter::repeat_n(' ',padding));}index+=1;
-    }if index==0{return Err("列表格式至少包含一个 %s".into());}Ok(out)
+pub fn render(format: &str, alias: &str, name: &str) -> Result<String, String> {
+    let values = [alias, name];
+    let mut index = 0;
+    let mut out = String::new();
+    let mut chars = format.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        if chars.peek() == Some(&'%') {
+            chars.next();
+            out.push('%');
+            continue;
+        }
+        if index >= 2 {
+            return Err("列表格式最多包含两个 %s".into());
+        }
+        let left = if chars.peek() == Some(&'-') {
+            chars.next();
+            true
+        } else {
+            false
+        };
+        let mut width = String::new();
+        while chars.peek().is_some_and(char::is_ascii_digit) {
+            width.push(chars.next().unwrap());
+        }
+        if chars.next() != Some('s') {
+            return Err("列表格式只支持 %s、%-25s 和 %%".into());
+        }
+        let width = if width.is_empty() {
+            0
+        } else {
+            width.parse::<usize>().map_err(|_| "列表列宽无效")?
+        };
+        if width > 256 {
+            return Err("列表列宽不能大于 256".into());
+        }
+        let value = values[index];
+        let padding = width.saturating_sub(value.chars().count());
+        if !left {
+            out.extend(std::iter::repeat_n(' ', padding));
+        }
+        out.push_str(value);
+        if left {
+            out.extend(std::iter::repeat_n(' ', padding));
+        }
+        index += 1;
+    }
+    if index == 0 {
+        return Err("列表格式至少包含一个 %s".into());
+    }
+    Ok(out)
 }

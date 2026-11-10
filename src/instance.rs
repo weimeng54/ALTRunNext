@@ -70,6 +70,7 @@ pub fn acquire(path: &Path, paths: &[PathBuf]) -> Result<Option<Instance>, Strin
         if search.window.is_null() {
             return Err("已有实例正在启动，请稍后重试".into());
         }
+        let args=std::env::args().collect::<Vec<_>>();let action=if args.iter().any(|a|matches!(a.as_str(),"--clean"|"Clean")){Some(18009)}else if args.iter().any(|a|matches!(a.as_str(),"--restart"|"Restart")){Some(18008)}else{None};if let Some(action)=action{PostMessageW(search.window,WM_COMMAND,action,0);return Ok(None);}
         let text = paths
             .iter()
             .map(|p| p.to_string_lossy())

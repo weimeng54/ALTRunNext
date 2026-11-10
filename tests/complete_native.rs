@@ -1,12 +1,12 @@
 #![cfg(windows)]
 use std::os::windows::io::AsRawHandle;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey,UnregisterHotKey};
 use std::{
     process::{Child, Command},
     ptr::null_mut,
     thread,
     time::{Duration, Instant},
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
 #[repr(C)]
 #[derive(Default)]
