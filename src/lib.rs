@@ -160,6 +160,9 @@ pub mod preferences;
 pub mod textcodec;
 pub mod usage;
 pub mod state_store;
+pub mod management;
+#[cfg(windows)]
+pub mod integration;
 
 fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
     fn merge(slot: &mut Option<usize>, value: usize) {

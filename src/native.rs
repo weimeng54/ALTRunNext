@@ -512,7 +512,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         if control{match w as u16{0x43=>{selected_action(true);return 0;},0x44=>{selected_action(false);return 0;},0x4c=>{recent();return 0;},VK_UP|VK_DOWN if parameter_history(if w as u16==VK_UP{-1}else{1})=>return 0,_=>{}}}
         match w as u16 {
             VK_F1=>{about();return 0;}
-            VK_F2|VK_INSERT|VK_DELETE=>{open_manager();return 0;}
+            VK_F2|VK_INSERT|VK_DELETE=>{let id=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.hits.get(s.selected).map(|i|s.entries[*i].id.clone()).unwrap_or_default()});crate::manager::enqueue(Vec::new(),Some((id,w as u16)));open_manager();return 0;}
             VK_PRIOR=>{move_selection(-10);return 0;}
             VK_NEXT=>{move_selection(10);return 0;}
             0xba|0xde=>{choose_number(if w==0xba{2}else{3});return 0;}
@@ -578,6 +578,8 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
 
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
+        WM_COPYDATA=>{match crate::instance::decode(l){Ok(paths)=>{if !paths.is_empty(){crate::manager::enqueue(paths,None);open_manager();}else{unsafe{SendMessageW(hwnd,SHOW,0,0);}}1},Err(_)=>0}}
+        WM_DROPFILES=>{let paths=crate::manager::drop_paths(w as _);crate::manager::enqueue(paths,None);open_manager();0}
         WM_HOTKEY | SHOW => {
             capture_context();
             if msg==WM_HOTKEY&&STATE.with(|c|c.borrow().as_ref().unwrap().hotkeys.get(2).is_some_and(|h|h.0==w as i32)){recent();}
@@ -858,6 +860,8 @@ pub fn run() -> Result<(), String> {
             .map_err(|e| e.to_string())?
             .with_file_name("shortcuts.tsv")
     };
+    let intake=args.iter().position(|a|a=="--add").map(|i|args[i+1..].iter().map(std::path::PathBuf::from).collect::<Vec<_>>()).unwrap_or_default();
+    let Some(instance_lock)=crate::instance::acquire(&data_path,&intake)?else{return Ok(());};
     let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
         altrun_probe::library::Snapshot::open(&data_path)?.entries
     } else {
@@ -910,6 +914,7 @@ pub fn run() -> Result<(), String> {
         if hwnd.is_null() {
             return Err("Cannot create native window".into());
         }
+        crate::instance::publish(hwnd,instance_lock.identity);DragAcceptFiles(hwnd,1);
         let dpi = if let Some(i) = args.iter().position(|a| a == "--ui-scale") {
             match args.get(i + 1).map(String::as_str) {
                 Some("150") => 144,
@@ -1051,6 +1056,7 @@ pub fn run() -> Result<(), String> {
         let prefs=STATE.with(|c|c.borrow().as_ref().unwrap().preferences.clone());
         match register_bindings(hwnd,&prefs,&[]){Ok(keys)=>STATE.with(|c|c.borrow_mut().as_mut().unwrap().hotkeys=keys),Err(error)=>{DestroyWindow(hwnd);return Err(error);}}
         apply_appearance();
+        if !intake.is_empty(){crate::manager::enqueue(intake,None);open_manager();}
         if args.iter().any(|a| a == "--show")||STATE.with(|c|c.borrow().as_ref().unwrap().preferences.flag("ShowMeWhenStart")) {
             SendMessageW(hwnd, SHOW, 0, 0);
         }
@@ -1141,9 +1147,9 @@ fn copy_text(value:&str)->Result<(),String>{
 fn capture_context(){unsafe{let foreground=GetForegroundWindow();if foreground.is_null(){return;}let own=STATE.with(|c|c.borrow().as_ref().unwrap().hwnd);if foreground==own{return;}let title=edit_text(foreground);let mut class=[0u16;256];let n=GetClassNameW(foreground,class.as_mut_ptr(),class.len() as i32);STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.context.window_id=foreground as usize;s.context.window_title=title;s.context.window_class=String::from_utf16_lossy(&class[..n.max(0) as usize]);s.context.allow_dynamic_target=s.preferences.flag("AllowDynamicTarget");let dir=s.preferences.get("WorkingDirectory");if !dir.is_empty(){s.context.base_directory=dir;}});}}
 fn recent(){cancel_parameter();STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.generation=s.generation.wrapping_add(1);s.matching=false;s.hits=s.usage.recent.iter().filter_map(|id|s.entries.iter().position(|e|&e.id==id&&e.enabled&&e.kind==altrun_probe::library::EntryKind::Command)).collect();s.selected=0;});render_hits();}
 fn about(){unsafe{MessageBoxW(null_mut(),wide("ALTRun Modern 0.1\n原生 Windows 快速启动器\n\nCtrl+Alt+R：呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),wide("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);}}
-fn open_settings(){let(path,prefs,hwnd,sender)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.data_path.with_extension("settings.ini"),s.preferences.clone(),s.hwnd,s.settings_sender.clone())});crate::settings::open(path,prefs,hwnd,sender);unsafe{ShowWindow(hwnd,SW_HIDE);}}
+fn open_settings(){let(path,prefs,hwnd,sender)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.data_path.clone(),s.preferences.clone(),s.hwnd,s.settings_sender.clone())});crate::settings::open(path,prefs,hwnd,sender);unsafe{ShowWindow(hwnd,SW_HIDE);}}
 type Bindings=Vec<(i32,Option<altrun_probe::preferences::Hotkey>)>;
-fn register_bindings(hwnd:HWND,prefs:&altrun_probe::preferences::Preferences,old:&Bindings)->Result<Bindings,String>{
+fn register_bindings(hwnd:HWND,prefs:&altrun_probe::preferences::Preferences,old:&[(i32,Option<altrun_probe::preferences::Hotkey>)])->Result<Bindings,String>{
     let mut next=Vec::new();let mut added=Vec::new();
     for(i,key)in ["HotKey1","HotKey2","LastItemHotKey"].iter().enumerate(){let value=altrun_probe::preferences::parse_hotkey(&prefs.get(key))?;
         if let Some(existing)=old.get(i)&&existing.1==value{next.push(*existing);continue;}
@@ -1176,4 +1182,5 @@ fn apply_appearance(){
 fn choose_number(digit:usize){let chosen=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if s.parameter_entry.is_some()||s.matching{return false;}let index=if s.preferences.flag("IndexFrom0to9"){digit}else{(digit+9)%10};if index<visible_count(s){s.selected=index;true}else{false}});if chosen{launch_selected();}}
 fn parameter_history(delta:isize)->bool{let value=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let index=s.parameter_entry?;let history=s.usage.parameters.get(&s.entries[index].id).or_else(||s.usage.parameters.get("*"))?;if history.is_empty(){return None;}s.history_position=advance(s.history_position,history.len(),delta);Some((s.edit,history[s.history_position].clone()))});if let Some((edit,value))=value{unsafe{SetWindowTextW(edit,wide(&value).as_ptr());SendMessageW(edit,EM_SETSEL,0,-1);}true}else{false}}
 fn selected_action(copy:bool){let entry=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.hits.get(s.selected).map(|i|s.entries[*i].clone())});if let Some(entry)=entry{if copy{if let Err(e)=copy_text(&entry.command){show_inline_error(&e);}}else{std::thread::spawn(move||{let context=altrun_probe::launch::LaunchContext::default();match altrun_probe::launch::resolve_context(&entry.command,None,entry.param_type,&entry.working_directory,&context){Ok((request,_,_))=>{if let Some(parent)=std::path::Path::new(&request.file).parent().filter(|p|!p.as_os_str().is_empty()){let _=execute_request(&altrun_probe::launch::LaunchRequest{file:parent.to_string_lossy().into_owned(),parameters:String::new()});}},Err(e)=>crate::native::show_error(&e)}});}}}
+
 
