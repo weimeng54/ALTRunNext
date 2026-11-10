@@ -52,15 +52,9 @@ pub fn import_legacy(text: &str) -> Result<Import, String> {
     let mut ignored_lines = 0;
     for (number, line) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = line.trim();
-        let delimiter = match (line.find('|'), line.find(','), line.find('，')) {
-            (Some(p), Some(c), _) if c < p && !line.starts_with('F') => ',',
-            (Some(_), _, _) => '|',
-            (_, Some(_), _) => ',',
-            (_, _, Some(_)) => '，',
-            _ => {
-                ignored_lines += 1;
-                continue;
-            }
+        let Some(delimiter) = line.chars().find(|c| matches!(c, '|' | ',' | '，')) else {
+            ignored_lines += 1;
+            continue;
         };
         let mut fields = line.split(delimiter);
         let mut consumed = 0;
@@ -150,7 +144,9 @@ pub fn decode(bytes: &[u8]) -> Result<String, String> {
         }
         let be = bytes[0] == 0xfe;
         let text: Vec<_> = bytes[2..]
-            .as_chunks::<2>().0.iter()
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| {
                 if be {
                     u16::from_be_bytes([p[0], p[1]])

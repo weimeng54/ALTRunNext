@@ -9,12 +9,7 @@ pub fn has_parameter(command: &str) -> bool {
     let mut rest = command;
     while let Some(index) = rest.find('%') {
         rest = &rest[index..];
-        if rest.starts_with("%p")
-            && !rest
-                .as_bytes()
-                .get(2)
-                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
-        {
+        if parameter_marker(rest) {
             return true;
         }
         if let Some(end) = rest[1..].find('%') {
@@ -140,12 +135,7 @@ fn expand_environment(command: &str, url: bool) -> Result<String, String> {
     while let Some(index) = remaining.find('%') {
         output.push_str(&remaining[..index]);
         remaining = &remaining[index..];
-        if remaining.starts_with("%p")
-            && !remaining
-                .as_bytes()
-                .get(2)
-                .is_some_and(u8::is_ascii_alphanumeric)
-        {
+        if parameter_marker(remaining) {
             if remaining.as_bytes().get(2) == Some(&b'%') {
                 return Err("不支持的参数模板 %p%".into());
             }
@@ -180,4 +170,9 @@ fn expand_environment(command: &str, url: bool) -> Result<String, String> {
     }
     output.push_str(remaining);
     Ok(output)
+}
+
+fn parameter_marker(rest: &str) -> bool {
+    rest.starts_with("%p")
+        && !rest.as_bytes().get(2).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
 }

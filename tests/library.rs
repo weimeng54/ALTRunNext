@@ -145,3 +145,20 @@ fn delayed_reload_cannot_replace_a_newer_saved_snapshot() {
     let delayed=writer.begin_read();writer.saved(new);assert_eq!(mailbox.take().unwrap()[0].alias,"new");
     writer.read_complete(delayed,old);assert!(mailbox.take().is_none());
 }
+
+#[test]
+#[cfg(windows)]
+fn failed_replacement_keeps_the_original_file_and_snapshot() {
+    let dir=std::env::current_dir().unwrap().join("target/library-readonly-test");
+    std::fs::create_dir_all(&dir).unwrap();let path=dir.join("shortcuts.tsv");
+    let original="np\t记事本\tnotepad.exe\t7\n";
+    std::fs::write(&path,original).unwrap();let mut snapshot=Snapshot::open(&path).unwrap();
+    let mut edited=snapshot.entries.clone();edited[0].name="未保存的修改".into();
+    let permissions=std::fs::metadata(&path).unwrap().permissions();let mut readonly=permissions.clone();readonly.set_readonly(true);std::fs::set_permissions(&path,readonly).unwrap();
+    let result=snapshot.save(&edited);
+    std::fs::set_permissions(&path,permissions).unwrap();
+    assert!(result.is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(),original);
+    assert_eq!(snapshot.entries[0].name,"记事本");
+    assert!(!std::fs::read_dir(dir).unwrap().any(|entry|entry.unwrap().file_name().to_string_lossy().contains("altrun-tmp")));
+}

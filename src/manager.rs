@@ -12,9 +12,7 @@ use std::{
     mem::zeroed,
     path::PathBuf,
     ptr::null_mut,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use windows_sys::Win32::{
     Foundation::*,
@@ -79,7 +77,12 @@ pub fn focus() {
         }
     }
 }
-pub fn open(path: PathBuf, initial: Vec<Entry>, parent: HWND, sender: altrun_probe::library_updates::LibraryWriter) {
+pub fn open(
+    path: PathBuf,
+    initial: Vec<Entry>,
+    parent: HWND,
+    sender: altrun_probe::library_updates::LibraryWriter,
+) {
     if OPEN.swap(true, Ordering::AcqRel) {
         focus();
         return;
@@ -485,8 +488,14 @@ fn run(
     parent: usize,
     sender: altrun_probe::library_updates::LibraryWriter,
 ) -> Result<(), String> {
-    if !path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("tsv")) {
-        return Err("旧版文件仅用于只读导入。请使用新版 shortcuts.tsv 数据文件，再选择“导入旧版”。".into());
+    if !path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
+    {
+        return Err(
+            "旧版文件仅用于只读导入。请使用新版 shortcuts.tsv 数据文件，再选择“导入旧版”。".into(),
+        );
     }
     let file = if path.exists() {
         Snapshot::open(&path)?
@@ -522,7 +531,17 @@ fn run(
             DeleteObject(background);
             return Err("无法创建管理窗口".into());
         }
-        let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+        let mut monitor: MONITORINFO = zeroed();
+        monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
+        if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut monitor) == 0 {
+            DestroyWindow(hwnd);
+            DeleteObject(background);
+            return Err("无法读取显示器工作区域".into());
+        }
+        let work = monitor.rcWork;
+        let dpi = (GetDpiForWindow(hwnd).max(96) as i32)
+            .min(((work.right - work.left - 64) * 96 / 760).max(72))
+            .min(((work.bottom - work.top - 80) * 96 / 420).max(72));
         let mut outer = RECT {
             left: 0,
             top: 0,
@@ -535,14 +554,13 @@ fn run(
             0,
             WS_EX_CONTROLPARENT,
         );
+        let width = outer.right - outer.left;
+        let height = outer.bottom - outer.top;
         SetWindowPos(
-            hwnd,
-            null_mut(),
-            0,
-            0,
-            outer.right - outer.left,
-            outer.bottom - outer.top,
-            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            hwnd, null_mut(),
+            work.left + ((work.right - work.left - width) / 2).max(0),
+            work.top + ((work.bottom - work.top - height) / 2).max(0),
+            width, height, SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let font = make_font(13, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(16, 600, "Microsoft YaHei UI", dpi);

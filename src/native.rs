@@ -977,7 +977,7 @@ pub fn run() -> Result<(), String> {
             SendMessageW(hwnd, SHOW, 0, 0);
         }
         let accelerator = ACCEL {
-            fVirt: (FVIRTKEY | FALT) as u8,
+            fVirt: FVIRTKEY | FALT,
             key: b'S' as u16,
             cmd: ID_MANAGE as u16,
         };

@@ -4,7 +4,11 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use windows_sys::Win32::{Foundation::{HWND,RECT}, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{
+    Foundation::{HWND, RECT},
+    Graphics::Gdi::*,
+    UI::WindowsAndMessaging::*,
+};
 #[path = "native_snapshot/mod.rs"]
 mod native_snapshot;
 fn wide(s: &str) -> Vec<u16> {
@@ -113,10 +117,24 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         set(edit, "added");
         wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 1);
         native_snapshot::save(manager, "manager");
-        let mut bounds: RECT = std::mem::zeroed(); GetWindowRect(manager, &mut bounds);
-        let mut monitor: MONITORINFO = std::mem::zeroed(); monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
-        assert_ne!(GetMonitorInfoW(MonitorFromWindow(manager, MONITOR_DEFAULTTONEAREST), &mut monitor), 0);
-        assert!(bounds.left >= monitor.rcWork.left && bounds.right <= monitor.rcWork.right && bounds.top >= monitor.rcWork.top && bounds.bottom <= monitor.rcWork.bottom, "manager controls must fit the work area");
+        let mut bounds: RECT = std::mem::zeroed();
+        GetWindowRect(manager, &mut bounds);
+        let mut monitor: MONITORINFO = std::mem::zeroed();
+        monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
+        assert_ne!(
+            GetMonitorInfoW(
+                MonitorFromWindow(manager, MONITOR_DEFAULTTONEAREST),
+                &mut monitor
+            ),
+            0
+        );
+        assert!(
+            bounds.left >= monitor.rcWork.left
+                && bounds.right <= monitor.rcWork.right
+                && bounds.top >= monitor.rcWork.top
+                && bounds.bottom <= monitor.rcWork.bottom,
+            "manager controls must fit the work area"
+        );
         SendMessageW(manager, WM_COMMAND, 2114, 0);
         wait(|| IsWindow(manager) == 0);
         SendMessageW(root, WM_COMMAND, 18003, 0);
