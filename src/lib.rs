@@ -127,6 +127,9 @@ pub mod library;
 pub mod library_updates;
 pub mod observation;
 pub mod textcodec;
+pub mod preferences;
+pub mod usage;
+pub mod matching;
 
 fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
     fn merge(slot: &mut Option<usize>, value: usize) {

@@ -38,6 +38,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           rustc -Vv
+          if (Test-Path .github/refresh-cargo-lock) {
+            cargo generate-lockfile
+            if ($LASTEXITCODE -ne 0) {
+              Remove-Item "$env:USERPROFILE/.cargo/config.toml" -ErrorAction SilentlyContinue
+              cargo generate-lockfile
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
           cargo fetch --locked
           if ($LASTEXITCODE -ne 0) {
             Remove-Item "$env:USERPROFILE/.cargo/config.toml"
