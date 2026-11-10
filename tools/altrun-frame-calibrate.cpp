@@ -86,7 +86,12 @@ struct Readback {
         hash_sink = hash; hash_end = now();
     }
 };
+void require_desktop_frames(size_t) {}
 void self_test() {
+    bool empty_rejected = false;
+    try { require_desktop_frames(0); } catch (const Failure&) { empty_rejected = true; }
+    require(empty_rejected, "empty_desktop_must_reject");
+    require_desktop_frames(1);
     Device gpu(nullptr, D3D_DRIVER_TYPE_WARP);
     Readback reader(gpu, 37, 19);
     for (unsigned iteration = 0; iteration < 8; ++iteration) {
@@ -175,6 +180,7 @@ void sample_desktop(Report& report) {
             << ",\"protected_content_masked\":false}";
         report.rows.push_back(row.str());
     }
+    require_desktop_frames(report.rows.size());
 }
 void validate_path(const fs::path& path) {
     const auto text = path.wstring();
