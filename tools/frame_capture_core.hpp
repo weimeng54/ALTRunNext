@@ -7,6 +7,7 @@
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -64,7 +65,6 @@ struct Readback {
         check(gpu.device->CreateTexture2D(&desc, nullptr, &staging), "create_staging");
     }
     void read(ID3D11Texture2D* source, UINT x, UINT y, const std::vector<uint8_t>* expected = nullptr, uint8_t* destination = nullptr) {
-        (void)destination;
         D3D11_TEXTURE2D_DESC desc{}; source->GetDesc(&desc);
         require(desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM && desc.SampleDesc.Count == 1
             && desc.Width >= width && desc.Height >= height && x <= desc.Width - width && y <= desc.Height - height, "source_region");
@@ -76,6 +76,15 @@ struct Readback {
         struct Unmap { ID3D11DeviceContext* context; ID3D11Resource* resource; ~Unmap() { context->Unmap(resource, 0); } } unmap{gpu.context.Get(), staging.Get()};
         map_end = now();
         require(mapped.pData && mapped.RowPitch >= width * 4, "row_pitch");
+        if (destination) {
+            const auto* source_bytes = static_cast<const uint8_t*>(mapped.pData);
+            for (UINT row = 0; row < height; ++row) {
+                std::memcpy(destination + static_cast<size_t>(row) * width * 4,
+                    source_bytes + static_cast<size_t>(row) * mapped.RowPitch, static_cast<size_t>(width) * 4);
+            }
+            hash_end = now();
+            return;
+        }
         uint64_t hash = UINT64_C(0xcbf29ce484222325);
         const auto* bytes = static_cast<const uint8_t*>(mapped.pData);
         for (UINT row = 0; row < height; ++row) {
