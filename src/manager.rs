@@ -14,7 +14,6 @@ use std::{
     ptr::null_mut,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc::Sender,
     },
 };
 use windows_sys::Win32::{
@@ -65,7 +64,7 @@ struct Editor {
     dpi: i32,
     error: bool,
     parent: usize,
-    sender: Sender<Vec<Entry>>,
+    sender: altrun_probe::library_updates::LibraryWriter,
 }
 thread_local! { static EDITOR: RefCell<Option<Editor>> = const { RefCell::new(None) }; }
 
@@ -80,7 +79,7 @@ pub fn focus() {
         }
     }
 }
-pub fn open(path: PathBuf, initial: Vec<Entry>, parent: HWND, sender: Sender<Vec<Entry>>) {
+pub fn open(path: PathBuf, initial: Vec<Entry>, parent: HWND, sender: altrun_probe::library_updates::LibraryWriter) {
     if OPEN.swap(true, Ordering::AcqRel) {
         focus();
         return;
@@ -229,7 +228,7 @@ fn save() {
     });
     match result {
         Ok((sender, entries, parent)) => {
-            let _ = sender.send(entries);
+            sender.saved(entries);
             unsafe {
                 PostMessageW(parent as HWND, UPDATED, 0, 0);
             }
@@ -484,7 +483,7 @@ fn run(
     path: PathBuf,
     initial: Vec<Entry>,
     parent: usize,
-    sender: Sender<Vec<Entry>>,
+    sender: altrun_probe::library_updates::LibraryWriter,
 ) -> Result<(), String> {
     if !path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("tsv")) {
         return Err("旧版文件仅用于只读导入。请使用新版 shortcuts.tsv 数据文件，再选择“导入旧版”。".into());

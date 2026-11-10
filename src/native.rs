@@ -57,8 +57,8 @@ struct State {
     allow_launch: bool,
     composing: bool,
     data_path: std::path::PathBuf,
-    library_sender: std::sync::mpsc::Sender<Vec<Entry>>,
-    library_updates: std::sync::mpsc::Receiver<Vec<Entry>>,
+    library_sender: altrun_probe::library_updates::LibraryWriter,
+    library_updates: altrun_probe::library_updates::LibraryMailbox,
 }
 
 thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
@@ -568,14 +568,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         crate::manager::UPDATED => {
-            let entries = STATE.with(|c| {
-                c.borrow()
-                    .as_ref()
-                    .unwrap()
-                    .library_updates
-                    .try_iter()
-                    .last()
-            });
+            let entries = STATE.with(|c| c.borrow_mut().as_mut().unwrap().library_updates.take());
             if let Some(entries) = entries {
                 cancel_parameter();
                 STATE.with(|c| {
@@ -928,7 +921,7 @@ pub fn run() -> Result<(), String> {
         SendMessageW(command, WM_SETFONT, command_font as WPARAM, 0);
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(theme::ROW, dpi) as LPARAM);
         let (launch_sender, launch_results) = std::sync::mpsc::channel();
-        let (library_sender, library_updates) = std::sync::mpsc::channel();
+        let (library_sender, library_updates) = altrun_probe::library_updates::channel();
         LAUNCH_SENDER.with(|s| *s.borrow_mut() = Some(launch_sender));
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
         STATE.with(|c| {
@@ -1044,9 +1037,10 @@ fn reload_library() {
             s.hwnd as usize,
         )
     });
+    let revision = sender.begin_read();
     std::thread::spawn(move || match altrun_probe::library::Snapshot::open(&path) {
         Ok(snapshot) => {
-            let _ = sender.send(snapshot.entries);
+            sender.read_complete(revision, snapshot.entries);
             unsafe {
                 PostMessageW(hwnd as HWND, crate::manager::UPDATED, 0, 0);
             }

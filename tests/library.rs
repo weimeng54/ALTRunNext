@@ -115,3 +115,33 @@ fn headless_conversion_never_overwrites_the_import_source() {
     assert!(!std::process::Command::new(program).arg("--convert-legacy").arg(&source).arg("--output").arg(&source).status().unwrap().success());
     assert_eq!(std::fs::read_to_string(source).unwrap(),original);
 }
+
+#[test]
+fn comma_headers_starting_with_f_keep_pipes_in_command_tails() {
+    let imported=library::import_legacy("Firefox,浏览器,app.exe --filter a|b\nF7,no_encoding,Find,查找,app.exe %p | other\n").unwrap();
+    assert_eq!(imported.entries[0].alias,"Firefox");
+    assert_eq!(imported.entries[0].command,"app.exe --filter a|b");
+    assert_eq!(imported.entries[1].frequency,7);
+    assert_eq!(imported.entries[1].command,"app.exe %p | other");
+}
+
+#[test]
+#[cfg(windows)]
+fn p_underscore_environment_variables_are_not_parameter_markers() {
+    // Windows environment operations are synchronized by the operating system.
+    unsafe { std::env::set_var("p_altrun_compat_test","D:\\Tools"); }
+    let resolved=launch::resolve(r#""%p_altrun_compat_test%\app.exe" %p_altrun_compat_test%"#,None).unwrap();
+    assert_eq!(resolved.file,r"D:\Tools\app.exe");
+    assert_eq!(resolved.parameters,r"D:\Tools");
+}
+
+#[test]
+fn delayed_reload_cannot_replace_a_newer_saved_snapshot() {
+    let(writer,mut mailbox)=altrun_probe::library_updates::channel();
+    let old=parse_entries("old\t旧\told.exe\t0\n").unwrap();
+    let new=parse_entries("new\t新\tnew.exe\t0\n").unwrap();
+    let delayed=writer.begin_read();writer.saved(new.clone());writer.read_complete(delayed,old.clone());
+    assert_eq!(mailbox.take().unwrap()[0].alias,"new");
+    let delayed=writer.begin_read();writer.saved(new);assert_eq!(mailbox.take().unwrap()[0].alias,"new");
+    writer.read_complete(delayed,old);assert!(mailbox.take().is_none());
+}

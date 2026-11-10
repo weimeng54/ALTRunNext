@@ -124,6 +124,7 @@ pub mod desktop_frame;
 pub mod desktop_observation;
 pub mod launch;
 pub mod library;
+pub mod library_updates;
 pub mod observation;
 pub mod textcodec;
 
