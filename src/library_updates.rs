@@ -44,8 +44,13 @@ impl LibraryWriter {
 }
 impl LibraryMailbox {
     pub fn take(&mut self) -> Option<Vec<Entry>> {
-        let update = self.receiver.try_iter().max_by_key(|update| update.revision)?;
-        if update.revision <= self.applied { return None; }
+        let update = self
+            .receiver
+            .try_iter()
+            .max_by_key(|update| update.revision)?;
+        if update.revision <= self.applied {
+            return None;
+        }
         self.applied = update.revision;
         Some(update.entries)
     }

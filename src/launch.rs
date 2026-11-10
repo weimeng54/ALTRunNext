@@ -174,5 +174,8 @@ fn expand_environment(command: &str, url: bool) -> Result<String, String> {
 
 fn parameter_marker(rest: &str) -> bool {
     rest.starts_with("%p")
-        && !rest.as_bytes().get(2).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        && !rest
+            .as_bytes()
+            .get(2)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
 }

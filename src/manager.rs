@@ -533,7 +533,11 @@ fn run(
         }
         let mut monitor: MONITORINFO = zeroed();
         monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
-        if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut monitor) == 0 {
+        if GetMonitorInfoW(
+            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
+            &mut monitor,
+        ) == 0
+        {
             DestroyWindow(hwnd);
             DeleteObject(background);
             return Err("无法读取显示器工作区域".into());
@@ -557,10 +561,13 @@ fn run(
         let width = outer.right - outer.left;
         let height = outer.bottom - outer.top;
         SetWindowPos(
-            hwnd, null_mut(),
+            hwnd,
+            null_mut(),
             work.left + ((work.right - work.left - width) / 2).max(0),
             work.top + ((work.bottom - work.top - height) / 2).max(0),
-            width, height, SWP_NOZORDER | SWP_NOACTIVATE,
+            width,
+            height,
+            SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let font = make_font(13, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(16, 600, "Microsoft YaHei UI", dpi);
