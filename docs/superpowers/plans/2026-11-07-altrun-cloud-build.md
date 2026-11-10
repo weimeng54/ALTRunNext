@@ -1,3 +1,5 @@
+> 2026-11-10 用户修订：以实际体验可接受为性能验收依据，允许感知不到的轻微指标下降。停止截图采集实验，不再要求严格统计证明先于功能开发；已有原生体验包，接下来推进兼容匹配、实际命令执行、迁移和管理。此更新优先于本文历史性能门槛。
+
 # ALTRun 云端构建与原生重写执行计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 本计划默认当前会话逐项执行；只有用户选择委派时才切换到 subagent-driven-development。

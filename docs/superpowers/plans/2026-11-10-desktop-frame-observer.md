@@ -1,3 +1,9 @@
+# 已停止执行
+
+2026-11-10：用户明确以实际体验可接受为性能标准，允许感知不到的轻微指标退步。本观测器计划归档，不再增加采集代码或要求重复合成自测。后续推进启动器体验包和旧功能实现，现有拒收数据不代表启动器性能不达标。
+
+---
+
 # Desktop frame observer implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -102,3 +102,4 @@ pub mod capture_bridge;
 pub mod desktop_frame;
 pub mod desktop_observation;
 pub mod observation;
+pub mod launch;

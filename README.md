@@ -1,8 +1,8 @@
 # ALTRun native performance prototype
 
-Windows 11 x64 原生启动器重写项目。第一门槛是与原版 ALTRun 同机对比的响应性能；未达标不进入完整功能开发。
+Windows 11 x64 原生启动器重写项目。优先保持原版 ALTRun 跟手、低占用的使用体验；性能以用户实际试用可接受为准，允许感知不到的轻微指标退步。
 
-当前已有紧凑界面设计与执行计划，尚无通过性能验收的替代品。
+当前已有紧凑界面设计、原生呼出/搜索原型和云端构建。正在推进可试用版本与旧功能兼容，尚不是完整替代品。截图采集实验已停止，不再以严格统计证明作为功能开发的前置门槛。
 
 - [设计与兼容方案](docs/ALTRun-modernization-plan.md)
 - [云构建任务清单](docs/superpowers/plans/2026-11-07-altrun-cloud-build.md)
