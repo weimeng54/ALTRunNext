@@ -35,7 +35,9 @@ impl DesktopFrame {
         if self.protected_content {
             return Err(Rejected::ProtectedContent);
         }
-        if action_qpc < 0 || self.present_qpc < 0 || self.acquire_begin_qpc < 0
+        if action_qpc < 0
+            || self.present_qpc < 0
+            || self.acquire_begin_qpc < 0
             || self.acquire_end_qpc < self.acquire_begin_qpc
             || self.readback_end_qpc < self.acquire_end_qpc
             || self.present_qpc > self.acquire_end_qpc
