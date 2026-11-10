@@ -101,5 +101,5 @@ pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
 pub mod capture_bridge;
 pub mod desktop_frame;
 pub mod desktop_observation;
-pub mod observation;
 pub mod launch;
+pub mod observation;

@@ -1,5 +1,7 @@
 //! Shared native theme; COLORREF values are written through rgb() to avoid BGR mistakes.
-pub const fn rgb(r: u32, g: u32, b: u32) -> u32 { r | (g << 8) | (b << 16) }
+pub const fn rgb(r: u32, g: u32, b: u32) -> u32 {
+    r | (g << 8) | (b << 16)
+}
 pub const SURFACE: u32 = rgb(245, 247, 250);
 pub const PAPER: u32 = rgb(255, 255, 255);
 pub const TEXT: u32 = rgb(32, 44, 58);

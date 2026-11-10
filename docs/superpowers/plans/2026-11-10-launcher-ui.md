@@ -18,5 +18,5 @@
 ## Tasks
 
 1. Add launch request/resolution tests and stub; cloud test must demonstrate missing implementation. Tests cover quoted executable and arguments, URL, %p, unsupported placeholders, unmatched quotes and embedded NUL. Commit/sync one change at a time.
-2. Implement resolver and native UI refinement, opt-in execution, parameter input, recoverable errors, context-menu exit and DPI font rebuild. Verify cloud fmt/tests/clippy/release; capture synthetic screenshots in cloud, not user's desktop.
+2. Implement resolver and native UI refinement, opt-in execution, parameter input, recoverable errors, context-menu exit and scaled font/layout checks. Dynamic monitor-DPI rebuilding remains a follow-up. Verify cloud fmt/tests/clippy/release; capture synthetic screenshots in cloud, not user's desktop.
 3. One whole-change review, fix important issues, verify exact artifact SHA256 and install launcher-only trial package on D:. Provide concise usage and actual unfinished compatibility scope. User feedback replaces strict statistical performance gating.

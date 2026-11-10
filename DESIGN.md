@@ -10,7 +10,7 @@ Windows keyboard launcher for an experienced ALTRun user. Its job is to appear i
 
 420 DIP panel, 22 DIP rows, maximum ten rows; short lists shrink. 10–12 DIP outside spacing, 30 DIP input well. Body 13 DIP, input 16 DIP, title 13 DIP semibold, command preview 11 DIP. Small native rounded window corners where supported. The selection's narrow blue rail connects the numbered shortcut to its row without adding visual clutter.
 
-Palette: surface #F5F7FA; input/list #FFFFFF; main text #202C3A; secondary text #617084; selected #E7EFF8; accent #315F88; border #C6D0DC. Error text #A52C36. Native high-contrast colors override the custom palette when enabled.
+Palette: surface #F5F7FA; input/list #FFFFFF; main text #202C3A; secondary text #617084; selected #E7EFF8; accent #315F88; border #C6D0DC. Error text #A52C36. A high-contrast palette override remains unfinished; current styling is the light theme.
 
 ## Behavior
 
