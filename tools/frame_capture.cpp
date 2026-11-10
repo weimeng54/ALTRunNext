@@ -94,6 +94,7 @@ int32_t altrun_capture_poll(AltrunCapture* capture, uint32_t timeout, uint8_t* p
         info->present_qpc = frame.LastPresentTime.QuadPart;
         info->accumulated_frames = frame.AccumulatedFrames;
         info->protected_content = frame.ProtectedContentMaskedOut ? 1U : 0U;
+        validate_frame_metadata(frame, info->acquire_end_qpc);
         if (!info->present_qpc) { acquired.release(); return 2; }
         require(info->present_qpc > 0 && info->present_qpc <= info->acquire_end_qpc, "capture_timestamp");
         if (info->protected_content) return E_ACCESSDENIED;

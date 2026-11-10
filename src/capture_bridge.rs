@@ -223,6 +223,26 @@ mod tests {
             .join(name)
     }
 
+    fn rejected_no_update(variant: u32) {
+        let name = format!("frame_capture_poison_{variant}.dll");
+        let bridge = Bridge::load_exact(&adjacent(&name)).expect("poison fixture loads");
+        let mut capture = bridge.open(Region { left: 0, top: 0, width: 5, height: 3 }).unwrap();
+        let outcome = capture.poll(0);
+        assert!(outcome.is_err(), "non-image metadata must be checked: {outcome:?}");
+    }
+
+    #[test]
+    fn protected_pointer_update_cannot_extend_cached_stability() { rejected_no_update(1); }
+
+    #[test]
+    fn inconsistent_pointer_count_cannot_extend_cached_stability() { rejected_no_update(2); }
+
+    #[test]
+    fn incompatible_pointer_layout_cannot_extend_cached_stability() { rejected_no_update(3); }
+
+    #[test]
+    fn protected_timeout_cannot_extend_cached_stability() { rejected_no_update(4); }
+
     #[test]
     fn real_adjacent_library_loads_and_rejects_invalid_regions() {
         let bridge = Bridge::load_adjacent().expect("verified adjacent capture DLL must load");

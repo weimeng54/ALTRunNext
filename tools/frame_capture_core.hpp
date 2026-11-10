@@ -98,7 +98,22 @@ struct Readback {
     }
 };
 void require_desktop_frames(size_t count) { require(count > 0, "no_valid_desktop_frame"); }
+void validate_frame_metadata(const DXGI_OUTDUPL_FRAME_INFO&, int64_t) {}
 void self_test() {
+    DXGI_OUTDUPL_FRAME_INFO valid_pointer{};
+    validate_frame_metadata(valid_pointer, 100);
+    DXGI_OUTDUPL_FRAME_INFO valid_image{};
+    valid_image.LastPresentTime.QuadPart = 50;
+    valid_image.AccumulatedFrames = 1;
+    validate_frame_metadata(valid_image, 100);
+    unsigned rejected_metadata = 0;
+    for (unsigned variant = 0; variant < 2; ++variant) {
+        DXGI_OUTDUPL_FRAME_INFO invalid{};
+        if (variant == 0) invalid.ProtectedContentMaskedOut = TRUE;
+        else invalid.AccumulatedFrames = 3;
+        try { validate_frame_metadata(invalid, 100); } catch (const Failure&) { ++rejected_metadata; }
+    }
+    require(rejected_metadata == 2, "invalid_pointer_metadata_must_reject");
     bool empty_rejected = false;
     try { require_desktop_frames(0); } catch (const Failure&) { empty_rejected = true; }
     require(empty_rejected, "empty_desktop_must_reject");
@@ -177,6 +192,7 @@ void sample_desktop(Report& report) {
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) { ++report.timeouts; continue; }
         check(hr, "acquire_frame");
         Acquired acquired{duplication.Get()};
+        validate_frame_metadata(info, acquire_end);
         if (!info.LastPresentTime.QuadPart) { ++report.pointer_only; acquired.release(); continue; }
         require(info.LastPresentTime.QuadPart > 0 && info.LastPresentTime.QuadPart <= acquire_end, "invalid_frame_timestamp");
         require(!info.ProtectedContentMaskedOut, "protected_content_masked");
