@@ -18,7 +18,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
         .filter(|(_, line)| !line.is_empty())
         .map(|(i, line)| {
             let fields: Vec<_> = line.split('\t').collect();
-            if !(4..=5).contains(&fields.len()) || fields[0].is_empty() {
+            if !(4..=9).contains(&fields.len()) || fields[0].is_empty() {
                 return Err(format!("Invalid dataset row {}", i + 1));
             }
             Ok(Entry {
@@ -28,26 +28,32 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 frequency: fields[3]
                     .parse()
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
-                id:String::new(),working_directory:String::new(),enabled:true,kind:library::EntryKind::Command,
-                param_type: if fields.len() == 5 {
+                id: fields.get(5).filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(||library::legacy_id(fields[0],fields[1],fields[2],i)),
+                working_directory:fields.get(6).unwrap_or(&"").to_string(),
+                kind:library::EntryKind::parse(fields.get(7).unwrap_or(&"command"))?,
+                enabled:match fields.get(8).copied().unwrap_or("1"){"1"=>true,"0"=>false,_=>return Err(format!("Invalid enabled flag at row {}",i+1))},
+                param_type: if fields.len() >= 5 {
                     library::ParamType::parse(fields[4])?
                 } else {
                     library::ParamType::Auto
                 },
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>,_>>()
+        .and_then(|rows|{let mut ids=std::collections::HashSet::new();if rows.iter().any(|e|!ids.insert(&e.id)){Err("Duplicate shortcut identity".into())}else{Ok(rows)}})
 }
 
 pub struct SearchIndex {
     aliases: Vec<String>,
     frequencies: Vec<i64>,
     characters: Vec<Vec<char>>,
+    active:Vec<bool>,
 }
 
 impl SearchIndex {
     pub fn new(entries: &[Entry]) -> Self {
         Self {
+            active:entries.iter().map(|e|e.enabled&&e.kind==library::EntryKind::Command).collect(),
             aliases: entries.iter().map(|e| e.alias.to_lowercase()).collect(),
             frequencies: entries.iter().map(|e| e.frequency).collect(),
             characters: entries
@@ -69,6 +75,7 @@ impl SearchIndex {
             .iter()
             .enumerate()
             .filter_map(|(i, alias)| {
+                if !self.active[i]{return None;}
                 if input.is_empty() {
                     return Some((i, self.frequencies[i]));
                 }
