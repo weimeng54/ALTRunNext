@@ -154,6 +154,7 @@ fn desktop_frame_replay_has_its_own_pending_kind_without_original_access() {
             "import json,sys; r=json.load(open(sys.argv[1],encoding='utf-8')); ",
             "assert r['decision']=='pending'; assert not r['content_verified']; ",
             "assert r['measurement_kind']=='desktop-frame-self-replay'; ",
+            "assert r['stage']=='probe_identity'; ",
             "assert r['target']=='probe'; assert r['samples']==[]; ",
             "assert r['current_desktop_trace']==[]"
         ))

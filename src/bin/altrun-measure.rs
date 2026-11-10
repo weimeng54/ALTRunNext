@@ -5,9 +5,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #[cfg(windows)]
 mod windows {
-    use altrun_probe::observation::{Bounds, Frame, Rejected, settled_bounds};
-    use altrun_probe::capture_bridge::{Bridge, Capture as NativeCapture, Poll as NativePoll, Region};
+    use altrun_probe::capture_bridge::{
+        Bridge, Capture as NativeCapture, Poll as NativePoll, Region,
+    };
     use altrun_probe::desktop_observation::{self, DesktopBounds, DesktopObservation, rgb_hash};
+    use altrun_probe::observation::{Bounds, Frame, Rejected, settled_bounds};
     use std::{
         cell::RefCell,
         ffi::c_void,
@@ -30,16 +32,22 @@ mod windows {
     }
     fn qpc() -> Result<i64, String> {
         let mut value = 0;
-        if unsafe { QueryPerformanceCounter(&mut value) } == 0 { return Err("Cannot read QPC".into()); }
+        if unsafe { QueryPerformanceCounter(&mut value) } == 0 {
+            return Err("Cannot read QPC".into());
+        }
         Ok(value)
     }
     fn qpc_frequency() -> Result<i64, String> {
         let mut value = 0;
-        if unsafe { QueryPerformanceFrequency(&mut value) } == 0 || value <= 0 { return Err("Cannot read QPC frequency".into()); }
+        if unsafe { QueryPerformanceFrequency(&mut value) } == 0 || value <= 0 {
+            return Err("Cannot read QPC frequency".into());
+        }
         Ok(value)
     }
     fn ns_since(start: i64, end: i64, frequency: i64) -> Result<u128, String> {
-        if start < 0 || end < start || frequency <= 0 { return Err("Invalid QPC observation interval".into()); }
+        if start < 0 || end < start || frequency <= 0 {
+            return Err("Invalid QPC observation interval".into());
+        }
         Ok(((i128::from(end) - i128::from(start)) * 1_000_000_000 / i128::from(frequency)) as u128)
     }
 
@@ -284,9 +292,17 @@ mod windows {
                     native: None,
                 };
                 capture.native = CAPTURE_BRIDGE.with(|cell| {
-                    cell.borrow().as_ref().map(|bridge| bridge.open(Region {
-                        left: rect.left, top: rect.top, width, height,
-                    })).transpose()
+                    cell.borrow()
+                        .as_ref()
+                        .map(|bridge| {
+                            bridge.open(Region {
+                                left: rect.left,
+                                top: rect.top,
+                                width,
+                                height,
+                            })
+                        })
+                        .transpose()
                 })?;
                 Ok(capture)
             }
@@ -328,32 +344,61 @@ mod windows {
             }
         }
         fn hash_pixels(&self) -> Result<u64, String> {
-            if self.native.is_some() { return rgb_hash(&self.pixels).map_err(str::to_string); }
-            Ok(self.pixels.iter().fold(0xcbf29ce484222325_u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3)))
+            if self.native.is_some() {
+                return rgb_hash(&self.pixels).map_err(str::to_string);
+            }
+            Ok(self.pixels.iter().fold(0xcbf29ce484222325_u64, |h, &b| {
+                (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
+            }))
         }
         fn poll_native(&mut self, timeout: u32) -> Result<NativePoll, String> {
-            let native = self.native.as_mut().ok_or("Desktop capture is unavailable")?;
+            let native = self
+                .native
+                .as_mut()
+                .ok_or("Desktop capture is unavailable")?;
             let result = native.poll(timeout)?;
-            if matches!(result, NativePoll::Frame(_)) { self.pixels.copy_from_slice(native.pixels()); }
+            if matches!(result, NativePoll::Frame(_)) {
+                self.pixels.copy_from_slice(native.pixels());
+            }
             Ok(result)
         }
         fn calibrate_backend(&mut self) -> Result<(), String> {
-            let Some(native) = self.native.as_mut() else { return Ok(()); };
+            let Some(native) = self.native.as_mut() else {
+                return Ok(());
+            };
             let start = Instant::now();
             loop {
                 if matches!(native.poll(50)?, NativePoll::Frame(_)) {
-                    if self.pixels.len() != native.pixels().len() { return Err("Capture calibration size mismatch".into()); }
-                    let differences = self.pixels.chunks_exact(4).zip(native.pixels().chunks_exact(4)).filter(|(a, b)| a[..3] != b[..3]).count();
-                    if differences != 0 { return Err(format!("GDI/DXGI RGB calibration mismatch: {differences} pixels")); }
+                    if self.pixels.len() != native.pixels().len() {
+                        return Err("Capture calibration size mismatch".into());
+                    }
+                    let before_pixels = self.pixels.as_chunks::<4>().0;
+                    let native_pixels = native.pixels().as_chunks::<4>().0;
+                    let differences = before_pixels
+                        .iter()
+                        .zip(native_pixels)
+                        .filter(|(a, b)| a[..3] != b[..3])
+                        .count();
+                    if differences != 0 {
+                        return Err(format!(
+                            "GDI/DXGI RGB calibration mismatch: {differences} pixels"
+                        ));
+                    }
                     return Ok(());
                 }
-                if start.elapsed() >= Duration::from_secs(2) { return Err("No desktop image for backend calibration".into()); }
+                if start.elapsed() >= Duration::from_secs(2) {
+                    return Err("No desktop image for backend calibration".into());
+                }
             }
         }
         fn prime_native(&mut self) -> Result<(), String> {
-            let Some(native) = self.native.as_mut() else { return Ok(()); };
+            let Some(native) = self.native.as_mut() else {
+                return Ok(());
+            };
             for _ in 0..16 {
-                if matches!(native.poll(0)?, NativePoll::Timeout) { return Ok(()); }
+                if matches!(native.poll(0)?, NativePoll::Timeout) {
+                    return Ok(());
+                }
             }
             Err("Cannot drain desktop frames before the action".into())
         }
@@ -374,9 +419,16 @@ mod windows {
             let bottom = (region.bottom - self.rect.top) as usize;
             let mut hash = 0xcbf29ce484222325_u64;
             for row in top..bottom {
-                for pixel in self.pixels[row * stride + left..row * stride + right].chunks_exact(4) {
-                    let channels = if self.native.is_some() { &pixel[..3] } else { pixel };
-                    for &value in channels { hash = (hash ^ u64::from(value)).wrapping_mul(0x100000001b3); }
+                let row_pixels = &self.pixels[row * stride + left..row * stride + right];
+                for pixel in row_pixels.as_chunks::<4>().0 {
+                    let channels = if self.native.is_some() {
+                        &pixel[..3]
+                    } else {
+                        pixel
+                    };
+                    for &value in channels {
+                        hash = (hash ^ u64::from(value)).wrapping_mul(0x100000001b3);
+                    }
                 }
             }
             Ok(hash)
@@ -508,8 +560,12 @@ mod windows {
             let trace = trace_json(&self.current_trace);
             let desktop_trace = desktop_trace_json(&self.current_desktop_trace);
             let clock_hz = self.clock_hz;
-            let action_qpc = self.action_qpc.map_or_else(|| "null".to_string(), |v| v.to_string());
-            let dispatch_qpc = self.dispatch_qpc.map_or_else(|| "null".to_string(), |v| v.to_string());
+            let action_qpc = self
+                .action_qpc
+                .map_or_else(|| "null".to_string(), |v| v.to_string());
+            let dispatch_qpc = self
+                .dispatch_qpc
+                .map_or_else(|| "null".to_string(), |v| v.to_string());
             let text = format!(
                 "{{\"measurement_kind\":\"{}\",\"decision\":\"pending\",\"content_verified\":false,\"session_status\":\"{}\",\"stage\":\"{}\",\"target\":\"{}\",\"iteration\":{},\"query_id\":{},\"samples\":[{}],\"current_trace\":[{}],\"current_desktop_trace\":[{desktop_trace}],\"action\":{{\"frequency\":{clock_hz},\"request_qpc\":{action_qpc},\"dispatch_complete_qpc\":{dispatch_qpc}}},\"diagnostic_windows\":{},\"limitations\":[\"Final sampled pixels are not an independent content oracle\",\"First matching observation and final stabilization are separate\",\"Sampling is not hardware presentation or physical input\",\"Rejected, synthetic or content-unverified sessions cannot establish parity\"]}}",
                 self.kind,
@@ -548,7 +604,11 @@ mod windows {
             format!("{{\"began_ns\":{},\"ended_ns\":{},\"image_ns\":{image},\"fresh\":{},\"accumulated_frames\":{},\"protected_content\":{},\"hash\":{},\"list_hash\":{},\"ready\":{},\"unoccluded\":{}}}", o.began_ns, o.ended_ns, f.fresh, f.accumulated_frames, f.protected_content, o.hash, o.list_hash, o.ready, o.unoccluded)
         }).collect::<Vec<_>>().join(",")
     }
-    fn desktop_sample_json(report: &Report, metric: &str, bounds: &DesktopBounds) -> Result<String, String> {
+    fn desktop_sample_json(
+        report: &Report,
+        metric: &str,
+        bounds: &DesktopBounds,
+    ) -> Result<String, String> {
         let request = report.action_qpc.ok_or("Missing action QPC")?;
         let dispatch = report.dispatch_qpc.ok_or("Missing dispatch QPC")?;
         let dispatch_ns = ns_since(request, dispatch, report.clock_hz)?;
@@ -564,7 +624,9 @@ mod windows {
         let gap = bounds.pixels.maximum_gap_ns;
         let capture = bounds.pixels.maximum_capture_ns;
         let sampling = bounds.pixels.maximum_sampling_span_ns;
-        Ok(format!("{{\"target\":\"{target}\",\"iteration\":{iteration},\"query_id\":{query_id},\"metric\":\"{metric}\",\"content_verified\":false,\"request_to_dispatch_ns\":{dispatch_ns},\"desktop_image_update_ns\":{image},\"ready_observed_lower_ns\":{ready_lower},\"ready_observed_upper_ns\":{ready_upper},\"first_match_observed_upper_ns\":{observed_upper},\"stable_observed_span_ns\":{span},\"maximum_gap_ns\":{gap},\"maximum_capture_ns\":{capture},\"maximum_sampling_span_ns\":{sampling},\"trace\":[{trace}]}}"))
+        Ok(format!(
+            "{{\"target\":\"{target}\",\"iteration\":{iteration},\"query_id\":{query_id},\"metric\":\"{metric}\",\"content_verified\":false,\"request_to_dispatch_ns\":{dispatch_ns},\"desktop_image_update_ns\":{image},\"ready_observed_lower_ns\":{ready_lower},\"ready_observed_upper_ns\":{ready_upper},\"first_match_observed_upper_ns\":{observed_upper},\"stable_observed_span_ns\":{span},\"maximum_gap_ns\":{gap},\"maximum_capture_ns\":{capture},\"maximum_sampling_span_ns\":{sampling},\"trace\":[{trace}]}}"
+        ))
     }
     fn sample_json(
         target: &str,
@@ -920,7 +982,10 @@ mod windows {
             (unsafe { GetGUIThreadInfo(tid, &mut info) }) != 0 && info.hwndFocus == self.edit
         }
         fn observe_desktop(
-            &mut self, index: usize, action: i64, frequency: i64,
+            &mut self,
+            index: usize,
+            action: i64,
+            frequency: i64,
             frames: &mut Vec<DesktopObservation>,
         ) -> Result<DesktopBounds, String> {
             frames.clear();
@@ -935,7 +1000,8 @@ mod windows {
                 let list_rect = rectangle(self.list)?;
                 let parent_rect = rectangle(self.hwnd)?;
                 let before_ready = unsafe { IsWindowVisible(self.hwnd) } != 0
-                    && unsafe { GetForegroundWindow() } == self.hwnd && self.input_ready();
+                    && unsafe { GetForegroundWindow() } == self.hwnd
+                    && self.input_ready();
                 let canvas = self.references[index].capture.rect;
                 let clear_before = before_ready && unoccluded(self.hwnd, canvas)?;
                 let reference = &mut self.references[index];
@@ -944,8 +1010,9 @@ mod windows {
                     if timing.present_qpc < action && image_ns.is_none() {
                         // Draining can race a final pre-action image. It is not a response.
                     } else {
-                        let stamp = timing.stamp_after(action, frequency)
-                            .map_err(|e| format!("Desktop frame rejected: {e:?}; metadata {timing:?}"))?;
+                        let stamp = timing.stamp_after(action, frequency).map_err(|e| {
+                            format!("Desktop frame rejected: {e:?}; metadata {timing:?}")
+                        })?;
                         image_ns = Some(stamp.elapsed_ns);
                         hash = reference.capture.hash_pixels()?;
                         list_hash = reference.capture.part_hash(reference.list_rect)?;
@@ -954,40 +1021,73 @@ mod windows {
                 }
                 let expected_list = reference.list_rect;
                 let expected_parent = reference.parent_rect;
-                let ready = before_ready && same_rect(list_rect, expected_list)
+                let ready = before_ready
+                    && same_rect(list_rect, expected_list)
                     && same_rect(parent_rect, expected_parent)
                     && same_rect(rectangle(self.list)?, list_rect)
                     && same_rect(rectangle(self.hwnd)?, parent_rect)
-                    && unsafe { GetForegroundWindow() } == self.hwnd && self.input_ready();
+                    && unsafe { GetForegroundWindow() } == self.hwnd
+                    && self.input_ready();
                 let clear = ready && clear_before && unoccluded(self.hwnd, canvas)?;
                 let ended_ns = ns_since(action, qpc()?, frequency)?;
                 frames.push(DesktopObservation {
-                    observed: Frame { began_ns, ended_ns, hash, list_hash, ready, unoccluded: clear },
-                    image_ns, fresh, accumulated_frames: u32::from(image_ns.is_some()), protected_content: false,
+                    observed: Frame {
+                        began_ns,
+                        ended_ns,
+                        hash,
+                        list_hash,
+                        ready,
+                        unoccluded: clear,
+                    },
+                    image_ns,
+                    fresh,
+                    accumulated_frames: u32::from(image_ns.is_some()),
+                    protected_content: false,
                 });
                 if ended_ns >= 200_000_000 {
                     let reference = &self.references[index];
-                    match desktop_observation::analyze(reference.hash, reference.before_list_hash, frames, 50_000_000, 50_000_000) {
+                    match desktop_observation::analyze(
+                        reference.hash,
+                        reference.before_list_hash,
+                        frames,
+                        50_000_000,
+                        50_000_000,
+                    ) {
                         Ok(bounds) => {
                             self.active()?;
                             self.verify_cursor(index)?;
                             if get_query(self.edit)? != QUERIES[index]
                                 || message(self.list, LB_GETCOUNT, 0, 0)? != reference.count
-                                || message(self.list, LB_GETCURSEL, 0, 0)? != 0 {
-                                return Err("Logical query/list state changed; content is unverified".into());
+                                || message(self.list, LB_GETCURSEL, 0, 0)? != 0
+                            {
+                                return Err(
+                                    "Logical query/list state changed; content is unverified"
+                                        .into(),
+                                );
                             }
                             return Ok(bounds);
                         }
                         Err(error) => {
-                            let retryable = matches!(error, desktop_observation::Rejected::Pixels(
-                                Rejected::NotSettled | Rejected::NoVisibleTransition | Rejected::NoListTransition));
+                            let retryable = matches!(
+                                error,
+                                desktop_observation::Rejected::Pixels(
+                                    Rejected::NotSettled
+                                        | Rejected::NoVisibleTransition
+                                        | Rejected::NoListTransition
+                                )
+                            );
                             if !retryable || ended_ns >= 2_000_000_000 {
-                                return Err(format!("Desktop observation rejected: {error:?}; samples={}", frames.len()));
+                                return Err(format!(
+                                    "Desktop observation rejected: {error:?}; samples={}",
+                                    frames.len()
+                                ));
                             }
                         }
                     }
                 }
-                if frames.len() >= 4096 { return Err("Desktop trace limit reached".into()); }
+                if frames.len() >= 4096 {
+                    return Err("Desktop trace limit reached".into());
+                }
             }
         }
         fn observe(
@@ -1170,12 +1270,20 @@ mod windows {
         }
         let dxgi = args.iter().any(|a| a == "--dxgi-observer");
         if dxgi {
-            report.kind = if replay { "desktop-frame-self-replay" } else { "desktop-frame-settling-observations" };
+            report.kind = if replay {
+                "desktop-frame-self-replay"
+            } else {
+                "desktop-frame-settling-observations"
+            };
             report.stage = "capture_init";
             report.clock_hz = qpc_frequency()?;
             let bridge = Bridge::load_adjacent()?;
             CAPTURE_BRIDGE.with(|cell| *cell.borrow_mut() = Some(bridge));
-            report.stage = if replay { "probe_identity" } else { "original_identity" };
+            report.stage = if replay {
+                "probe_identity"
+            } else {
+                "original_identity"
+            };
         }
         if args
             .iter()
@@ -1269,15 +1377,32 @@ mod windows {
                     let dispatched = wake(target.legacy);
                     report.dispatch_qpc = Some(qpc()?);
                     dispatched?;
-                    let bounds = target.observe_desktop(0, report.action_qpc.ok_or("Missing action timestamp")?, report.clock_hz, &mut report.current_desktop_trace)?;
-                    report.samples.push(desktop_sample_json(&report, "software_hotkey_request_to_desktop_image", &bounds)?);
+                    let bounds = target.observe_desktop(
+                        0,
+                        report.action_qpc.ok_or("Missing action timestamp")?,
+                        report.clock_hz,
+                        &mut report.current_desktop_trace,
+                    )?;
+                    report.samples.push(desktop_sample_json(
+                        &report,
+                        "software_hotkey_request_to_desktop_image",
+                        &bounds,
+                    )?);
                     report.current_desktop_trace.clear();
                 } else {
                     let start = Instant::now();
                     wake(target.legacy)?;
-                    let bounds = target.observe(0, start, &mut report.current_trace)
+                    let bounds = target
+                        .observe(0, start, &mut report.current_trace)
                         .map_err(|e| format!("{label} iteration={iteration} wake: {e}"))?;
-                    report.samples.push(sample_json(label, iteration, 0, "hotkey_to_observed_final_pixels", &bounds, &report.current_trace));
+                    report.samples.push(sample_json(
+                        label,
+                        iteration,
+                        0,
+                        "hotkey_to_observed_final_pixels",
+                        &bounds,
+                        &report.current_trace,
+                    ));
                     report.current_trace.clear();
                 }
                 for (reference, _) in QUERIES.iter().enumerate().skip(1) {
@@ -1294,15 +1419,34 @@ mod windows {
                         let dispatched = target.query(query);
                         report.dispatch_qpc = Some(qpc()?);
                         dispatched?;
-                        let bounds = target.observe_desktop(reference, report.action_qpc.ok_or("Missing action timestamp")?, report.clock_hz, &mut report.current_desktop_trace)?;
-                        report.samples.push(desktop_sample_json(&report, "settext_request_to_desktop_image", &bounds)?);
+                        let bounds = target.observe_desktop(
+                            reference,
+                            report.action_qpc.ok_or("Missing action timestamp")?,
+                            report.clock_hz,
+                            &mut report.current_desktop_trace,
+                        )?;
+                        report.samples.push(desktop_sample_json(
+                            &report,
+                            "settext_request_to_desktop_image",
+                            &bounds,
+                        )?);
                         report.current_desktop_trace.clear();
                     } else {
                         let start = Instant::now();
                         target.query(query)?;
-                        let bounds = target.observe(reference, start, &mut report.current_trace)
-                            .map_err(|e| format!("{label} iteration={iteration} query_id={reference}: {e}"))?;
-                        report.samples.push(sample_json(label, iteration, reference, "settext_to_observed_final_pixels", &bounds, &report.current_trace));
+                        let bounds = target
+                            .observe(reference, start, &mut report.current_trace)
+                            .map_err(|e| {
+                                format!("{label} iteration={iteration} query_id={reference}: {e}")
+                            })?;
+                        report.samples.push(sample_json(
+                            label,
+                            iteration,
+                            reference,
+                            "settext_to_observed_final_pixels",
+                            &bounds,
+                            &report.current_trace,
+                        ));
                         report.current_trace.clear();
                     }
                 }
@@ -1418,9 +1562,14 @@ fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
             folder.join("session-result.json").to_string_lossy().into(),
         ]);
     }
-    let dxgi = lines[0] == "ALTRUN-DXGI-PROBE-SELF-REPLAY" || lines[0] == "ALTRUN-DXGI-LOCAL-TEST-AUTOEXEC-OFF";
-    let replay = lines[0] == "ALTRUN-PROBE-SELF-REPLAY" || lines[0] == "ALTRUN-DXGI-PROBE-SELF-REPLAY";
-    if !replay && lines[0] != "ALTRUN-LOCAL-TEST-AUTOEXEC-OFF" && lines[0] != "ALTRUN-DXGI-LOCAL-TEST-AUTOEXEC-OFF" {
+    let dxgi = lines[0] == "ALTRUN-DXGI-PROBE-SELF-REPLAY"
+        || lines[0] == "ALTRUN-DXGI-LOCAL-TEST-AUTOEXEC-OFF";
+    let replay =
+        lines[0] == "ALTRUN-PROBE-SELF-REPLAY" || lines[0] == "ALTRUN-DXGI-PROBE-SELF-REPLAY";
+    if !replay
+        && lines[0] != "ALTRUN-LOCAL-TEST-AUTOEXEC-OFF"
+        && lines[0] != "ALTRUN-DXGI-LOCAL-TEST-AUTOEXEC-OFF"
+    {
         return Err("Profile must explicitly select replay or confirm auto-execute off".into());
     }
     let original: u32 = lines[1].parse().map_err(|_| "Invalid original PID")?;
