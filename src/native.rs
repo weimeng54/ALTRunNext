@@ -310,8 +310,9 @@ fn launch_selected() {
     // All path checks, environment expansion, COM initialization and shell work
     // happen off the resident UI thread. No implicit cmd.exe is introduced.
     std::thread::spawn(move || {
-        let result = altrun_probe::launch::resolve_typed(&command, parameter.as_deref(), param_type)
-            .and_then(|request| execute_request(&request));
+        let result =
+            altrun_probe::launch::resolve_typed(&command, parameter.as_deref(), param_type)
+                .and_then(|request| execute_request(&request));
         let _ = result_sender.send(result);
         unsafe {
             PostMessageW(owner as HWND, LAUNCH_DONE, 0, 0);
@@ -411,7 +412,12 @@ fn show_menu(hwnd: HWND) {
         if menu.is_null() {
             return;
         }
-        AppendMenuW(menu, MF_STRING, ID_MANAGE, wide("管理快捷项\tAlt+S").as_ptr());
+        AppendMenuW(
+            menu,
+            MF_STRING,
+            ID_MANAGE,
+            wide("管理快捷项\tAlt+S").as_ptr(),
+        );
         AppendMenuW(menu, MF_STRING, ID_RELOAD, wide("重新载入快捷项").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
         AppendMenuW(menu, MF_STRING, ID_HIDE, wide("隐藏").as_ptr());
@@ -562,17 +568,36 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         crate::manager::UPDATED => {
-            let entries = STATE.with(|c| c.borrow().as_ref().unwrap().library_updates.try_iter().last());
+            let entries = STATE.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .library_updates
+                    .try_iter()
+                    .last()
+            });
             if let Some(entries) = entries {
                 cancel_parameter();
-                STATE.with(|c| { let mut state = c.borrow_mut(); let s = state.as_mut().unwrap(); s.index = SearchIndex::new(&entries); s.entries = entries; s.selected = 0; });
+                STATE.with(|c| {
+                    let mut state = c.borrow_mut();
+                    let s = state.as_mut().unwrap();
+                    s.index = SearchIndex::new(&entries);
+                    s.entries = entries;
+                    s.selected = 0;
+                });
                 refresh();
             }
             0
         }
         WM_COMMAND => {
-            if w & 0xffff == ID_MANAGE { open_manager(); return 0; }
-            if w & 0xffff == ID_RELOAD { reload_library(); return 0; }
+            if w & 0xffff == ID_MANAGE {
+                open_manager();
+                return 0;
+            }
+            if w & 0xffff == ID_RELOAD {
+                reload_library();
+                return 0;
+            }
             if w & 0xffff == ID_EXIT {
                 unsafe {
                     PostMessageW(hwnd, QUIT, 0, 0);
@@ -650,7 +675,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     SelectObject(d.hDC, s.font);
                     let number = format!(
                         "{}{}",
-                        if e.param_type.needs_input(&e.command) { '*' } else { ' ' },
+                        if e.param_type.needs_input(&e.command) {
+                            '*'
+                        } else {
+                            ' '
+                        },
                         (d.itemID + 1) % 10
                     );
                     let a = wide(&number);
@@ -727,7 +756,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         QUIT => {
             if crate::manager::is_open() {
                 crate::manager::focus();
-                unsafe { MessageBoxW(hwnd, wide("请先保存或关闭快捷项管理窗口，再退出启动器。").as_ptr(), wide("ALTRun").as_ptr(), MB_OK | MB_ICONINFORMATION); }
+                unsafe {
+                    MessageBoxW(
+                        hwnd,
+                        wide("请先保存或关闭快捷项管理窗口，再退出启动器。").as_ptr(),
+                        wide("ALTRun").as_ptr(),
+                        MB_OK | MB_ICONINFORMATION,
+                    );
+                }
                 return 0;
             }
             unsafe {
@@ -750,12 +786,19 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 pub fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
     let data_path = if let Some(i) = args.iter().position(|a| a == "--data") {
-        std::path::absolute(args.get(i + 1).ok_or("--data needs a path")?).map_err(|e| e.to_string())?
-    } else { std::env::current_exe().map_err(|e|e.to_string())?.with_file_name("shortcuts.tsv") };
+        std::path::absolute(args.get(i + 1).ok_or("--data needs a path")?)
+            .map_err(|e| e.to_string())?
+    } else {
+        std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .with_file_name("shortcuts.tsv")
+    };
     let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
         altrun_probe::library::Snapshot::open(&data_path)?.entries
     } else {
-        parse_entries("notepad\t记事本\tnotepad.exe\t7\nCalc\t计算器\tcalc\t5\nExplorer\t资源管理器\texplorer.exe\t4\ncmd\t命令提示符\tcmd /k %p\t6\nb\t百度搜索\thttps://www.baidu.com/s?wd=%p\t12\n")?
+        parse_entries(
+            "notepad\t记事本\tnotepad.exe\t7\nCalc\t计算器\tcalc\t5\nExplorer\t资源管理器\texplorer.exe\t4\ncmd\t命令提示符\tcmd /k %p\t6\nb\t百度搜索\thttps://www.baidu.com/s?wd=%p\t12\n",
+        )?
     };
     let index = SearchIndex::new(&entries);
     unsafe {
@@ -919,7 +962,9 @@ pub fn run() -> Result<(), String> {
                 dpi,
                 allow_launch: args.iter().any(|a| a == "--allow-safe-notepad"),
                 composing: false,
-                data_path, library_sender, library_updates,
+                data_path,
+                library_sender,
+                library_updates,
             })
         });
         refresh();
@@ -938,7 +983,11 @@ pub fn run() -> Result<(), String> {
         if args.iter().any(|a| a == "--show") {
             SendMessageW(hwnd, SHOW, 0, 0);
         }
-        let accelerator = ACCEL { fVirt: (FVIRTKEY | FALT) as u8, key: b'S' as u16, cmd: ID_MANAGE as u16 };
+        let accelerator = ACCEL {
+            fVirt: (FVIRTKEY | FALT) as u8,
+            key: b'S' as u16,
+            cmd: ID_MANAGE as u16,
+        };
         let table = CreateAcceleratorTableW(&accelerator, 1);
         let mut message: MSG = zeroed();
         loop {
@@ -946,11 +995,15 @@ pub fn run() -> Result<(), String> {
             if result <= 0 {
                 break;
             }
-            if TranslateAcceleratorW(hwnd, table, &message) != 0 { continue; }
+            if TranslateAcceleratorW(hwnd, table, &message) != 0 {
+                continue;
+            }
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
-        if !table.is_null() { DestroyAcceleratorTable(table); }
+        if !table.is_null() {
+            DestroyAcceleratorTable(table);
+        }
         STATE.with(|c| {
             if let Some(s) = c.borrow_mut().take() {
                 for font in [s.font, s.title_font, s.input_font, s.command_font] {
@@ -969,13 +1022,35 @@ pub fn run() -> Result<(), String> {
 }
 
 fn open_manager() {
-    let (path, entries, hwnd, sender) = STATE.with(|c| { let state = c.borrow(); let s = state.as_ref().unwrap(); (s.data_path.clone(),s.entries.clone(),s.hwnd,s.library_sender.clone()) });
+    let (path, entries, hwnd, sender) = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (
+            s.data_path.clone(),
+            s.entries.clone(),
+            s.hwnd,
+            s.library_sender.clone(),
+        )
+    });
     crate::manager::open(path, entries, hwnd, sender);
 }
 fn reload_library() {
-    let (path, sender, hwnd) = STATE.with(|c| { let state=c.borrow();let s=state.as_ref().unwrap();(s.data_path.clone(),s.library_sender.clone(),s.hwnd as usize) });
+    let (path, sender, hwnd) = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (
+            s.data_path.clone(),
+            s.library_sender.clone(),
+            s.hwnd as usize,
+        )
+    });
     std::thread::spawn(move || match altrun_probe::library::Snapshot::open(&path) {
-        Ok(snapshot) => {let _=sender.send(snapshot.entries);unsafe {PostMessageW(hwnd as HWND,crate::manager::UPDATED,0,0);} }
+        Ok(snapshot) => {
+            let _ = sender.send(snapshot.entries);
+            unsafe {
+                PostMessageW(hwnd as HWND, crate::manager::UPDATED, 0, 0);
+            }
+        }
         Err(error) => show_error(&error),
     });
 }

@@ -20,4 +20,8 @@ Launch is explicitly enabled for the user trial; existing measurement/self-test 
 
 ## Verification
 
+## Shortcut manager
+
+Alt+S or the tray opens a separate on-demand native window. Keep the launch panel unchanged. The manager uses a 760 × 420 DIP client area: left alias/name list; right alias, name, command and native parameter-type dropdown; bottom Add/Delete/Import, status, Save and Close. Use the same colors/type roles and visible native scrollbars. Text is Chinese, commands remain copyable. Draft editing, validation, backup persistence and close/delete confirmations follow UX-CONTRACT.md. The manager runs on its own UI thread so explicit disk operations do not block the resident launcher.
+
 Cloud native interaction regression for input focus, empty state, parameter cancellation and composition; pure launch parsing tests; cloud synthetic UI screenshots at 100% and 150% DPI, including long Chinese labels and no results. No personal content in screenshots or CI. User judges actual feel; screenshot timing is not an acceptance gate.

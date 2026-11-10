@@ -9,16 +9,33 @@ pub fn has_parameter(command: &str) -> bool {
     let mut rest = command;
     while let Some(index) = rest.find('%') {
         rest = &rest[index..];
-        if rest.starts_with("%p") && !rest.as_bytes().get(2).is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_') { return true; }
-        if let Some(end) = rest[1..].find('%') { rest = &rest[end + 2..]; } else { rest = &rest[1..]; }
+        if rest.starts_with("%p")
+            && !rest
+                .as_bytes()
+                .get(2)
+                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        {
+            return true;
+        }
+        if let Some(end) = rest[1..].find('%') {
+            rest = &rest[end + 2..];
+        } else {
+            rest = &rest[1..];
+        }
     }
     false
 }
 
-pub fn resolve_typed(command: &str, parameter: Option<&str>, kind: crate::library::ParamType) -> Result<LaunchRequest, String> {
+pub fn resolve_typed(
+    command: &str,
+    parameter: Option<&str>,
+    kind: crate::library::ParamType,
+) -> Result<LaunchRequest, String> {
     use crate::library::ParamType;
     let marked = has_parameter(command);
-    if kind == ParamType::None && marked { return Err("命令含参数标记，请先设置参数类型".into()); }
+    if kind == ParamType::None && marked {
+        return Err("命令含参数标记，请先设置参数类型".into());
+    }
     let active = kind.needs_input(command);
     let encoded = if active {
         let value = parameter.ok_or("请输入参数")?;
@@ -27,22 +44,34 @@ pub fn resolve_typed(command: &str, parameter: Option<&str>, kind: crate::librar
             ParamType::Utf8Url => percent_encode(value.as_bytes()),
             _ => value.to_owned(),
         })
-    } else { None };
+    } else {
+        None
+    };
     let normalized = command.replace("{%p}", "%p");
     let mut result = resolve_base(&normalized, encoded.as_deref())?;
     if active && !marked {
         let value = encoded.as_deref().unwrap_or("");
-        if result.file.starts_with("http://") || result.file.starts_with("https://") { result.file.push_str(value); }
-        else { if !result.parameters.is_empty() && !value.is_empty() { result.parameters.push(' '); } result.parameters.push_str(value); }
+        if result.file.starts_with("http://") || result.file.starts_with("https://") {
+            result.file.push_str(value);
+        } else {
+            if !result.parameters.is_empty() && !value.is_empty() {
+                result.parameters.push(' ');
+            }
+            result.parameters.push_str(value);
+        }
     }
     Ok(result)
 }
 fn percent_encode(bytes: &[u8]) -> String {
     let mut result = String::new();
     for &byte in bytes {
-        if byte.is_ascii_alphabetic() || b"*@._-".contains(&byte) { result.push(byte as char); }
-        else if byte == b' ' { result.push('+'); }
-        else { result.push_str(&format!("%{byte:02X}")); }
+        if byte.is_ascii_alphabetic() || b"*@._-".contains(&byte) {
+            result.push(byte as char);
+        } else if byte == b' ' {
+            result.push('+');
+        } else {
+            result.push_str(&format!("%{byte:02X}"));
+        }
     }
     result
 }

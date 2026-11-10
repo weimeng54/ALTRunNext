@@ -24,7 +24,11 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 frequency: fields[3]
                     .parse()
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
-                param_type: if fields.len()==5 { library::ParamType::parse(fields[4])? } else { library::ParamType::Auto },
+                param_type: if fields.len() == 5 {
+                    library::ParamType::parse(fields[4])?
+                } else {
+                    library::ParamType::Auto
+                },
             })
         })
         .collect()
@@ -41,12 +45,17 @@ impl SearchIndex {
         Self {
             aliases: entries.iter().map(|e| e.alias.to_lowercase()).collect(),
             frequencies: entries.iter().map(|e| e.frequency).collect(),
-            characters: entries.iter().map(|e| e.alias.to_lowercase().chars().collect()).collect(),
+            characters: entries
+                .iter()
+                .map(|e| e.alias.to_lowercase().chars().collect())
+                .collect(),
         }
     }
 
     pub fn query(&self, input: &str) -> Vec<usize> {
-        if input == " " || input.chars().count() > 256 { return Vec::new(); }
+        if input == " " || input.chars().count() > 256 {
+            return Vec::new();
+        }
         let input = input.to_lowercase();
         let wildcard = input.contains(['*', '?']);
         let pattern: Vec<char> = input.chars().collect();
@@ -58,7 +67,11 @@ impl SearchIndex {
                 if input.is_empty() {
                     return Some((i, self.frequencies[i]));
                 }
-                let position = if wildcard { wildcard_position(&pattern, &self.characters[i]) } else { alias.find(&input).map(|pos| alias[..pos].chars().count()) };
+                let position = if wildcard {
+                    wildcard_position(&pattern, &self.characters[i])
+                } else {
+                    alias.find(&input).map(|pos| alias[..pos].chars().count())
+                };
                 position.map(|pos| {
                     let position = pos as i64 + 1;
                     let length_delta = alias.chars().count() as i64 - input.chars().count() as i64;
@@ -111,23 +124,41 @@ pub mod desktop_frame;
 pub mod desktop_observation;
 pub mod launch;
 pub mod library;
-pub mod textcodec;
 pub mod observation;
+pub mod textcodec;
 
 fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
-    fn merge(slot: &mut Option<usize>, value: usize) { *slot = Some(slot.map_or(value, |old| old.min(value))); }
+    fn merge(slot: &mut Option<usize>, value: usize) {
+        *slot = Some(slot.map_or(value, |old| old.min(value)));
+    }
     let mut states = vec![None; pattern.len() + 1];
-    let mut next = states.clone(); let mut best = None;
+    let mut next = states.clone();
+    let mut best = None;
     for offset in 0..=alias.len() {
         merge(&mut states[0], offset);
-        for i in 0..pattern.len() { if pattern[i] == '*' && let Some(start) = states[i] { merge(&mut states[i+1], start); } }
-        if let Some(start) = states[pattern.len()] { merge(&mut best, start); }
-        if offset == alias.len() { break; }
+        for i in 0..pattern.len() {
+            if pattern[i] == '*'
+                && let Some(start) = states[i]
+            {
+                merge(&mut states[i + 1], start);
+            }
+        }
+        if let Some(start) = states[pattern.len()] {
+            merge(&mut best, start);
+        }
+        if offset == alias.len() {
+            break;
+        }
         next.fill(None);
-        for i in 0..pattern.len() { if let Some(start) = states[i] {
-            if pattern[i] == '*' { merge(&mut next[i], start); }
-            else if pattern[i] == '?' || pattern[i] == alias[offset] { merge(&mut next[i+1], start); }
-        } }
+        for i in 0..pattern.len() {
+            if let Some(start) = states[i] {
+                if pattern[i] == '*' {
+                    merge(&mut next[i], start);
+                } else if pattern[i] == '?' || pattern[i] == alias[offset] {
+                    merge(&mut next[i + 1], start);
+                }
+            }
+        }
         std::mem::swap(&mut states, &mut next);
     }
     best
