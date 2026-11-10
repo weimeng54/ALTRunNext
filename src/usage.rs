@@ -69,6 +69,7 @@ impl Usage {
             values.retain(|old| old != value);
             values.insert(0, value.into());
             values.truncate(limit);
+            let global=self.parameters.entry(String::from("*" )).or_default();global.retain(|old|old!=value);global.insert(0,value.into());global.truncate(limit);
         }
     }
 }

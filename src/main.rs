@@ -6,6 +6,8 @@ mod manager;
 mod native;
 #[cfg(windows)]
 mod theme;
+#[cfg(windows)]
+mod settings;
 
 fn main() {
     if std::env::args().any(|arg|arg=="--regex-worker") {

@@ -23,7 +23,7 @@ pub fn run(program:&Path,pattern:&str,aliases:&[String],prefix:bool,timeout:Dura
     let status=child.wait().map_err(|e|e.to_string());let _=writer.join();let _=reader.join();
     let bytes=result?;if !status?.success(){return Err("正则表达式无效或超过运行限制".into());}
     if bytes.len()!=aliases.len()*8{return Err("工作进程返回无效数据".into());}
-    Ok(bytes.chunks_exact(8).map(|b|{let value=u64::from_le_bytes(b.try_into().unwrap());if value==u64::MAX{None}else{usize::try_from(value).ok()}}).collect())
+    Ok(bytes.as_chunks::<8>().0.iter().map(|b|{let value=u64::from_le_bytes(*b);if value==u64::MAX{None}else{usize::try_from(value).ok()}}).collect())
 }
 pub fn worker_main()->Result<(),String>{
     let mut input=std::io::stdin().lock();let mut budget=MAX_BYTES;let pattern=string(&mut input,&mut budget)?;let mut flag=[0];input.read_exact(&mut flag).map_err(|e|e.to_string())?;

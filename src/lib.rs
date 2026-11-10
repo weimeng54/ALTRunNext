@@ -51,6 +51,22 @@ pub struct SearchIndex {
 }
 
 impl SearchIndex {
+    pub fn aliases(&self)->&[String]{&self.aliases}
+    pub fn rank_positions(&self,positions:&[Option<usize>],input:&str)->Vec<usize>{
+        let length=input.chars().count() as i64;let mut hits:Vec<_>=positions.iter().enumerate().filter_map(|(i,p)|{
+            if !self.active.get(i).copied().unwrap_or(false){return None;}p.map(|p|(i,1024i64.saturating_add(self.frequencies[i].saturating_mul(4)).saturating_sub((p as i64+1).saturating_mul(128)).saturating_sub((self.characters[i].len() as i64-length).saturating_mul(16))))
+        }).collect();hits.sort_by(|a,b|b.1.cmp(&a.1).then(a.0.cmp(&b.0)));hits.into_iter().map(|h|h.0).collect()
+    }
+    pub fn query_options(&self,input:&str,regex:bool,anywhere:bool,standard:bool)->Result<Vec<usize>,String>{
+        if input.chars().count()>256{return Ok(Vec::new());}
+        if regex&&input.contains(['*','?','[',']','(',')','|','^','$','\\','.','+','{']){
+            let pattern=if standard{input.to_owned()}else{matching::prepare_legacy(input)};
+            if matching::advanced(&pattern){return Err("advanced".into());}
+            return Ok(self.rank_positions(&matching::positions(&pattern,&self.aliases,!anywhere)?,input));
+        }
+        let needle=input.to_lowercase();let positions:Vec<_>=self.aliases.iter().map(|a|a.find(&needle).filter(|p|anywhere||*p==0).map(|p|a[..p].chars().count())).collect();
+        Ok(self.rank_positions(&positions,input))
+    }
     pub fn new(entries: &[Entry]) -> Self {
         Self {
             active:entries.iter().map(|e|e.enabled&&e.kind==library::EntryKind::Command).collect(),
@@ -143,6 +159,7 @@ pub mod observation;
 pub mod preferences;
 pub mod textcodec;
 pub mod usage;
+pub mod state_store;
 
 fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
     fn merge(slot: &mut Option<usize>, value: usize) {

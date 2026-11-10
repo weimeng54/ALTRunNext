@@ -247,7 +247,7 @@ impl Snapshot {
         Ok(())
     }
 }
-fn replace(stage: &Path, destination: &Path, existed: bool) -> Result<(), String> {
+pub(crate) fn replace(stage: &Path, destination: &Path, existed: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;

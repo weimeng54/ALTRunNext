@@ -97,3 +97,12 @@ fn advanced_matching_worker_returns_results_and_is_time_bounded(){
     assert_eq!(altrun_probe::isolated_matching::run(program,r"^(ab)\1$",&aliases,false,std::time::Duration::from_secs(3)).unwrap(),vec![Some(0),None]);
     assert!(altrun_probe::isolated_matching::run(program,r"^(ab)\1$",&aliases,false,std::time::Duration::ZERO).is_err());
 }
+
+#[test]
+fn background_state_writer_flushes_and_refuses_external_overwrite(){
+    use altrun_probe::state_store::{TextFile,Writer};let dir=std::env::current_dir().unwrap().join("target/complete-state");std::fs::create_dir_all(&dir).unwrap();let path=dir.join("state.tsv");let _=std::fs::remove_file(&path);
+    let(file,_)=TextFile::open(&path).unwrap();{let writer=Writer::start(file);for n in 0..100{writer.publish(format!("F\titem\t{n}\n"));}}
+    assert_eq!(std::fs::read_to_string(&path).unwrap(),"F\titem\t99\n");let(mut file,_)=TextFile::open(&path).unwrap();std::fs::write(&path,"external").unwrap();assert!(file.save("changed").is_err());assert_eq!(std::fs::read_to_string(path).unwrap(),"external");
+}
+#[test]
+fn search_preferences_keep_literal_and_regex_semantics_separate(){let rows=altrun_probe::parse_entries("np\tN\tn.exe\t0\nxnp\tN\tn.exe\t0\n").unwrap();let index=altrun_probe::SearchIndex::new(&rows);assert_eq!(index.query_options("^n",true,true,true).unwrap(),vec![0]);assert!(index.query_options("^n",false,true,true).unwrap().is_empty());assert_eq!(index.query_options("np",false,false,false).unwrap(),vec![0]);assert!(index.query_options(r"(np)\1",true,true,true).is_err());}

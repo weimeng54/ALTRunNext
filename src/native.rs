@@ -23,10 +23,31 @@ const ID_HIDE: usize = 18001;
 const ID_EXIT: usize = 18002;
 const ID_MANAGE: usize = 18003;
 const ID_RELOAD: usize = 18004;
+const ID_SETTINGS:usize=18005;
+const ID_RECENT:usize=18006;
+const ID_ABOUT:usize=18007;
+const MATCH_DONE:u32=WM_APP+13;
+const AUTO_HIDE:usize=17030;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const STATIC_CENTER: u32 = 0x00000000;
 
 struct State {
+    preferences:altrun_probe::preferences::Preferences,
+    usage:altrun_probe::usage::Usage,
+    usage_writer:altrun_probe::state_store::Writer,
+    settings_sender:std::sync::mpsc::Sender<crate::settings::Change>,
+    settings_updates:std::sync::mpsc::Receiver<crate::settings::Change>,
+    hotkeys:Vec<(i32,Option<altrun_probe::preferences::Hotkey>)>,
+    pending_settings:Option<(u64,altrun_probe::preferences::Preferences,Vec<(i32,Option<altrun_probe::preferences::Hotkey>)>)>,
+    generation:u64,
+    match_sender:std::sync::mpsc::Sender<(u64,String,Vec<String>,bool)>,
+    match_results:std::sync::mpsc::Receiver<(u64,Result<Vec<Option<usize>>,String>)>,
+    current_query:String,
+    matching:bool,
+    last_key:u16,
+    context:altrun_probe::launch::LaunchContext,
+    successful:Option<(String,String,Option<String>)>,
+    history_position:usize,
     entries: Vec<Entry>,
     index: SearchIndex,
     hits: Vec<usize>,
@@ -117,13 +138,24 @@ fn refresh() {
     };
     // Release RefCell before calling native controls, which may synchronously
     // reenter WM_DRAWITEM. Never keep a mutable state borrow across SendMessage.
-    let (hwnd, list, command, dpi, count) = STATE.with(|c| {
+    STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        s.hits = s.index.query(&query);
+        s.generation=s.generation.wrapping_add(1);s.current_query=query.clone();s.matching=false;
+        s.hits=match s.index.query_options(&query,s.preferences.flag("Regex"),s.preferences.flag("MatchAnywhere"),s.preferences.flag("StandardRegex")){
+            Ok(hits)=>hits,
+            Err(e) if e=="advanced"=>{let pattern=if s.preferences.flag("StandardRegex"){query.clone()}else{altrun_probe::matching::prepare_legacy(&query)};let _=s.match_sender.send((s.generation,pattern,s.index.aliases().to_vec(),!s.preferences.flag("MatchAnywhere")));s.matching=true;Vec::new()},
+            Err(_)=>Vec::new()
+        };
+        if s.preferences.flag("RememberFavouratMatch")&&let Some(id)=s.usage.favourites.get(&query)&&let Some(pos)=s.hits.iter().position(|i|&s.entries[*i].id==id){let hit=s.hits.remove(pos);s.hits.insert(0,hit);}
         s.selected = 0;
-        (s.hwnd, s.list, s.command, s.dpi, s.hits.len().min(10))
+
     });
+    render_hits();
+}
+
+fn render_hits(){
+    let (hwnd,list,command,dpi,count)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.hwnd,s.list,s.command,s.dpi,visible_count(s))});
     unsafe {
         SendMessageW(list, WM_SETREDRAW, 0, 0);
         SendMessageW(list, LB_SETCOUNT, count, 0);
@@ -179,7 +211,7 @@ fn move_selection(delta: isize) {
     let (list, selected) = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        s.selected = advance(s.selected, s.hits.len().min(10), delta);
+        s.selected = advance(s.selected, visible_count(s), delta);
         (s.list, s.selected)
     });
     unsafe {
@@ -272,7 +304,7 @@ fn launch_selected() {
         }
         return;
     }
-    if entry.param_type.needs_input(&entry.command) && !parameter_mode {
+    if entry.param_type.needs_input(&entry.command) && !parameter_mode && (altrun_probe::launch::has_parameter(&entry.command)||!["%c","%wd","%wt","%wc"].iter().any(|t|entry.command.contains(t))) {
         let query = edit_text(edit);
         let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
         STATE.with(|c| {
@@ -301,6 +333,10 @@ fn launch_selected() {
     };
     let result_sender = LAUNCH_SENDER.with(|s| s.borrow().as_ref().unwrap().clone());
     let param_type = entry.param_type;
+    let query=if parameter_mode{STATE.with(|c|c.borrow().as_ref().unwrap().saved_query.clone())}else{edit_text(edit)};
+    let mut context=STATE.with(|c|c.borrow().as_ref().unwrap().context.clone());
+    let working_directory=entry.working_directory;
+    STATE.with(|c|c.borrow_mut().as_mut().unwrap().successful=Some((entry.id,query,parameter.clone())));
     let command = entry.command;
     STATE.with(|c| c.borrow_mut().as_mut().unwrap().launching = true);
     unsafe {
@@ -310,9 +346,8 @@ fn launch_selected() {
     // All path checks, environment expansion, COM initialization and shell work
     // happen off the resident UI thread. No implicit cmd.exe is introduced.
     std::thread::spawn(move || {
-        let result =
-            altrun_probe::launch::resolve_typed(&command, parameter.as_deref(), param_type)
-                .and_then(|request| execute_request(&request));
+        if command.contains("%c"){context.clipboard=clipboard_text();}
+        let result =altrun_probe::launch::resolve_context(&command,parameter.as_deref(),param_type,&working_directory,&context).and_then(|(request,mode,directory)|execute_request_with(&request,mode,directory.as_deref()));
         let _ = result_sender.send(result);
         unsafe {
             PostMessageW(owner as HWND, LAUNCH_DONE, 0, 0);
@@ -320,9 +355,13 @@ fn launch_selected() {
     });
 }
 fn execute_request(request: &altrun_probe::launch::LaunchRequest) -> Result<(), String> {
+    execute_request_with(request,altrun_probe::launch::ShowMode::Normal,None)
+}
+fn execute_request_with(request:&altrun_probe::launch::LaunchRequest,mode:altrun_probe::launch::ShowMode,directory:Option<&str>)->Result<(),String>{
     use windows_sys::Win32::System::Com::*;
     let file = wide(&request.file);
     let parameters = wide(&request.parameters);
+    let directory=directory.map(wide);
     unsafe {
         let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
         if hr < 0 {
@@ -336,7 +375,8 @@ fn execute_request(request: &altrun_probe::launch::LaunchRequest) -> Result<(), 
         info.lpVerb = verb.as_ptr();
         info.lpFile = file.as_ptr();
         info.lpParameters = parameters.as_ptr();
-        info.nShow = SW_SHOWNORMAL;
+        info.lpDirectory=directory.as_ref().map_or(std::ptr::null(),|d|d.as_ptr());
+        info.nShow =match mode{altrun_probe::launch::ShowMode::Normal=>SW_SHOWNORMAL,altrun_probe::launch::ShowMode::Maximized=>SW_SHOWMAXIMIZED,altrun_probe::launch::ShowMode::Minimized=>SW_SHOWMINNOACTIVE,altrun_probe::launch::ShowMode::Hidden=>SW_HIDE};
         let ok = ShellExecuteExW(&mut info);
         let error = GetLastError();
         CoUninitialize();
@@ -419,6 +459,9 @@ fn show_menu(hwnd: HWND) {
             wide("管理快捷项\tAlt+S").as_ptr(),
         );
         AppendMenuW(menu, MF_STRING, ID_RELOAD, wide("重新载入快捷项").as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_SETTINGS, wide("设置…").as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_RECENT, wide("最近启动\tCtrl+L").as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_ABOUT, wide("帮助和关于\tF1").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
         AppendMenuW(menu, MF_STRING, ID_HIDE, wide("隐藏").as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
@@ -463,7 +506,16 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     }
     let composing = STATE.with(|c| c.borrow().as_ref().unwrap().composing);
     if msg == WM_KEYDOWN && !composing {
+        let control=unsafe{GetKeyState(VK_CONTROL as i32)}<0;let alt=unsafe{GetKeyState(VK_MENU as i32)}<0;
+        STATE.with(|c|c.borrow_mut().as_mut().unwrap().last_key=w as u16);
+        if control||alt{let digit=match w as u16{0x30..=0x39=>Some(w-0x30),0x60..=0x69=>Some(w-0x60),_=>None};if let Some(digit)=digit{choose_number(digit);return 0;}}
+        if control{match w as u16{0x43=>{selected_action(true);return 0;},0x44=>{selected_action(false);return 0;},0x4c=>{recent();return 0;},VK_UP|VK_DOWN if parameter_history(if w as u16==VK_UP{-1}else{1})=>return 0,_=>{}}}
         match w as u16 {
+            VK_F1=>{about();return 0;}
+            VK_F2|VK_INSERT|VK_DELETE=>{open_manager();return 0;}
+            VK_PRIOR=>{move_selection(-10);return 0;}
+            VK_NEXT=>{move_selection(10);return 0;}
+            0xba|0xde=>{choose_number(if w==0xba{2}else{3});return 0;}
             VK_DOWN => {
                 move_selection(1);
                 return 0;
@@ -502,7 +554,10 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             _ => {}
         }
+        let(delay,parent)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.preferences.number("HideDelay"),s.hwnd)});if delay>0{unsafe{SetTimer(parent,AUTO_HIDE,delay as u32*1000,None);}}
     }
+    if msg==WM_CHAR&&unsafe{GetKeyState(VK_CONTROL as i32)}<0&&matches!(w,3|4|12){return 0;}
+    if msg==WM_CHAR&&matches!(w,59|39)&&!composing{return 0;}
     if msg == WM_CHAR && matches!(w as u16, VK_RETURN | VK_ESCAPE | VK_TAB) && !composing {
         return 0;
     }
@@ -524,6 +579,8 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
         WM_HOTKEY | SHOW => {
+            capture_context();
+            if msg==WM_HOTKEY&&STATE.with(|c|c.borrow().as_ref().unwrap().hotkeys.get(2).is_some_and(|h|h.0==w as i32)){recent();}
             let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
             unsafe {
                 if msg == WM_HOTKEY && IsWindowVisible(hwnd) != 0 {
@@ -557,12 +614,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             match result {
                 Some(Err(message)) => show_inline_error(&message),
                 Some(Ok(())) => {
+                    STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if let Some((id,query,param))=s.successful.take(){s.usage.record(&id,&query,param.as_deref(),s.preferences.number("ParamHistoryLimit") as usize);s.usage_writer.publish(s.usage.text());rebuild_index(s);}});
                     cancel_parameter();
+                    if STATE.with(|c|c.borrow().as_ref().unwrap().preferences.flag("ExitWhenExecute")){unsafe{PostMessageW(hwnd,QUIT,0,0);}}
                 }
                 None => {}
             }
             0
         }
+        crate::settings::UPDATED=>{apply_settings_messages();0}
+        MATCH_DONE=>{let result=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let mut latest=None;while let Ok((generation,result))=s.match_results.try_recv(){if generation==s.generation{latest=Some(result);}}if let Some(result)=latest{s.matching=false;s.hits=result.as_ref().map(|p|s.index.rank_positions(p,&s.current_query)).unwrap_or_default();s.selected=0;Some(result.err())}else{None}});if let Some(error)=result{render_hits();if let Some(error)=error{show_inline_error(&error);}}0}
+        WM_TIMER if w==AUTO_HIDE=>{unsafe{KillTimer(hwnd,AUTO_HIDE);ShowWindow(hwnd,SW_HIDE);}0}
+        WM_ACTIVATE if w&65535==WA_INACTIVE as usize=>{if STATE.with(|c|c.borrow().as_ref().is_some_and(|s|s.preferences.number("HideDelay")>0)){unsafe{ShowWindow(hwnd,SW_HIDE);}}0}
+        WM_MOUSEWHEEL=>{move_selection(if ((w>>16)as i16)>0{-1}else{1});0}
+        WM_MBUTTONUP=>{launch_selected();0}
         WM_PAINT => {
             paint_panel(hwnd);
             0
@@ -574,8 +639,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 STATE.with(|c| {
                     let mut state = c.borrow_mut();
                     let s = state.as_mut().unwrap();
-                    s.index = SearchIndex::new(&entries);
                     s.entries = entries;
+                    rebuild_index(s);
                     s.selected = 0;
                 });
                 refresh();
@@ -587,6 +652,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 open_manager();
                 return 0;
             }
+            if w&0xffff==ID_SETTINGS{open_settings();return 0;}
+            if w&0xffff==ID_RECENT{recent();return 0;}
+            if w&0xffff==ID_ABOUT{about();return 0;}
             if w & 0xffff == ID_RELOAD {
                 reload_library();
                 return 0;
@@ -611,7 +679,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 return 0;
             }
             if id == ID_EDIT && code == EN_CHANGE as usize {
+                let(previous,key,query,number,composing)=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let key=std::mem::take(&mut s.last_key);(s.hits.clone(),key,edit_text(s.edit),s.preferences.flag("NumberKey"),s.composing)});
                 refresh();
+                let none=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.hits.is_empty()&&!s.matching&&s.parameter_entry.is_none()});
+                if none&&!composing&&!previous.is_empty(){let digit=match key{0x30..=0x39=>Some((key-0x30)as usize),0x60..=0x69=>Some((key-0x60)as usize),_=>None};if (number&&digit.is_some())||key==VK_SPACE{STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.hits=previous;});if let Some(digit)=digit{choose_number(digit);}else{launch_selected();}}}
+                let unique=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.enabled&&s.preferences.flag("ExecuteIfOnlyOne")&&s.hits.len()==1&&!s.matching&&s.parameter_entry.is_none()});if unique&&!composing&&key!=0&&!query.is_empty(){launch_selected();}
             }
             if id == ID_LIST && code == LBN_SELCHANGE as usize {
                 let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
@@ -747,7 +819,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         QUIT => {
-            if crate::manager::is_open() {
+            if crate::manager::is_open()||crate::settings::is_open() {
                 crate::manager::focus();
                 unsafe {
                     MessageBoxW(
@@ -767,7 +839,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         WM_DESTROY => {
             tray_icon(hwnd, NIM_DELETE);
             unsafe {
-                UnregisterHotKey(hwnd, HOTKEY);
+                STATE.with(|c|{if let Some(s)=c.borrow().as_ref(){for(id,_)in &s.hotkeys{UnregisterHotKey(hwnd,*id);}}});
                 PostQuitMessage(0);
             }
             0
@@ -794,6 +866,15 @@ pub fn run() -> Result<(), String> {
         )?
     };
     let index = SearchIndex::new(&entries);
+    let(settings_file,settings_text)=altrun_probe::state_store::TextFile::open(&data_path.with_extension("settings.ini"))?;
+    drop(settings_file);
+    let preferences=altrun_probe::preferences::Preferences::parse(&settings_text)?;
+    let(state_file,state_text)=altrun_probe::state_store::TextFile::open(&data_path.with_extension("state.tsv"))?;
+    let usage=altrun_probe::usage::Usage::parse(&state_text)?;
+    let usage_writer=altrun_probe::state_store::Writer::start(state_file);
+    let(settings_sender,settings_updates)=std::sync::mpsc::channel();
+    let(match_sender,match_tasks)=std::sync::mpsc::channel::<(u64,String,Vec<String>,bool)>();
+    let(match_sender_result,match_results)=std::sync::mpsc::channel();
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance = GetModuleHandleW(std::ptr::null());
@@ -926,6 +1007,7 @@ pub fn run() -> Result<(), String> {
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
+                preferences,usage,usage_writer,settings_sender,settings_updates,hotkeys:Vec::new(),pending_settings:None,generation:0,match_sender,match_results,current_query:String::new(),matching:false,last_key:0,context:altrun_probe::launch::LaunchContext{base_directory:std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned(),..Default::default()},successful:None,history_position:0,
                 entries,
                 index,
                 hits: Vec::new(),
@@ -960,20 +1042,16 @@ pub fn run() -> Result<(), String> {
                 library_updates,
             })
         });
+        let owner=hwnd as usize;
+        std::thread::spawn(move||{while let Ok(mut task)=match_tasks.recv(){while let Ok(newer)=match_tasks.try_recv(){task=newer;}let(generation,pattern,aliases,prefix)=task;let result=std::env::current_exe().map_err(|e|e.to_string()).and_then(|exe|altrun_probe::isolated_matching::run(&exe,&pattern,&aliases,prefix,std::time::Duration::from_millis(100)));if match_sender_result.send((generation,result)).is_err(){break;}PostMessageW(owner as HWND,MATCH_DONE,0,0);}});
+        STATE.with(|c|rebuild_index(c.borrow_mut().as_mut().unwrap()));
         refresh();
-        tray_icon(hwnd, NIM_ADD);
+        if STATE.with(|c|c.borrow().as_ref().unwrap().preferences.flag("ShowTrayIcon")){tray_icon(hwnd, NIM_ADD);}
         // Deliberately separate from the original's Alt+R / Pause binding.
-        if RegisterHotKey(
-            hwnd,
-            HOTKEY,
-            MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
-            b'R' as u32,
-        ) == 0
-        {
-            DestroyWindow(hwnd);
-            return Err("Ctrl+Alt+R is in use; original hotkeys were not changed.".into());
-        }
-        if args.iter().any(|a| a == "--show") {
+        let prefs=STATE.with(|c|c.borrow().as_ref().unwrap().preferences.clone());
+        match register_bindings(hwnd,&prefs,&[]){Ok(keys)=>STATE.with(|c|c.borrow_mut().as_mut().unwrap().hotkeys=keys),Err(error)=>{DestroyWindow(hwnd);return Err(error);}}
+        apply_appearance();
+        if args.iter().any(|a| a == "--show")||STATE.with(|c|c.borrow().as_ref().unwrap().preferences.flag("ShowMeWhenStart")) {
             SendMessageW(hwnd, SHOW, 0, 0);
         }
         let accelerator = ACCEL {
@@ -1026,6 +1104,7 @@ fn open_manager() {
         )
     });
     crate::manager::open(path, entries, hwnd, sender);
+    unsafe{ShowWindow(hwnd,SW_HIDE);}
 }
 fn reload_library() {
     let (path, sender, hwnd) = STATE.with(|c| {
@@ -1048,3 +1127,53 @@ fn reload_library() {
         Err(error) => show_error(&error),
     });
 }
+
+fn visible_count(s:&State)->usize{if s.preferences.flag("ShowTopTen"){s.hits.len().min(10)}else{s.hits.len()}}
+fn rebuild_index(s:&mut State){let mut rows=s.entries.clone();for entry in &mut rows{entry.frequency=entry.frequency.saturating_add(s.usage.counts.get(&entry.id).copied().unwrap_or(0).min(i64::MAX as u64) as i64);}s.index=SearchIndex::new(&rows);}
+fn clipboard_text()->Option<String>{
+    use windows_sys::Win32::System::{DataExchange::*,Memory::*};
+    unsafe{if OpenClipboard(null_mut())==0{return None;}let handle=GetClipboardData(13);let result=if handle.is_null(){None}else{let pointer=GlobalLock(handle) as *const u16;if pointer.is_null(){None}else{let length=GlobalSize(handle)/2;let slice=std::slice::from_raw_parts(pointer,length.min(1024*1024));let result=String::from_utf16(slice.split(|v|*v==0).next().unwrap_or_default()).ok();GlobalUnlock(handle);result}};CloseClipboard();result}
+}
+fn copy_text(value:&str)->Result<(),String>{
+    use windows_sys::Win32::System::{DataExchange::*,Memory::*};let bytes=wide(value);
+    unsafe{let handle=GlobalAlloc(GMEM_MOVEABLE,bytes.len()*2);if handle.is_null(){return Err("无法分配剪贴板内存".into());}let pointer=GlobalLock(handle) as *mut u16;if pointer.is_null(){GlobalFree(handle);return Err("无法访问剪贴板内存".into());}std::ptr::copy_nonoverlapping(bytes.as_ptr(),pointer,bytes.len());GlobalUnlock(handle);if OpenClipboard(null_mut())==0{GlobalFree(handle);return Err("剪贴板正被其他程序使用".into());}EmptyClipboard();let success=!SetClipboardData(13,handle).is_null();CloseClipboard();if !success{GlobalFree(handle);return Err("写入剪贴板失败".into());}}Ok(())
+}
+fn capture_context(){unsafe{let foreground=GetForegroundWindow();if foreground.is_null(){return;}let own=STATE.with(|c|c.borrow().as_ref().unwrap().hwnd);if foreground==own{return;}let title=edit_text(foreground);let mut class=[0u16;256];let n=GetClassNameW(foreground,class.as_mut_ptr(),class.len() as i32);STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.context.window_id=foreground as usize;s.context.window_title=title;s.context.window_class=String::from_utf16_lossy(&class[..n.max(0) as usize]);s.context.allow_dynamic_target=s.preferences.flag("AllowDynamicTarget");let dir=s.preferences.get("WorkingDirectory");if !dir.is_empty(){s.context.base_directory=dir;}});}}
+fn recent(){cancel_parameter();STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();s.generation=s.generation.wrapping_add(1);s.matching=false;s.hits=s.usage.recent.iter().filter_map(|id|s.entries.iter().position(|e|&e.id==id&&e.enabled&&e.kind==altrun_probe::library::EntryKind::Command)).collect();s.selected=0;});render_hits();}
+fn about(){unsafe{MessageBoxW(null_mut(),wide("ALTRun Modern 0.1\n原生 Windows 快速启动器\n\nCtrl+Alt+R：呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),wide("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);}}
+fn open_settings(){let(path,prefs,hwnd,sender)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.data_path.with_extension("settings.ini"),s.preferences.clone(),s.hwnd,s.settings_sender.clone())});crate::settings::open(path,prefs,hwnd,sender);unsafe{ShowWindow(hwnd,SW_HIDE);}}
+type Bindings=Vec<(i32,Option<altrun_probe::preferences::Hotkey>)>;
+fn register_bindings(hwnd:HWND,prefs:&altrun_probe::preferences::Preferences,old:&Bindings)->Result<Bindings,String>{
+    let mut next=Vec::new();let mut added=Vec::new();
+    for(i,key)in ["HotKey1","HotKey2","LastItemHotKey"].iter().enumerate(){let value=altrun_probe::preferences::parse_hotkey(&prefs.get(key))?;
+        if let Some(existing)=old.get(i)&&existing.1==value{next.push(*existing);continue;}
+        let id=if old.get(i).is_some_and(|v|v.0==HOTKEY+i as i32){HOTKEY+10+i as i32}else{HOTKEY+i as i32};
+        if let Some(value)=value{if unsafe{RegisterHotKey(hwnd,id,value.modifiers|MOD_NOREPEAT,value.key)}==0{for id in added{unsafe{UnregisterHotKey(hwnd,id);}}return Err(format!("快捷键 {} 已被占用，原快捷键保持可用",prefs.get(key)));}added.push(id);}
+        next.push((id,value));
+    }Ok(next)
+}
+fn apply_settings_messages(){
+    loop{let change=STATE.with(|c|c.borrow().as_ref().unwrap().settings_updates.try_recv().ok());let Some(change)=change else{break;};
+        match change{
+            crate::settings::Change::Prepare(token,prefs,reply)=>{let(hwnd,old,pending)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.hwnd,s.hotkeys.clone(),s.pending_settings.is_some())});if pending{let _=reply.send(Err("另一次设置修改尚未完成".into()));continue;}match register_bindings(hwnd,&prefs,&old){Ok(keys)=>{STATE.with(|c|c.borrow_mut().as_mut().unwrap().pending_settings=Some((token,prefs,keys)));let _=reply.send(Ok(()));},Err(e)=>{let _=reply.send(Err(e));}}},
+            crate::settings::Change::Commit(token)=>{let accepted=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if !s.pending_settings.as_ref().is_some_and(|p|p.0==token){return false;}let(_,prefs,keys)=s.pending_settings.take().unwrap();for(id,value)in &s.hotkeys{if value.is_some()&&!keys.iter().any(|v|v.0==*id){unsafe{UnregisterHotKey(s.hwnd,*id);}}}s.preferences=prefs;s.hotkeys=keys;true});if accepted{apply_appearance();refresh();}},
+            crate::settings::Change::Cancel(token)=>{STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if s.pending_settings.as_ref().is_some_and(|p|p.0==token){let(_,_,keys)=s.pending_settings.take().unwrap();for(id,value)in keys{if value.is_some()&&!s.hotkeys.iter().any(|v|v.0==id){unsafe{UnregisterHotKey(s.hwnd,id);}}}}});}
+        }
+    }
+}
+fn apply_appearance(){
+    let(hwnd,edit,list,title,command,prefs,dpi)=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();(s.hwnd,s.edit,s.list,s.title,s.command,s.preferences.clone(),s.dpi)});
+    unsafe{
+        let definitions=[("ListFont",list),("TitleFont",title),("KeywordFont",edit)];let mut fonts=Vec::new();
+        for(key,control)in definitions{if let Ok(f)=altrun_probe::preferences::Font::parse(&prefs.get(key)){let font=CreateFontW(-f.points*dpi/72,0,0,0,f.weight,u32::from(f.italic),u32::from(f.underline),0,DEFAULT_CHARSET as u32,0,0,CLEARTYPE_QUALITY as u32,0,wide(&f.name).as_ptr());if !font.is_null(){SendMessageW(control,WM_SETFONT,font as usize,1);fonts.push((key,font));}}}
+        STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();for(key,font)in fonts{let slot=match key{"ListFont"=>&mut s.font,"TitleFont"=>&mut s.title_font,_=>&mut s.input_font};let old=std::mem::replace(slot,font);DeleteObject(old);}});
+        let alpha=prefs.number("Alpha").clamp(40,255) as u8;let style=GetWindowLongW(hwnd,GWL_EXSTYLE) as u32;SetWindowLongW(hwnd,GWL_EXSTYLE,(style|WS_EX_LAYERED) as i32);SetLayeredWindowAttributes(hwnd,0,alpha,LWA_ALPHA);
+        ShowWindow(command,if prefs.flag("ShowCommandLine"){SW_SHOWNOACTIVATE}else{SW_HIDE});
+        tray_icon(hwnd,if prefs.flag("ShowTrayIcon"){NIM_ADD}else{NIM_DELETE});
+        SendMessageW(list,LB_SETITEMHEIGHT,0,scaled(prefs.number("RowHeight"),dpi) as isize);
+    }
+}
+fn choose_number(digit:usize){let chosen=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();if s.parameter_entry.is_some()||s.matching{return false;}let index=if s.preferences.flag("IndexFrom0to9"){digit}else{(digit+9)%10};if index<visible_count(s){s.selected=index;true}else{false}});if chosen{launch_selected();}}
+fn parameter_history(delta:isize)->bool{let value=STATE.with(|c|{let mut s=c.borrow_mut();let s=s.as_mut().unwrap();let index=s.parameter_entry?;let history=s.usage.parameters.get(&s.entries[index].id).or_else(||s.usage.parameters.get("*"))?;if history.is_empty(){return None;}s.history_position=advance(s.history_position,history.len(),delta);Some((s.edit,history[s.history_position].clone()))});if let Some((edit,value))=value{unsafe{SetWindowTextW(edit,wide(&value).as_ptr());SendMessageW(edit,EM_SETSEL,0,-1);}true}else{false}}
+fn selected_action(copy:bool){let entry=STATE.with(|c|{let s=c.borrow();let s=s.as_ref().unwrap();s.hits.get(s.selected).map(|i|s.entries[*i].clone())});if let Some(entry)=entry{if copy{if let Err(e)=copy_text(&entry.command){show_inline_error(&e);}}else{std::thread::spawn(move||{let context=altrun_probe::launch::LaunchContext::default();match altrun_probe::launch::resolve_context(&entry.command,None,entry.param_type,&entry.working_directory,&context){Ok((request,_,_))=>{if let Some(parent)=std::path::Path::new(&request.file).parent().filter(|p|!p.as_os_str().is_empty()){let _=execute_request(&altrun_probe::launch::LaunchRequest{file:parent.to_string_lossy().into_owned(),parameters:String::new()});}},Err(e)=>crate::native::show_error(&e)}});}}}
+
