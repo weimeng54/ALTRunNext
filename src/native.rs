@@ -31,6 +31,8 @@ const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
 const STATE_ERROR: u32 = WM_APP + 17;
+const SEARCH_IME_UPDATE: u32 = WM_APP + 18;
+const TITLE_STRIP: i32 = 29;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const STATIC_CENTER: u32 = 0x00000000;
 type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
@@ -103,6 +105,7 @@ struct State {
     dpi: i32,
     allow_launch: bool,
     composing: bool,
+    moving: bool,
     data_path: std::path::PathBuf,
     library_sender: altrun_probe::library_updates::LibraryWriter,
     library_updates: altrun_probe::library_updates::LibraryMailbox,
@@ -456,6 +459,32 @@ fn search_hint(show_operations: bool) -> Vec<u16> {
     }
 }
 
+fn update_search_ime(allow_direct: bool) {
+    let target = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref()?;
+        Some((
+            s.hwnd,
+            s.edit,
+            allow_direct && s.parameter_entry.is_none() && s.preferences.flag("EnglishSearch"),
+        ))
+    });
+    let Some((hwnd, edit, direct)) = target else {
+        return;
+    };
+    unsafe {
+        if InSendMessageEx(std::ptr::null()) != ISMEX_NOSEND {
+            // Defer across cross-thread sends so IMM cannot reenter another IME call.
+            PostMessageW(hwnd, SEARCH_IME_UPDATE, 0, 0);
+            return;
+        }
+        crate::search_ime::set_direct(
+            edit,
+            direct && GetFocus() == edit && GetActiveWindow() == hwnd && IsWindowVisible(hwnd) != 0,
+        );
+    }
+}
+
 fn reset_search() {
     let (edit, list, was_parameter, show_operations, needs_refresh) = STATE.with(|c| {
         let mut state = c.borrow_mut();
@@ -494,6 +523,9 @@ fn reset_search() {
             refresh();
         }
     }
+    if was_parameter {
+        update_search_ime(true);
+    }
 }
 
 fn cancel_parameter() -> bool {
@@ -521,6 +553,7 @@ fn cancel_parameter() -> bool {
             );
         }
         refresh();
+        update_search_ime(true);
         true
     } else {
         false
@@ -595,6 +628,7 @@ fn launch_selected() {
             s.parameter_entry = Some(index);
             s.history_position = usize::MAX;
         });
+        update_search_ime(false);
         unsafe {
             EnableWindow(list, 0);
             SetWindowTextW(title, wide(&format!("{} · 输入参数", entry.name)).as_ptr());
@@ -1051,7 +1085,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return 0;
     }
     let old = STATE.with(|c| c.borrow().as_ref().unwrap().old_edit);
-    unsafe {
+    let result = unsafe {
         CallWindowProcW(
             Some(std::mem::transmute::<
                 isize,
@@ -1062,7 +1096,11 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             w,
             l,
         )
+    };
+    if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS) {
+        update_search_ime(msg == WM_SETFOCUS);
     }
+    result
 }
 
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -1074,7 +1112,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     open_manager();
                 } else {
                     unsafe {
-                        SendMessageW(hwnd, SHOW, 0, 0);
+                        PostMessageW(hwnd, SHOW, 0, 0);
                     }
                 }
                 1
@@ -1122,7 +1160,16 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None);
                 }
             }
+            update_search_ime(true);
             0
+        }
+        SEARCH_IME_UPDATE => {
+            update_search_ime(true);
+            0
+        }
+        WM_SHOWWINDOW if w == 0 => {
+            update_search_ime(false);
+            unsafe { DefWindowProcW(hwnd, msg, w, l) }
         }
         WM_CONTEXTMENU => {
             show_menu(hwnd, false);
@@ -1247,32 +1294,58 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         }
         WM_DPICHANGED => {
             STATE.with(|c| c.borrow_mut().as_mut().unwrap().dpi = (w & 65535) as i32);
+            if l != 0 {
+                let suggested = unsafe { &*(l as *const RECT) };
+                unsafe {
+                    SetWindowPos(
+                        hwnd,
+                        null_mut(),
+                        suggested.left,
+                        suggested.top,
+                        0,
+                        0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+            }
             apply_appearance();
             render_hits();
-            position_panel();
             0
         }
         WM_NCHITTEST => {
             let result = unsafe { DefWindowProcW(hwnd, msg, w, l) };
-            let point_y = (l >> 16) as i16 as i32;
-            let mut rect: RECT = unsafe { zeroed() };
-            unsafe {
-                GetWindowRect(hwnd, &mut rect);
+            if result != HTCLIENT as isize {
+                return result;
             }
-            if result == HTCLIENT as isize && point_y - rect.top < 26 {
+            let dpi = STATE.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
+            let mut point = POINT {
+                x: l as i16 as i32,
+                y: (l >> 16) as i16 as i32,
+            };
+            if unsafe { ScreenToClient(hwnd, &mut point) } != 0
+                && (0..scaled(TITLE_STRIP, dpi)).contains(&point.y)
+            {
                 HTCAPTION as isize
             } else {
                 result
             }
+        }
+        WM_ENTERSIZEMOVE => {
+            STATE.with(|c| c.borrow_mut().as_mut().unwrap().moving = true);
+            unsafe {
+                KillTimer(hwnd, AUTO_HIDE);
+            }
+            0
         }
         WM_EXITSIZEMOVE => {
             let mut rect: RECT = unsafe { zeroed() };
             unsafe {
                 GetWindowRect(hwnd, &mut rect);
             }
-            STATE.with(|c| {
+            let delay = STATE.with(|c| {
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
+                s.moving = false;
                 s.usage.positions.insert(
                     "launcher".into(),
                     (
@@ -1283,7 +1356,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     ),
                 );
                 s.usage_writer.publish(s.usage.text());
+                s.preferences.number("HideDelay")
             });
+            if delay > 0 && unsafe { IsWindowVisible(hwnd) != 0 } {
+                unsafe {
+                    SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None);
+                }
+            }
             0
         }
         MATCH_DONE => {
@@ -1332,15 +1411,18 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         WM_TIMER if w == AUTO_HIDE => {
             unsafe {
                 KillTimer(hwnd, AUTO_HIDE);
-                ShowWindow(hwnd, SW_HIDE);
+                if !STATE.with(|c| c.borrow().as_ref().unwrap().moving) {
+                    ShowWindow(hwnd, SW_HIDE);
+                }
             }
             0
         }
         WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
+            update_search_ime(false);
             if STATE.with(|c| {
                 c.borrow()
                     .as_ref()
-                    .is_some_and(|s| s.preferences.number("HideDelay") > 0)
+                    .is_some_and(|s| !s.moving && s.preferences.number("HideDelay") > 0)
             }) {
                 unsafe {
                     ShowWindow(hwnd, SW_HIDE);
@@ -1714,6 +1796,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         WM_DESTROY => {
+            update_search_ime(false);
             tray_icon(hwnd, NIM_DELETE);
             unsafe {
                 STATE.with(|c| {
@@ -2027,6 +2110,7 @@ pub fn run() -> Result<(), String> {
                 dpi,
                 allow_launch: args.iter().any(|a| a == "--allow-safe-notepad"),
                 composing: false,
+                moving: false,
                 data_path,
                 library_sender,
                 library_updates,
@@ -2502,6 +2586,7 @@ fn apply_settings_messages() {
                 if accepted {
                     apply_appearance();
                     refresh();
+                    update_search_ime(true);
                 }
             }
             crate::settings::Change::Cancel(token) => {

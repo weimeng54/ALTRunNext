@@ -11,6 +11,8 @@ mod manager;
 #[cfg(windows)]
 mod native;
 #[cfg(windows)]
+mod search_ime;
+#[cfg(windows)]
 mod settings;
 #[cfg(windows)]
 mod settings_pickers;

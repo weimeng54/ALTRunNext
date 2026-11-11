@@ -95,6 +95,7 @@ UTF-8 URL 编码=UTF-8 URL encoding
 添加 ALTRun 到“发送到”菜单=Add ALTRun to the Send to menu
 使用正则匹配=Regular expression matching
 允许中间和模糊匹配=Allow substring and fuzzy matches
+搜索框默认使用英文输入=Use direct English input in the search box
 数字快捷执行=Number key launching
 编号从 0 开始=Zero-based numbering
 记住查询的上次选择=Remember last choice for each query

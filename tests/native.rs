@@ -20,6 +20,18 @@ impl Drop for Running {
     }
 }
 
+fn hit_test_near_bottom(hwnd: windows_sys::Win32::Foundation::HWND, child: i32) -> isize {
+    use windows_sys::Win32::Foundation::RECT;
+    unsafe {
+        let mut bounds: RECT = std::mem::zeroed();
+        assert_ne!(GetWindowRect(GetDlgItem(hwnd, child), &mut bounds), 0);
+        let x = (bounds.left + bounds.right) / 2;
+        let y = bounds.bottom - 2;
+        let point = ((y as u16 as u32) << 16) | x as u16 as u32;
+        SendMessageW(hwnd, WM_NCHITTEST, 0, point as isize)
+    }
+}
+
 #[test]
 fn safe_notepad_uses_an_absolute_system_path() {
     let path = altrun_probe::safe_notepad_path().unwrap();
@@ -97,6 +109,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 0
             );
             assert!(!edit.is_null() && !list.is_null());
+            assert_eq!(hit_test_near_bottom(hwnd, 1000), HTCAPTION as isize);
+            assert_eq!(hit_test_near_bottom(hwnd, 1001), HTCLIENT as isize);
+            SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+            SendMessageW(hwnd, WM_TIMER, 17030, 0);
+            assert_ne!(IsWindowVisible(hwnd), 0, "drag must defer auto-hide");
+            SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
             assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
             SendMessageW(edit, WM_SETTEXT, 0, wide("*").as_ptr() as isize);

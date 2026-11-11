@@ -70,6 +70,7 @@ const PAGES: &[Page] = &[
         keys: &[
             "Regex",
             "MatchAnywhere",
+            "EnglishSearch",
             "RememberFavouratMatch",
             "NumberKey",
             "IndexFrom0to9",
