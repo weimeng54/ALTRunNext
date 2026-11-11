@@ -54,6 +54,7 @@ mod native_snapshot;
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
+#[track_caller]
 fn wait(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
@@ -164,7 +165,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     let mut launcher = null_mut();
     wait(|| {
         launcher = window("ALTRun.Native.PerformanceProbe", pid);
-        !launcher.is_null() && unsafe { !GetDlgItem(launcher, 1001).is_null() }
+        !launcher.is_null() && unsafe { IsWindowVisible(launcher) != 0 }
     });
     unsafe {
         let edit = GetDlgItem(launcher, 1001);

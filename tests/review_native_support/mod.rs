@@ -18,6 +18,7 @@ impl Drop for Running {
         let _ = self.0.wait();
     }
 }
+#[track_caller]
 pub fn wait(mut condition: impl FnMut() -> bool) {
     let end = Instant::now() + Duration::from_secs(10);
     while !condition() {
@@ -54,7 +55,7 @@ pub fn start(data: &Path, mode: Option<&str>) -> (Running, HWND) {
     let mut root = null_mut();
     wait(|| {
         root = window("ALTRun.Native.PerformanceProbe", process.0.id());
-        !root.is_null() && unsafe { !GetDlgItem(root, 1001).is_null() }
+        !root.is_null() && unsafe { IsWindowVisible(root) != 0 }
     });
     (process, root)
 }

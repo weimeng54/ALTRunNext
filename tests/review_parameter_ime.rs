@@ -30,7 +30,7 @@ fn manager_parameter_dialog_does_not_submit_an_ime_candidate_commit() {
     let mut dialog = std::ptr::null_mut();
     wait(|| {
         dialog = window("ALTRun.Native.ParameterDialog", process.0.id());
-        !dialog.is_null() && unsafe { !GetDlgItem(dialog, 10).is_null() }
+        !dialog.is_null() && unsafe { IsWindowVisible(dialog) != 0 }
     });
     unsafe {
         let edit = GetDlgItem(dialog, 10);
