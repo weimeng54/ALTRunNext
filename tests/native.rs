@@ -81,7 +81,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 let list = unsafe { GetDlgItem(hwnd, 1002) };
                 if !edit.is_null()
                     && !list.is_null()
-                    && unsafe { SendMessageW(list, LB_GETCOUNT, 0, 0) } >= 2
+                    && unsafe { IsWindowVisible(hwnd) } != 0
                 {
                     break (hwnd, edit, list);
                 }
@@ -97,6 +97,9 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 0
             );
             assert!(!edit.is_null() && !list.is_null());
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("*").as_ptr() as isize);
+            assert!(SendMessageW(list, LB_GETCOUNT, 0, 0) >= 2);
             let row_height = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) as u32;
             let click = (((row_height + row_height / 2) << 16) | 5) as isize;
             SendMessageW(list, WM_LBUTTONDOWN, 1, click);
@@ -147,6 +150,21 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             let mut restored = [0_u16; 32];
             SendMessageW(edit, WM_GETTEXT, 32, restored.as_mut_ptr() as isize);
             assert_eq!(String::from_utf16_lossy(&restored[..1]), "a");
+            SendMessageW(edit, WM_KEYDOWN, 13, 0);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("unfinished").as_ptr() as isize);
+            assert_eq!(IsWindowEnabled(list), 0);
+            SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
+            assert_eq!(IsWindowVisible(hwnd), 0);
+            SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
+            assert_ne!(IsWindowVisible(hwnd), 0);
+            assert_ne!(IsWindowEnabled(list), 0);
+            assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+            assert_eq!(
+                SendMessageW(GetDlgItem(hwnd, 1003), WM_GETTEXTLENGTH, 0, 0),
+                0
+            );
+            assert_eq!(IsWindowVisible(GetDlgItem(hwnd, 1004)), 0);
             SendMessageW(edit, WM_SETTEXT, 0, wide("np").as_ptr() as isize);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             let failure_deadline = Instant::now() + Duration::from_secs(8);

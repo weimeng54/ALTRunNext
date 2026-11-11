@@ -93,7 +93,7 @@ struct State {
     parameter_entry: Option<usize>,
     saved_query: String,
     error: bool,
-    launching: bool,
+    launching: Option<u64>,
     launch_results: std::sync::mpsc::Receiver<Result<(), String>>,
     background: HBRUSH,
     selected_brush: HBRUSH,
@@ -138,7 +138,7 @@ fn selected_text() -> (HWND, HWND, Vec<u16>, Vec<u16>) {
         (
             s.title,
             s.command,
-            wide(e.map(|e| e.name.as_str()).unwrap_or("没有匹配项")),
+            wide(e.map(|e| e.name.as_str()).unwrap_or("ALTRun")),
             wide(&e.map(|e| format!("CMD  {}", e.command)).unwrap_or_default()),
         )
     })
@@ -175,30 +175,34 @@ fn refresh() {
             .store(s.generation, std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
         s.matching = false;
-        s.hits = match s.index.query_options(
-            &query,
-            s.preferences.flag("Regex"),
-            s.preferences.flag("MatchAnywhere"),
-            s.preferences.flag("StandardRegex"),
-        ) {
-            Ok(hits) => hits,
-            Err(e) if e == "advanced" => {
-                let pattern = if s.preferences.flag("StandardRegex") {
-                    query.clone()
-                } else {
-                    altrun_probe::matching::prepare_legacy(&query)
-                };
-                let _ = s.match_sender.send((
-                    s.generation,
-                    pattern,
-                    s.index.aliases().to_vec(),
-                    !s.preferences.flag("MatchAnywhere"),
-                ));
-                s.matching = true;
-                Vec::new()
-            }
-            Err(_) => Vec::new(),
-        };
+        if query.is_empty() {
+            s.hits.clear();
+        } else {
+            s.hits = match s.index.query_options(
+                &query,
+                s.preferences.flag("Regex"),
+                s.preferences.flag("MatchAnywhere"),
+                s.preferences.flag("StandardRegex"),
+            ) {
+                Ok(hits) => hits,
+                Err(e) if e == "advanced" => {
+                    let pattern = if s.preferences.flag("StandardRegex") {
+                        query.clone()
+                    } else {
+                        altrun_probe::matching::prepare_legacy(&query)
+                    };
+                    let _ = s.match_sender.send((
+                        s.generation,
+                        pattern,
+                        s.index.aliases().to_vec(),
+                        !s.preferences.flag("MatchAnywhere"),
+                    ));
+                    s.matching = true;
+                    Vec::new()
+                }
+                Err(_) => Vec::new(),
+            };
+        }
         promote_preference(s);
         s.selected = 0;
     });
@@ -380,10 +384,14 @@ fn render_hits() {
         }
         SendMessageW(list, WM_SETREDRAW, 1, 0);
         InvalidateRect(list, std::ptr::null(), 0);
-        let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
+        let (empty, has_query) = STATE.with(|c| {
+            let state = c.borrow();
+            let s = state.as_ref().unwrap();
+            (s.empty, !s.current_query.is_empty())
+        });
         ShowWindow(
             empty,
-            if count == 0 {
+            if count == 0 && has_query {
                 SW_SHOWNOACTIVATE
             } else {
                 SW_HIDE
@@ -434,15 +442,70 @@ fn show_inline_error(message: &str) {
         SetFocus(edit);
     }
 }
+fn search_hint(show_operations: bool) -> Vec<u16> {
+    if show_operations {
+        ui("输入快捷字 · Enter 启动，Esc 隐藏")
+    } else {
+        ui("输入快捷字")
+    }
+}
+
+fn reset_search() {
+    let (edit, list, was_parameter, show_operations, needs_refresh) = STATE.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        let was_parameter = s.parameter_entry.take().is_some();
+        s.saved_query.clear();
+        s.history_position = usize::MAX;
+        s.last_key = 0;
+        s.composing = false;
+        (
+            s.edit,
+            s.list,
+            was_parameter,
+            s.preferences.flag("ShowOperationHint"),
+            was_parameter
+                || !s.current_query.is_empty()
+                || !s.hits.is_empty()
+                || s.matching
+                || s.error,
+        )
+    });
+    unsafe {
+        if was_parameter {
+            EnableWindow(list, 1);
+            SendMessageW(
+                edit,
+                EM_SETCUEBANNER,
+                0,
+                search_hint(show_operations).as_ptr() as LPARAM,
+            );
+        }
+        if GetWindowTextLengthW(edit) != 0 {
+            // The single-line edit sends EN_CHANGE synchronously.
+            SetWindowTextW(edit, [0_u16].as_ptr());
+        } else if needs_refresh {
+            refresh();
+        }
+    }
+}
+
 fn cancel_parameter() -> bool {
     let restore = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.parameter_entry
             .take()
-            .map(|_| (s.edit, s.list, s.saved_query.clone()))
+            .map(|_| {
+                (
+                    s.edit,
+                    s.list,
+                    std::mem::take(&mut s.saved_query),
+                    s.preferences.flag("ShowOperationHint"),
+                )
+            })
     });
-    if let Some((edit, list, query)) = restore {
+    if let Some((edit, list, query, show_operations)) = restore {
         unsafe {
             EnableWindow(list, 1);
             SetWindowTextW(edit, wide(&query).as_ptr());
@@ -450,7 +513,7 @@ fn cancel_parameter() -> bool {
                 edit,
                 EM_SETCUEBANNER,
                 0,
-                ui("输入快捷字").as_ptr() as LPARAM,
+                search_hint(show_operations).as_ptr() as LPARAM,
             );
         }
         refresh();
@@ -466,7 +529,7 @@ fn launch_selected() {
         (
             s.enabled,
             s.allow_launch,
-            s.launching,
+            s.launching.is_some(),
             s.parameter_entry
                 .or_else(|| s.hits.get(s.selected).copied()),
             s.parameter_entry.is_some(),
@@ -556,10 +619,12 @@ fn launch_selected() {
     let mut context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
     let working_directory = entry.working_directory;
     STATE.with(|c| {
-        c.borrow_mut().as_mut().unwrap().successful = Some((entry.id, query, parameter.clone()))
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        s.successful = Some((entry.id, query, parameter.clone()));
+        s.launching = Some(s.generation);
     });
     let command = entry.command;
-    STATE.with(|c| c.borrow_mut().as_mut().unwrap().launching = true);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }
@@ -1019,8 +1084,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         WM_HOTKEY | SHOW => {
-            capture_context();
-            position_panel();
             let is_recent = msg == WM_HOTKEY
                 && STATE.with(|c| {
                     c.borrow()
@@ -1030,23 +1093,29 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         .get(2)
                         .is_some_and(|h| h.0 == w as i32)
                 });
+            if msg == WM_HOTKEY && !is_recent && unsafe { IsWindowVisible(hwnd) != 0 } {
+                unsafe {
+                    ShowWindow(hwnd, SW_HIDE);
+                }
+                return 0;
+            }
+            capture_context();
             if is_recent {
                 recent();
+            } else {
+                reset_search();
             }
+            position_panel();
             let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
             unsafe {
-                if msg == WM_HOTKEY && !is_recent && IsWindowVisible(hwnd) != 0 {
-                    ShowWindow(hwnd, SW_HIDE);
-                } else {
-                    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                    SetForegroundWindow(hwnd);
-                    SetFocus(edit);
-                    popup_sound();
-                    let delay = STATE
-                        .with(|c| c.borrow().as_ref().unwrap().preferences.number("HideDelay"));
-                    if delay > 0 {
-                        SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None);
-                    }
+                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                SetForegroundWindow(hwnd);
+                SetFocus(edit);
+                popup_sound();
+                let delay =
+                    STATE.with(|c| c.borrow().as_ref().unwrap().preferences.number("HideDelay"));
+                if delay > 0 {
+                    SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None);
                 }
             }
             0
@@ -1066,20 +1135,29 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         LAUNCH_DONE => {
-            let result =
-                STATE.with(|c| c.borrow().as_ref().unwrap().launch_results.try_recv().ok());
-            STATE.with(|c| c.borrow_mut().as_mut().unwrap().launching = false);
+            let completed = STATE.with(|c| {
+                let mut state = c.borrow_mut();
+                let s = state.as_mut().unwrap();
+                let result = s.launch_results.try_recv().ok()?;
+                let current = s.launching.take() == Some(s.generation);
+                Some((result, current, s.successful.take()))
+            });
+            let Some((result, current, launched)) = completed else {
+                return 0;
+            };
             match result {
-                Some(Err(message)) => {
+                Err(message) => {
                     trace_event("launch_failed");
-                    show_inline_error(&message);
+                    if current {
+                        show_inline_error(&message);
+                    }
                 }
-                Some(Ok(())) => {
+                Ok(()) => {
                     trace_event("launch_succeeded");
                     STATE.with(|c| {
                         let mut s = c.borrow_mut();
                         let s = s.as_mut().unwrap();
-                        if let Some((id, query, param)) = s.successful.take() {
+                        if let Some((id, query, param)) = launched {
                             s.usage.record(
                                 &id,
                                 &query,
@@ -1090,7 +1168,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                             rebuild_index(s);
                         }
                     });
-                    cancel_parameter();
+                    if current {
+                        cancel_parameter();
+                    }
                     if STATE.with(|c| {
                         c.borrow()
                             .as_ref()
@@ -1103,7 +1183,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         }
                     }
                 }
-                None => {}
             }
             0
         }
@@ -1932,7 +2011,7 @@ pub fn run() -> Result<(), String> {
                 parameter_entry: None,
                 saved_query: String::new(),
                 error: false,
-                launching: false,
+                launching: None,
                 launch_results,
                 background,
                 selected_brush,
@@ -2220,23 +2299,10 @@ fn capture_context() {
     }
 }
 fn recent() {
-    cancel_parameter();
-    let edit = STATE.with(|c| {
-        let mut s = c.borrow_mut();
-        let s = s.as_mut().unwrap();
-        s.last_key = 0;
-        s.edit
-    });
-    unsafe {
-        SetWindowTextW(edit, wide("").as_ptr());
-    }
+    reset_search();
     STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        s.generation = s.generation.wrapping_add(1);
-        s.match_generation
-            .store(s.generation, std::sync::atomic::Ordering::Relaxed);
-        s.matching = false;
         s.hits = s
             .usage
             .recent
@@ -2557,11 +2623,7 @@ fn apply_appearance() {
                 altrun_probe::preferences::parse_colour(&prefs.get("AlphaColor")).unwrap_or(0);
             SetLayeredWindowAttributes(hwnd, colour, alpha, LWA_ALPHA | LWA_COLORKEY);
         }
-        let hint = if prefs.flag("ShowOperationHint") {
-            ui("输入快捷字 · Enter 启动，Esc 隐藏")
-        } else {
-            ui("输入快捷字")
-        };
+        let hint = search_hint(prefs.flag("ShowOperationHint"));
         SendMessageW(edit, EM_SETCUEBANNER, 0, hint.as_ptr() as isize);
         ShowWindow(
             command,
