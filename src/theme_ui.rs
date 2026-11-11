@@ -125,7 +125,7 @@ impl Corners {
         self.key = key;
         let outer = radius * 8;
         let inner = outer - 8;
-        let channel = |shift, fill_samples, stroke_samples| {
+        let channel = |shift: u32, fill_samples: u32, stroke_samples: u32| {
             (((colour >> shift) & 255u32) * fill_samples
                 + ((border >> shift) & 255u32) * stroke_samples
                 + 8)

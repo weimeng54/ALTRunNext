@@ -425,10 +425,7 @@ fn layout_page() {
         );
         let old_width = rect.right - rect.left;
         let old_height = rect.bottom - rect.top;
-        if old_width != px(layout::WIDTH)
-            || old_height != height
-            || GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE == 0
-        {
+        if old_width != px(layout::WIDTH) || old_height != height {
             let region =
                 CreateRoundRectRgn(0, 0, px(layout::WIDTH) + 1, height + 1, px(22), px(22));
             if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
