@@ -28,7 +28,7 @@ pub const SPECS: &[Spec] = &[
     spec!("AutoRun", "开机启动", Bool, "0"),
     spec!("AddToSendTo", "添加 ALTRun 到“发送到”菜单", Bool, "0"),
     spec!("Regex", "使用正则匹配", Bool, "1"),
-    spec!("MatchAnywhere", "允许中间匹配", Bool, "1"),
+    spec!("MatchAnywhere", "允许中间和模糊匹配", Bool, "1"),
     spec!("NumberKey", "数字快捷执行", Bool, "1"),
     spec!("IndexFrom0to9", "编号从 0 开始", Bool, "0"),
     spec!("RememberFavouratMatch", "记住查询的上次选择", Bool, "0"),

@@ -214,6 +214,12 @@ fn promote_preference(s: &mut State) {
         && let Some(id) = s.usage.favourites.get(&s.current_query)
         && let Some(pos) = s.hits.iter().position(|i| &s.entries[*i].id == id)
         && pos != 0
+        && s.index.same_match_priority(
+            &s.current_query,
+            s.preferences.flag("Regex"),
+            s.hits[0],
+            s.hits[pos],
+        )
     {
         let hit = s.hits.remove(pos);
         s.hits.insert(0, hit);

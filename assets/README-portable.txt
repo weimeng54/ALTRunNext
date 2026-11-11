@@ -2,6 +2,7 @@ ALTRun Modern 0.2 — Windows 11 x64 便携版
 
 双击 ALTRun.exe 后按 Alt+R 呼出，输入快捷字，Enter 启动。
 呼出时清空输入框并显示全部启用的命令，可以滚动浏览。
+搜索优先完整快捷字、前缀和连续包含，再按字符顺序模糊匹配，例如 db 可匹配 doubao。
 正式构建默认允许启动；--safe-mode 为不执行命令的预览模式。
 
 Ctrl+Alt+L / Ctrl+L：最近启动

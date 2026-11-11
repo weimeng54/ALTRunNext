@@ -68,6 +68,38 @@ pub struct SearchIndex {
     active: Vec<bool>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MatchPriority {
+    Fuzzy,
+    Contains,
+    Prefix,
+    Exact,
+}
+
+fn regex_query(input: &str, regex: bool) -> bool {
+    regex
+        && input.contains([
+            '*', '?', '[', ']', '(', ')', '|', '^', '$', '\\', '.', '+', '{',
+        ])
+}
+
+fn ordered_span(alias: &[char], needle: &str) -> Option<(usize, usize)> {
+    let mut remaining = needle.chars();
+    let mut target = remaining.next()?;
+    let mut first = None;
+    for (index, &character) in alias.iter().enumerate() {
+        if character != target {
+            continue;
+        }
+        let start = *first.get_or_insert(index);
+        let Some(next) = remaining.next() else {
+            return Some((start, index + 1 - start));
+        };
+        target = next;
+    }
+    None
+}
+
 impl SearchIndex {
     pub fn aliases(&self) -> &[String] {
         &self.aliases
@@ -81,17 +113,7 @@ impl SearchIndex {
                 if !self.active.get(i).copied().unwrap_or(false) {
                     return None;
                 }
-                p.map(|p| {
-                    (
-                        i,
-                        1024i64
-                            .saturating_add(self.frequencies[i].saturating_mul(4))
-                            .saturating_sub((p as i64 + 1).saturating_mul(128))
-                            .saturating_sub(
-                                (self.characters[i].len() as i64 - length).saturating_mul(16),
-                            ),
-                    )
-                })
+                p.map(|p| (i, self.position_score(i, p, length)))
             })
             .collect();
         hits.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -110,11 +132,7 @@ impl SearchIndex {
         if input.chars().count() > 256 {
             return Ok(Vec::new());
         }
-        if regex
-            && input.contains([
-                '*', '?', '[', ']', '(', ')', '|', '^', '$', '\\', '.', '+', '{',
-            ])
-        {
+        if regex_query(input, regex) {
             let pattern = if standard {
                 input.to_owned()
             } else {
@@ -129,16 +147,69 @@ impl SearchIndex {
             ));
         }
         let needle = input.to_lowercase();
-        let positions: Vec<_> = self
-            .aliases
+        let length = needle.chars().count();
+        let mut hits: Vec<_> = self
+            .active
             .iter()
-            .map(|a| {
-                a.find(&needle)
-                    .filter(|p| anywhere || *p == 0)
-                    .map(|p| a[..p].chars().count())
+            .enumerate()
+            .filter_map(|(i, &active)| {
+                if !active {
+                    return None;
+                }
+                let (priority, start, skipped) = self.literal_match(i, &needle, length, anywhere)?;
+                let score = self
+                    .position_score(i, start, length as i64)
+                    .saturating_sub((skipped as i64).saturating_mul(64));
+                Some((i, priority, score))
             })
             .collect();
-        Ok(self.rank_positions(&positions, input))
+        hits.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)).then(a.0.cmp(&b.0)));
+        Ok(hits.into_iter().map(|hit| hit.0).collect())
+    }
+
+    pub fn same_match_priority(&self, input: &str, regex: bool, first: usize, other: usize) -> bool {
+        if regex_query(input, regex) {
+            return true;
+        }
+        let needle = input.to_lowercase();
+        let length = needle.chars().count();
+        let priority = |index| self.literal_match(index, &needle, length, true).map(|hit| hit.0);
+        priority(first).is_some_and(|best| priority(other) == Some(best))
+    }
+
+    fn literal_match(
+        &self,
+        index: usize,
+        needle: &str,
+        length: usize,
+        anywhere: bool,
+    ) -> Option<(MatchPriority, usize, usize)> {
+        let alias = self.aliases.get(index)?;
+        if let Some(start) = alias.find(needle) {
+            let priority = if start == 0 && alias.len() == needle.len() {
+                MatchPriority::Exact
+            } else if start == 0 {
+                MatchPriority::Prefix
+            } else if anywhere {
+                MatchPriority::Contains
+            } else {
+                return None;
+            };
+            return Some((priority, alias[..start].chars().count(), 0));
+        }
+        let characters = &self.characters[index];
+        if !anywhere || length < 2 || length > characters.len() {
+            return None;
+        }
+        let (start, span) = ordered_span(characters, needle)?;
+        Some((MatchPriority::Fuzzy, start, span - length))
+    }
+
+    fn position_score(&self, index: usize, start: usize, length: i64) -> i64 {
+        1024_i64
+            .saturating_add(self.frequencies[index].saturating_mul(4))
+            .saturating_sub((start as i64 + 1).saturating_mul(128))
+            .saturating_sub((self.characters[index].len() as i64 - length).saturating_mul(16))
     }
     pub fn new(entries: &[Entry]) -> Self {
         Self {
