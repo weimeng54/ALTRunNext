@@ -237,7 +237,7 @@ fn blend(bitmap: Bitmap, tint: u32, strength: i32) -> Result<Bitmap, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::cover;
+    use super::{Request, cover, load};
 
     #[test]
     fn cover_preserves_aspect_and_allows_vertical_alignment() {
@@ -245,5 +245,30 @@ mod tests {
         assert_eq!(cover((800, 600), (400, 200), "top"), (0, 0, 800, 400));
         assert_eq!(cover((800, 600), (400, 200), "bottom"), (0, 200, 800, 400));
         assert_eq!(cover((1000, 300), (400, 200), "center"), (200, 0, 600, 300));
+    }
+
+    #[test]
+    fn decodes_and_tints_a_background_bitmap() {
+        let folder = std::env::current_dir().unwrap().join("target/skin-fixture");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("image.bmp");
+        let mut bmp = vec![0u8; 70];
+        bmp[..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&70u32.to_le_bytes());
+        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bmp[18..22].copy_from_slice(&2u32.to_le_bytes());
+        bmp[22..26].copy_from_slice(&2u32.to_le_bytes());
+        bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+        bmp[54..].fill(255);
+        std::fs::write(&path, bmp).unwrap();
+        let image = load(&Request {
+            path,
+            tint: 0x251e19,
+            strength: 68,
+        })
+        .unwrap();
+        assert_eq!((image.width, image.height), (2, 2));
     }
 }

@@ -34,6 +34,8 @@ const TAB: usize = 2301;
 const STATUS: usize = 2303;
 const PREVIEW: usize = 2305;
 const PREVIEW_QUERY: usize = 2306;
+// Trackbar messages start at WM_USER. windows-sys omits TBM_GETPOS.
+const TBM_GETPOS: u32 = WM_USER;
 const FIELD: usize = 2400;
 const PICK: usize = 2500;
 const CLEAR: usize = 2600;
@@ -174,6 +176,7 @@ struct Editor {
     page: usize,
     preview: Preview,
     preview_controls: [HWND; 3],
+    preview_font: HFONT,
     saved: Preferences,
     draft: Preferences,
     fields: Vec<Field>,
@@ -279,10 +282,10 @@ fn show_page(page: usize) {
 }
 
 fn update_preview() {
-    let (page, controls) = EDITOR.with(|c| {
+    let (page, controls, dpi) = EDITOR.with(|c| {
         let editor = c.borrow();
         let editor = editor.as_ref().unwrap();
-        (editor.page, editor.preview_controls)
+        (editor.page, editor.preview_controls, editor.dpi)
     });
     if !matches!(page, 3 | 4) {
         return;
@@ -299,6 +302,24 @@ fn update_preview() {
     });
     refresh_style(&prefs);
     unsafe {
+        if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("KeywordFont")) {
+            let font = make_font(font.points * 4 / 3, font.weight, &font.name, dpi);
+            if !font.is_null() {
+                SendMessageW(controls[2], WM_SETFONT, font as usize, 1);
+                let old = EDITOR.with(|c| {
+                    std::mem::replace(&mut c.borrow_mut().as_mut().unwrap().preview_font, font)
+                });
+                if !old.is_null() {
+                    DeleteObject(old);
+                }
+            }
+        }
+        let skin = prefs.flag("ShowSkin");
+        for (spec, field) in SPECS.iter().zip(fields()) {
+            if matches!(spec.key, "BGStrength" | "BGCrop") {
+                EnableWindow(field.value, i32::from(skin));
+            }
+        }
         InvalidateRect(controls[1], std::ptr::null(), 0);
     }
 }
@@ -1239,6 +1260,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         page: 0,
                         preview: Preview::new(prefs.clone()),
                         preview_controls,
+                        preview_font: null_mut(),
                         saved: prefs.clone(),
                         draft: prefs.clone(),
                         fields: fields
@@ -1272,6 +1294,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         DeleteObject(e.font);
                         DeleteObject(e.heading_font);
                         DeleteObject(e.section_font);
+                        if !e.preview_font.is_null() {
+                            DeleteObject(e.preview_font);
+                        }
                         DeleteObject(e.background);
                         DeleteObject(e.paper);
                     }

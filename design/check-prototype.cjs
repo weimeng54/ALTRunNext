@@ -16,13 +16,13 @@ const pass=s=>cases.push(s);
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.setContent(fs.readFileSync(path.join(__dirname,'altrun-prototype.html'),'utf8'));
     const q=page.locator('#ar-query');
-    assert.equal(await page.locator('.ar-result').count(),10);pass('首屏十条原版常用快捷项');
+    assert.equal(await page.locator('.ar-result').count(),10);pass('首屏十条常用快捷项');
     const compact=await page.locator('.ar-launcher').boundingBox();assert.ok(compact.width<=420&&compact.height<=300,JSON.stringify(compact));
     assert.equal(await page.locator('.ar-result .ar-app-icon,.ar-result .ar-detail,.ar-result .ar-kind').count(),0);
     assert.match(await page.locator('#ar-selected-name').innerText(),/我的电脑/);assert.match(await page.locator('#ar-command').inputValue(),/^CMD=/);
     await page.locator('.ar-result').nth(3).click();assert.equal(await page.locator('#ar-selected-name').innerText(),'记事本');assert.equal(await page.locator('#ar-status').innerText(),'');
     await q.press('ArrowDown');assert.equal(await page.locator('#ar-selected-name').innerText(),'画图');
-    await q.press('Control+4');assert.match(await page.locator('#ar-status').innerText(),/记事本/);await q.fill('');pass('420px 紧凑尺寸、原版元素、单击选中和数字执行');
+    await q.press('Control+4');assert.match(await page.locator('#ar-status').innerText(),/记事本/);await q.fill('');pass('420px 紧凑尺寸、元素、单击选中和数字执行');
     await page.screenshot({path:path.join(out,'launcher-light.png'),fullPage:true});
     await q.fill('g');assert.equal(await page.locator('.ar-result').count(),2);await q.press('Enter');
     assert.equal(await page.locator('#ar-param-dialog').isVisible(),true);
@@ -39,22 +39,21 @@ const pass=s=>cases.push(s);
     await page.locator('#ar-name').fill('未保存测试');await page.locator('[data-view=settings]').click();assert.equal(await page.locator('#ar-discard-dialog').isVisible(),true);await page.locator('#ar-discard-cancel').click();assert.equal(await page.locator('#ar-name').inputValue(),'未保存测试');await page.locator('[data-view=settings]').click();await page.locator('#ar-discard-confirm').click();assert.equal(await page.locator('[data-screen=settings]').isVisible(),true);pass('未保存离开、继续编辑和放弃修改');
     await page.locator('[data-view=manager]').click();await page.locator('#ar-filter').fill('new');assert.equal(await page.locator('#ar-table tr').count(),1);await page.locator('[data-edit="11"]').click();await page.locator('#ar-delete').click();assert.equal(await page.locator('#ar-table-count').innerText(),'显示 0 项，共 10 项');await page.getByRole('button',{name:'撤销删除'}).click();assert.equal(await page.locator('#ar-table tr').count(),1);pass('筛选、编辑、删除和撤销');
     await page.locator('#ar-filter-clear').click();await page.screenshot({path:path.join(out,'manager.png'),fullPage:true});
-    await page.locator('[data-view=settings]').click();await page.locator('[data-category=appearance]').click();await page.locator('#ar-density').selectOption('24');await page.locator('#ar-show-command').uncheck();await page.locator('#ar-show-hint').uncheck();await page.locator('#ar-show-tools').check();await page.locator('[data-view=launcher]').click();assert.equal(await page.locator('#ar-command').isVisible(),false);assert.equal(await page.locator('#ar-operation-hint').isVisible(),false);assert.equal(await page.locator('#ar-hide').isVisible(),true);assert.equal(await page.locator('#altrun-design').evaluate(e=>getComputedStyle(e).getPropertyValue('--ar-row').trim()),'24px');pass('原版 CMD/提示/工具按钮开关联动');
+    await page.locator('[data-view=settings]').click();await page.locator('[data-category=appearance]').click();await page.locator('#ar-density').selectOption('24');await page.locator('#ar-show-command').uncheck();await page.locator('#ar-show-hint').uncheck();await page.locator('#ar-show-tools').check();await page.locator('[data-view=launcher]').click();assert.equal(await page.locator('#ar-command').isVisible(),false);assert.equal(await page.locator('#ar-operation-hint').isVisible(),false);assert.equal(await page.locator('#ar-hide').isVisible(),true);assert.equal(await page.locator('#altrun-design').evaluate(e=>getComputedStyle(e).getPropertyValue('--ar-row').trim()),'24px');pass(' CMD/提示/工具按钮开关联动');
     await page.locator('[data-view=settings]').click();await page.locator('#ar-density').selectOption('20');await page.locator('#ar-show-command').check();await page.locator('#ar-show-hint').check();await page.locator('#ar-show-tools').uncheck();await page.locator('[data-view=launcher]').click();await q.fill('notepad');
     await page.locator('#ar-theme').selectOption('dark');await page.screenshot({path:path.join(out,'launcher-dark.png'),fullPage:true});pass('明暗主题切换');
-    await page.locator('[data-view=migration]').click();await page.locator('#ar-import-disable').uncheck();assert.equal(await page.locator('#ar-import').isDisabled(),true);await page.locator('#ar-import-disable').check();await page.locator('#ar-import').click();assert.match(await page.locator('#ar-status').innerText(),/未扫描或修改/);await page.screenshot({path:path.join(out,'migration.png'),fullPage:true});pass('示例迁移与冲突停用保护');
     const layout=[];
     for(const width of [1024,736,420,320]){
       await page.setViewportSize({width,height:850});
-      for(const view of ['launcher','manager','settings','migration']){
+      for(const view of ['launcher','manager','settings']){
         await page.locator(`[data-view=${view}]`).click();
         const dims=await page.evaluate(()=>({w:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
         assert.ok(dims.scroll<=dims.w+1,`${view} horizontal overflow at ${width}: ${JSON.stringify(dims)}`);layout.push(`${view}@${width}`);
       }
     }
-    await page.locator('[data-view=manager]').click();await page.screenshot({path:path.join(out,'narrow-manager.png'),fullPage:true});pass('16 个页面/宽度组合无页面横向溢出');
+    await page.locator('[data-view=manager]').click();await page.screenshot({path:path.join(out,'narrow-manager.png'),fullPage:true});pass('12 个页面/宽度组合无页面横向溢出');
     assert.deepEqual(errors,[]);pass('无浏览器脚本错误');
-    fs.writeFileSync(path.join(out,'prototype-checks.json'),JSON.stringify({date:'2026-11-07',status:'passed',cases,layout,errors,limitations:['仅网页交互原型，未验证 Windows 原生程序','合成输入事件不是实际中文输入法验证','未测试系统热键、磁盘迁移或性能预算']},null,2));
+    fs.writeFileSync(path.join(out,'prototype-checks.json'),JSON.stringify({date:'2026-11-07',status:'passed',cases,layout,errors,limitations:['仅网页交互原型，未验证 Windows 原生程序','合成输入事件不是实际中文输入法验证','未测试系统热键或性能预算']},null,2));
     console.log(JSON.stringify({passed:cases.length,cases,layoutChecks:layout.length,errors},null,2));
   }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

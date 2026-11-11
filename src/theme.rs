@@ -9,7 +9,6 @@ pub const MUTED: u32 = rgb(79, 96, 116);
 pub const SELECTION: u32 = rgb(220, 234, 250);
 pub const ACCENT: u32 = rgb(36, 92, 153);
 pub const BORDER: u32 = rgb(118, 137, 158);
-pub const ERROR: u32 = rgb(165, 44, 54);
 pub const ROW: i32 = 22;
 pub const LIST_Y: i32 = 65;
 pub const BASE_HEIGHT: i32 = 94;
@@ -72,6 +71,15 @@ pub fn install_chrome(prefs: &altrun_probe::preferences::Preferences) {
 }
 pub fn high_contrast() -> bool {
     CONTRAST.with(std::cell::Cell::get)
+}
+pub fn error() -> u32 {
+    if high_contrast() {
+        text()
+    } else if DARK.with(std::cell::Cell::get) {
+        rgb(255, 183, 179)
+    } else {
+        rgb(155, 38, 48)
+    }
 }
 pub fn chrome() -> u32 {
     if high_contrast() {

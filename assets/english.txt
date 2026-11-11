@@ -198,3 +198,4 @@ ALTRun 已就绪=ALTRun is ready
 无法创建背景图片=Could not create the background image.
 无法处理背景图片=Could not process the background image.
 语言已保存。重新打开设置即可查看。=Language saved. Reopen Settings to see the change.
+ALTRun 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun=ALTRun 0.2\nNative Windows launcher\n\nAlt+R: Show or hide the launcher\nEnter: Launch; Esc: Clear or hide\nUp/Down or Tab: Select; Ctrl+L: Recent launches\nCtrl+number: Launch the numbered result\nCtrl+C: Copy command; Ctrl+D: Open folder\nF2 / Insert / Delete: Manage shortcuts\nAlt+S: Open the shortcut manager\n\nData and settings are saved alongside the shortcut file.\nProject: https://github.com/weimeng54/altrun

@@ -598,7 +598,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 SetTextColor(
                     w as HDC,
                     if l as HWND == s.status && s.error {
-                        theme::ERROR
+                        theme::error()
                     } else {
                         theme::text()
                     },

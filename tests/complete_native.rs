@@ -116,7 +116,6 @@ fn setting(hwnd: HWND, key: &str) -> HWND {
     unsafe { GetDlgItem(hwnd, (2400 + setting_index(key)) as i32) }
 }
 fn select_page(hwnd: HWND, page: usize) {
-    use windows_sys::Win32::UI::Controls::TCM_GETCURSEL;
     unsafe {
         let tabs = GetDlgItem(hwnd, 2301);
         assert_eq!(SendMessageW(tabs, LB_SETCURSEL, page, 0) as usize, page);

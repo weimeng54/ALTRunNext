@@ -758,8 +758,8 @@ fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {
             return;
         };
         let dc = item.hDC;
-        crate::theme_ui::fill(dc, &item.rcItem, theme::surface());
         unsafe {
+            FillRect(dc, &item.rcItem, s.background);
             if let Some(bitmap) = &s.skin {
                 let mut origin = POINT { x: 0, y: 0 };
                 let mut rect: RECT = zeroed();
@@ -1752,7 +1752,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 SetTextColor(
                     dc,
                     if l as HWND == s.command && s.error {
-                        theme::ERROR
+                        theme::error()
                     } else if l as HWND == s.command || l as HWND == s.empty {
                         theme::muted()
                     } else if l as HWND == s.edit {
@@ -2411,7 +2411,7 @@ fn recent() {
 }
 fn about() {
     unsafe {
-        MessageBoxW(null_mut(),ui("ALTRun Modern 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
+        MessageBoxW(null_mut(),ui("ALTRun 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
     }
 }
 fn open_settings() {
