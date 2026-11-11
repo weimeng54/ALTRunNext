@@ -1,5 +1,6 @@
 use crate::{
     native::{make_font, scaled},
+    settings_layout::{BoxRect, PREVIEW},
     skin, theme, theme_ui,
 };
 use altrun_probe::preferences::{Font, Preferences};
@@ -19,6 +20,7 @@ pub struct Preview {
     sender: mpsc::Sender<ResultImage>,
     results: mpsc::Receiver<ResultImage>,
     pub prefs: Preferences,
+    pub selected: usize,
 }
 
 impl Preview {
@@ -30,6 +32,7 @@ impl Preview {
             sender,
             results,
             prefs,
+            selected: 0,
         }
     }
 
@@ -77,65 +80,143 @@ impl Preview {
         error
     }
 
+    pub fn paint_thumb(&self, item: &DRAWITEMSTRUCT, dpi: i32) {
+        let rect = item.rcItem;
+        theme_ui::fill(item.hDC, &rect, theme::control_surface());
+        theme_ui::rounded(
+            item.hDC,
+            rect,
+            scaled(8, dpi),
+            theme::selection(),
+            theme::border(),
+        );
+        if let Some(bitmap) = &self.bitmap {
+            let inner = RECT {
+                left: rect.left + 1,
+                top: rect.top + 1,
+                right: rect.right - 1,
+                bottom: rect.bottom - 1,
+            };
+            bitmap.draw(item.hDC, inner, "center");
+        }
+    }
+
+    pub fn matches(&self, query: &str) -> Vec<(&'static str, &'static str, &'static str)> {
+        let query = query.to_ascii_lowercase();
+        let mut results: Vec<_> = [
+            ("Doubao", "豆包", r"D:\Program Files\Doubao\Doubao.exe"),
+            ("download", "下载目录", r"%USERPROFILE%\Downloads"),
+            ("desktop", "桌面", r"%USERPROFILE%\Desktop"),
+            ("notepad", "记事本", "notepad.exe"),
+            ("calc", "计算器", "calc.exe"),
+        ]
+        .into_iter()
+        .filter_map(|entry| {
+            let alias = entry.0.to_ascii_lowercase();
+            let rank = if query.is_empty() || alias == query {
+                0
+            } else if alias.starts_with(&query) {
+                1
+            } else if alias.contains(&query) {
+                2
+            } else {
+                let mut remain = query.chars().peekable();
+                for ch in alias.chars() {
+                    if remain.peek() == Some(&ch) {
+                        remain.next();
+                    }
+                }
+                if remain.peek().is_some() {
+                    return None;
+                }
+                3
+            };
+            Some((rank, entry))
+        })
+        .collect();
+        results.sort_by_key(|(rank, _)| *rank);
+        results
+            .into_iter()
+            .map(|(_, entry)| entry)
+            .take(self.prefs.number("MaxRows").clamp(1, 5) as usize)
+            .collect()
+    }
+
+    pub fn geometry(&self, count: usize) -> (BoxRect, i32, i32) {
+        let width = self.prefs.number("FormWidth").clamp(240, PREVIEW.w - 32);
+        let input = Font::parse(&self.prefs.get("KeywordFont")).map_or(17, |font| font.size_dip());
+        let input_height = (input + 10).clamp(33, 54);
+        let command_height = if self.prefs.flag("ShowCommandLine") {
+            25
+        } else {
+            0
+        };
+        let row_max =
+            ((PREVIEW.h - 24 - 46 - input_height - command_height) / count.max(1) as i32).max(18);
+        let row_height = self.prefs.number("RowHeight").clamp(18, row_max);
+        let height = 35
+            + input_height
+            + 4
+            + if count == 0 {
+                30
+            } else {
+                count as i32 * row_height
+            }
+            + command_height
+            + 8;
+        (
+            BoxRect::new(
+                (PREVIEW.w - width) / 2,
+                (PREVIEW.h - height) / 2,
+                width,
+                height,
+            ),
+            input_height,
+            row_height,
+        )
+    }
+
     pub fn paint(&self, item: &DRAWITEMSTRUCT, dpi: i32, query: &str) {
         theme::install(&self.prefs);
         let dc = item.hDC;
         let px = |n| scaled(n, dpi);
         let rect = item.rcItem;
-        let area = |x, y, w, h| RECT {
-            left: rect.left + px(x),
-            top: rect.top + px(y),
-            right: (rect.left + px(x + w)).min(rect.right),
-            bottom: (rect.top + px(y + h)).min(rect.bottom),
-        };
-        theme_ui::fill(dc, &rect, theme::border());
-        let inset = RECT {
-            left: rect.left + 1,
-            top: rect.top + 1,
-            right: rect.right - 1,
-            bottom: rect.bottom - 1,
-        };
-        theme_ui::fill(dc, &inset, theme::chrome());
-        let mut matches: Vec<_> = [
-            ("Doubao", "豆包", "Doubao.exe"),
-            ("download", "下载目录", "%USERPROFILE%\\Downloads"),
-            ("desktop", "桌面", "%USERPROFILE%\\Desktop"),
-            ("notepad", "记事本", "notepad.exe"),
-        ]
-        .into_iter()
-        .filter(|(alias, _, _)| {
-            let query = query.to_ascii_lowercase();
-            let mut remaining = query.chars().peekable();
-            for ch in alias.to_ascii_lowercase().chars() {
-                if remaining.peek() == Some(&ch) {
-                    remaining.next();
+        theme_ui::fill(dc, &rect, theme::surface());
+        theme_ui::rounded(dc, rect, px(16), theme::chrome(), theme::divider());
+        let matches = self.matches(query);
+        let (bounds, input_height, row_height) = self.geometry(matches.len());
+        let area = |x, y, w, h| BoxRect::new(bounds.x + x, bounds.y + y, w, h).pixels(dpi);
+        let panel = bounds.pixels(dpi);
+        let shadow = area(-2, 3, bounds.w + 4, bounds.h + 3);
+        theme_ui::rounded(dc, shadow, px(16), theme::chrome(), theme::chrome());
+        theme_ui::rounded(dc, panel, px(16), theme::surface(), theme::border());
+        if let Some(bitmap) = &self.bitmap {
+            unsafe {
+                let saved = SaveDC(dc);
+                if saved != 0 {
+                    let region = CreateRoundRectRgn(
+                        panel.left + 1,
+                        panel.top + 1,
+                        panel.right - 1,
+                        panel.bottom - 1,
+                        px(15),
+                        px(15),
+                    );
+                    if !region.is_null() {
+                        ExtSelectClipRgn(dc, region, RGN_AND);
+                        bitmap.draw(dc, panel, &self.prefs.get("BGCrop"));
+                        DeleteObject(region);
+                    }
+                    RestoreDC(dc, saved);
                 }
             }
-            remaining.peek().is_none()
-        })
-        .collect();
-        matches.truncate(self.prefs.number("MaxRows").clamp(1, 4) as usize);
-        let row_height = self.prefs.number("RowHeight").clamp(18, 32);
-        let rows_height = if matches.is_empty() {
-            24
-        } else {
-            row_height * matches.len() as i32
-        };
-        let command_height = if self.prefs.flag("ShowCommandLine") && !matches.is_empty() {
-            24
-        } else {
-            0
-        };
-        let panel = area(1, 1, 408, 67 + rows_height + command_height + 6);
-        theme_ui::fill(dc, &panel, theme::surface());
-        if let Some(bitmap) = &self.bitmap {
-            bitmap.draw(dc, panel, &self.prefs.get("BGCrop"));
         }
-        let title = matches.first().map_or("ALTRun", |row| row.1);
+        let selected = matches.get(self.selected).or_else(|| matches.first());
+        let title = selected.map_or("ALTRun", |row| row.1);
         let draw_font = |key: &str, fallback| {
             Font::parse(&self.prefs.get(key)).ok().map_or_else(
                 || make_font(fallback, 400, "Microsoft YaHei UI", dpi),
-                |font| make_font(font.points * 4 / 3, font.weight, &font.name, dpi),
+                |font| make_font(font.size_dip(), font.weight, &font.name, dpi),
             )
         };
         let title_font = draw_font("TitleFont", 14);
@@ -145,25 +226,26 @@ impl Preview {
             let old = SelectObject(dc, title_font);
             theme_ui::line_text(
                 dc,
-                area(12, 4, 376, 28),
+                area(12, 1, bounds.w - 24, 33),
                 &crate::localization::tr(title),
                 theme::font_colour(&self.prefs.get("TitleFont")),
                 0,
             );
             SelectObject(dc, row_font);
-            let mut y = 67;
+            let mut y = 39 + input_height;
             for (i, (alias, name, _)) in matches.iter().enumerate() {
+                let active = selected.is_some_and(|row| row.0 == *alias);
                 theme_ui::fill(
                     dc,
-                    &area(9, y, 398, row_height),
-                    if i == 0 {
+                    &area(9, y, bounds.w - 18, row_height),
+                    if active {
                         theme::selection()
                     } else {
-                        theme::paper()
+                        theme::control_surface()
                     },
                 );
-                if i == 0 {
-                    theme_ui::fill(dc, &area(9, y + 3, 2, row_height - 6), theme::accent());
+                if active {
+                    theme_ui::fill(dc, &area(9, y + 4, 3, row_height - 8), theme::accent());
                 }
                 theme_ui::line_text(
                     dc,
@@ -174,14 +256,19 @@ impl Preview {
                 );
                 theme_ui::line_text(
                     dc,
-                    area(41, y, 106, row_height),
+                    area(43, y, (bounds.w - 68) * 3 / 7, row_height),
                     alias,
                     theme::font_colour(&self.prefs.get("ListFont")),
                     0,
                 );
                 theme_ui::line_text(
                     dc,
-                    area(154, y, 243, row_height),
+                    area(
+                        43 + (bounds.w - 68) * 3 / 7,
+                        y,
+                        (bounds.w - 68) * 4 / 7,
+                        row_height,
+                    ),
                     &crate::localization::tr(name),
                     theme::font_colour(&self.prefs.get("ListFont")),
                     0,
@@ -189,24 +276,28 @@ impl Preview {
                 y += row_height;
             }
             if matches.is_empty() {
-                theme_ui::fill(dc, &area(9, y, 398, 24), theme::paper());
+                theme_ui::fill(dc, &area(9, y, bounds.w - 18, 30), theme::control_surface());
                 theme_ui::line_text(
                     dc,
-                    area(16, y, 382, 24),
+                    area(16, y, bounds.w - 32, 30),
                     &crate::localization::tr("没有匹配项"),
                     theme::muted(),
                     0,
                 );
-                y += 24;
+                y += 30;
             }
-            if self.prefs.flag("ShowCommandLine")
-                && let Some((_, _, path)) = matches.first()
-            {
+            if self.prefs.flag("ShowCommandLine") {
+                let path = selected.map_or("—", |row| row.2);
                 SelectObject(dc, command_font);
-                theme_ui::fill(dc, &area(9, y + 1, 398, 23), theme::paper());
+                theme_ui::fill(dc, &area(9, y, bounds.w - 18, 1), theme::divider());
+                theme_ui::fill(
+                    dc,
+                    &area(9, y + 1, bounds.w - 18, 24),
+                    theme::control_surface(),
+                );
                 theme_ui::line_text(
                     dc,
-                    area(16, y + 1, 382, 23),
+                    area(16, y + 1, bounds.w - 32, 24),
                     &format!("CMD  {path}"),
                     theme::muted(),
                     0,

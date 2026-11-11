@@ -127,6 +127,54 @@ fn select_page(hwnd: HWND, page: usize) {
         );
     }
 }
+
+fn bounds(hwnd: HWND) -> RECT {
+    let mut rect = RECT::default();
+    assert_ne!(unsafe { GetWindowRect(hwnd, &mut rect) }, 0);
+    rect
+}
+
+fn settings_design(hwnd: HWND) {
+    let pages = [
+        "general",
+        "hotkeys",
+        "search",
+        "appearance",
+        "type",
+        "position",
+        "advanced",
+    ];
+    for (theme, segment) in [("light", 2331), ("dark", 2332)] {
+        select_page(hwnd, 3);
+        command(hwnd, segment);
+        for (page, name) in pages.iter().enumerate() {
+            select_page(hwnd, page);
+            native_snapshot::save(hwnd, &format!("settings-design-{theme}-{name}"));
+        }
+    }
+    select_page(hwnd, 0);
+    let language = bounds(setting(hwnd, "Lang"));
+    let notifications = bounds(setting(hwnd, "ShowStartNotification"));
+    assert!(language.left > notifications.right && (language.top - notifications.top).abs() < 20);
+    select_page(hwnd, 2);
+    let last_input = bounds(setting(hwnd, "RememberFavouratMatch"));
+    let first_result = bounds(setting(hwnd, "NumberKey"));
+    assert!(
+        first_result.top - last_input.bottom > 24,
+        "search settings need separate cards"
+    );
+    select_page(hwnd, 3);
+    unsafe {
+        let option = setting(hwnd, "ShowTopTen");
+        assert_eq!(IsWindowVisible(option), 0);
+        command(hwnd, 2340);
+        assert_ne!(IsWindowVisible(option), 0);
+        command(hwnd, 2340);
+        assert_eq!(IsWindowVisible(option), 0);
+    }
+    command(hwnd, 2331);
+    select_page(hwnd, 0);
+}
 #[test]
 fn complete_native_settings_history_matching_and_instance_regression() {
     let root = std::env::current_dir()
@@ -207,6 +255,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_ne!(IsWindowVisible(setting(dialog, "AddToSendTo")), 0);
         assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
         assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
+        settings_design(dialog);
         native_snapshot::save(dialog, "settings-general");
         select_page(dialog, 3);
         let preview = GetDlgItem(dialog, 2306);

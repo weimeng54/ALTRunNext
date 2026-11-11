@@ -2667,7 +2667,7 @@ fn apply_appearance() {
         for (key, control) in definitions {
             if let Ok(f) = altrun_probe::preferences::Font::parse(&prefs.get(key)) {
                 let font = CreateFontW(
-                    -f.points * dpi / 72,
+                    -scaled(f.size_dip(), dpi),
                     0,
                     0,
                     0,
@@ -2706,7 +2706,7 @@ fn apply_appearance() {
             }
         });
         if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("ListFont")) {
-            let alias = make_font(font.points * 4 / 3, 600, &font.name, dpi);
+            let alias = make_font(font.size_dip(), 600, &font.name, dpi);
             let preview = make_font(12, 400, "Consolas", dpi);
             SendMessageW(command, WM_SETFONT, preview as usize, 1);
             STATE.with(|c| {

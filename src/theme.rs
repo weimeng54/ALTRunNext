@@ -99,6 +99,15 @@ pub fn control_surface() -> u32 {
         PAPER
     }
 }
+pub fn divider() -> u32 {
+    if high_contrast() {
+        border()
+    } else if DARK.with(std::cell::Cell::get) {
+        rgb(52, 62, 74)
+    } else {
+        rgb(211, 221, 233)
+    }
+}
 pub fn on_accent() -> u32 {
     if high_contrast() {
         selection()
@@ -208,6 +217,7 @@ fn install_palette(prefs: &altrun_probe::preferences::Preferences, custom: bool)
     ] {
         let value = prefs.get(key);
         if custom
+            && (key != "TextColor" || prefs.flag("UseCustomTextColor"))
             && value != defaults.get(key)
             && let Ok(value) = altrun_probe::preferences::parse_colour(&value)
         {

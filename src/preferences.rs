@@ -150,6 +150,7 @@ pub const SPECS: &[Spec] = &[
     spec!("KeywordColor", "输入框背景色", Text, "#FFFFFF"),
     spec!("ListColor", "列表背景色", Text, "#FFFFFF"),
     spec!("TextColor", "文字颜色", Text, "#202C3A"),
+    spec!("UseCustomTextColor", "使用自定义文字颜色", Bool, "0"),
     spec!("SelectionColor", "选中背景色", Text, "#E7EFF8"),
     spec!(
         "TitleFont",
@@ -194,6 +195,7 @@ impl Preferences {
         }
         let mut result = Self::default();
         let mut section = String::from("Config");
+        let mut custom_text_color = false;
         for (i, line) in text.trim_start_matches('\u{feff}').lines().enumerate() {
             let line = line.trim();
             if line.is_empty() || line.starts_with([';', '#']) {
@@ -210,12 +212,16 @@ impl Preferences {
                 continue;
             }
             if SPECS.iter().any(|s| s.key.eq_ignore_ascii_case(key.trim())) {
+                custom_text_color |= key.trim().eq_ignore_ascii_case("UseCustomTextColor");
                 result.set(key.trim(), value.trim())?;
             } else {
                 result
                     .values
                     .insert(format!("@{}.{}", section, key.trim()), value.trim().into());
             }
+        }
+        if !custom_text_color && result.get("TextColor") != Self::default().get("TextColor") {
+            result.set("UseCustomTextColor", "1")?;
         }
         Ok(result)
     }
@@ -411,8 +417,36 @@ pub struct Font {
     pub italic: bool,
     pub underline: bool,
     pub colour: u32,
+    dip: Option<i32>,
 }
 impl Font {
+    pub fn size_dip(&self) -> i32 {
+        self.dip.unwrap_or(self.points * 4 / 3)
+    }
+
+    pub fn resized(value: &str, size: &str) -> Result<String, String> {
+        let font = Self::parse(value)?;
+        let size = size.trim().parse::<i32>().map_err(|_| "字体字号无效")?;
+        if size == font.size_dip() {
+            return Ok(value.to_owned());
+        }
+        if !(6..=128).contains(&size) {
+            return Err("字号应在 6–128 之间".into());
+        }
+        let mut parts = value.split('|').map(str::to_owned).collect::<Vec<_>>();
+        while parts.len() < 5 {
+            parts.push(if parts.len() == 3 {
+                font.colour.to_string()
+            } else {
+                font.charset.to_string()
+            });
+        }
+        parts.truncate(5);
+        parts[2] = ((size * 3 + 2) / 4).clamp(5, 96).to_string();
+        parts.push(size.to_string());
+        Ok(parts.join("|"))
+    }
+
     pub fn parse(value: &str) -> Result<Self, String> {
         let p: Vec<_> = value.split('|').collect();
         if p.len() < 3 || p[0].trim().is_empty() {
@@ -423,6 +457,17 @@ impl Font {
             return Err("字号应在 5–96 之间".into());
         }
         let colour = parse_colour(p.get(3).copied().unwrap_or("3812384"))?;
+        let dip = p
+            .get(5)
+            .filter(|s| !s.is_empty())
+            .map(|value| {
+                value
+                    .parse::<i32>()
+                    .ok()
+                    .filter(|size| (6..=128).contains(size))
+                    .ok_or("字体字号无效")
+            })
+            .transpose()?;
         Ok(Self {
             strike_out: p[1].contains("fsStrikeOut"),
             charset: p
@@ -437,6 +482,7 @@ impl Font {
             italic: p[1].contains("fsItalic"),
             underline: p[1].contains("fsUnderline"),
             colour,
+            dip,
         })
     }
 }
