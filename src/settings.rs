@@ -337,6 +337,8 @@ fn load_form(prefs: &Preferences) {
                     prefs.number("BGStrength") as isize,
                 );
                 strength_label(field, prefs.number("BGStrength"));
+            } else if matches!(spec.kind, Kind::Font) {
+                show_font(field.value, &value);
             } else if matches!(spec.kind, Kind::Bool) {
                 SendMessageW(field.value, BM_SETCHECK, usize::from(value == "1"), 0);
             } else if let Some(index) = choices(spec.key).iter().position(|(key, _)| *key == value)
@@ -352,7 +354,9 @@ fn load_form(prefs: &Preferences) {
 fn read_form() -> Result<Preferences, (usize, String)> {
     let mut prefs = EDITOR.with(|c| c.borrow().as_ref().unwrap().draft.clone());
     for (index, (spec, field)) in SPECS.iter().zip(fields()).enumerate() {
-        let value = if spec.key == "BGStrength" {
+        let value = if matches!(spec.kind, Kind::Font) {
+            prefs.get(spec.key)
+        } else if spec.key == "BGStrength" {
             unsafe { SendMessageW(field.value, TBM_GETPOS, 0, 0) }.to_string()
         } else if matches!(spec.kind, Kind::Bool) {
             let checked = unsafe { SendMessageW(field.value, BM_GETCHECK, 0, 0) != 0 };
@@ -392,6 +396,15 @@ fn strength_label(field: Field, strength: i32) {
     let name = crate::localization::tr("底纹强度");
     unsafe {
         SetWindowTextW(field.label, wide(&format!("{name}  {strength}%")).as_ptr());
+    }
+}
+
+fn show_font(hwnd: HWND, value: &str) {
+    if let Ok(font) = altrun_probe::preferences::Font::parse(value) {
+        let description = format!("{} · {} pt", font.name, font.points);
+        unsafe {
+            SetWindowTextW(hwnd, wide(&description).as_ptr());
+        }
     }
 }
 
@@ -807,11 +820,31 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 } else {
                     stop_capture();
                     let value = fields()[index].value;
-                    if let Some(chosen) =
-                        crate::settings_pickers::choose(hwnd, spec.key, &text(value))
+                    let font = matches!(spec.kind, Kind::Font);
+                    let current = if font {
+                        EDITOR.with(|c| c.borrow().as_ref().unwrap().draft.get(spec.key))
+                    } else {
+                        text(value)
+                    };
+                    if let Some(chosen) = crate::settings_pickers::choose(hwnd, spec.key, &current)
                     {
-                        unsafe {
-                            SetWindowTextW(value, wide(&chosen).as_ptr());
+                        if font {
+                            let result = EDITOR.with(|c| {
+                                c.borrow_mut()
+                                    .as_mut()
+                                    .unwrap()
+                                    .draft
+                                    .set(spec.key, &chosen)
+                            });
+                            if let Err(error) = result {
+                                status(&error);
+                                return 0;
+                            }
+                            show_font(value, &chosen);
+                        } else {
+                            unsafe {
+                                SetWindowTextW(value, wide(&chosen).as_ptr());
+                            }
                         }
                         if spec.key == "BGFileName" {
                             let skin = SPECS
@@ -1147,7 +1180,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     ES_AUTOHSCROLL as u32
                                         | WS_BORDER
                                         | WS_TABSTOP
-                                        | if hotkey { ES_READONLY as u32 } else { 0 },
+                                        | if hotkey || matches!(spec.kind, Kind::Font) {
+                                            ES_READONLY as u32
+                                        } else {
+                                            0
+                                        },
                                     value_x,
                                     y,
                                     if hotkey {

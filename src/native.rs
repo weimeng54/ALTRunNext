@@ -2480,7 +2480,10 @@ fn register_bindings(
                 let binding = prefs.get(key);
                 if let BindingUpdate::Startup(warnings) = &mut update {
                     eprintln!("RegisterHotKey({binding}) failed: Win32 {error}");
-                    warnings.push(format!("热键 {binding} 不可用"));
+                    warnings.push(
+                        crate::localization::tr("热键 {binding} 不可用")
+                            .replace("{binding}", &binding),
+                    );
                     next.push((id, None));
                     continue;
                 }
@@ -2496,7 +2499,10 @@ fn register_bindings(
                     }
                 }
                 if error == ERROR_HOTKEY_ALREADY_REGISTERED {
-                    return Err(format!("快捷键 {binding} 已被占用，原快捷键保持可用"));
+                    return Err(crate::localization::tr(
+                        "快捷键 {binding} 已被占用，原快捷键保持可用",
+                    )
+                    .replace("{binding}", &binding));
                 }
                 return Err(format!("快捷键 {binding} 无法注册（Windows {error}）"));
             }

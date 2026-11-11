@@ -67,7 +67,7 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answ
         thread::spawn(move || unsafe { SendMessageW(address as HWND, message, command, 0) });
     let mut dialog = std::ptr::null_mut();
     wait(|| {
-        dialog = window("#32770", pid);
+        dialog = window("ALTRun.Native.Confirmation", pid);
         !dialog.is_null()
             && unsafe { GetWindow(dialog, GW_OWNER) == owner && IsWindowVisible(dialog) != 0 }
     });

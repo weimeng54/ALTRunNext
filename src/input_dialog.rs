@@ -21,32 +21,6 @@ struct Input {
 
 unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     let state = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Input;
-    if !state.is_null() {
-        match msg {
-            WM_ERASEBKGND => unsafe {
-                let mut rect = std::mem::zeroed();
-                GetClientRect(hwnd, &mut rect);
-                FillRect(w as HDC, &rect, (*state).background);
-                return 1;
-            },
-            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => unsafe {
-                let (color, brush) = if msg == WM_CTLCOLOREDIT {
-                    (theme::paper(), (*state).paper)
-                } else {
-                    (theme::surface(), (*state).background)
-                };
-                SetTextColor(w as HDC, theme::text());
-                SetBkColor(w as HDC, color);
-                return brush as isize;
-            },
-            WM_DRAWITEM if l != 0 => {
-                let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-                theme_ui::button(item, item.CtlID == 1);
-                return 1;
-            }
-            _ => {}
-        }
-    }
     unsafe {
         match msg {
             WM_IME_STARTCOMPOSITION => (*state).composing = true,
@@ -74,6 +48,32 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
     }
     let state = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Input;
+    if !state.is_null() {
+        match msg {
+            WM_ERASEBKGND => unsafe {
+                let mut rect = std::mem::zeroed();
+                GetClientRect(hwnd, &mut rect);
+                FillRect(w as HDC, &rect, (*state).background);
+                return 1;
+            },
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => unsafe {
+                let (color, brush) = if msg == WM_CTLCOLOREDIT {
+                    (theme::paper(), (*state).paper)
+                } else {
+                    (theme::surface(), (*state).background)
+                };
+                SetTextColor(w as HDC, theme::text());
+                SetBkColor(w as HDC, color);
+                return brush as isize;
+            },
+            WM_DRAWITEM if l != 0 => {
+                let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+                theme_ui::button(item, item.CtlID == 1);
+                return 1;
+            }
+            _ => {}
+        }
+    }
     if !state.is_null() && ((msg == WM_COMMAND && matches!(w & 65535, 1 | 2)) || msg == WM_CLOSE) {
         if msg == WM_COMMAND && w & 65535 == 1 {
             unsafe {
@@ -102,7 +102,11 @@ pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
 fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
-        let class = wide("ALTRun.Native.ParameterDialog");
+        let class = wide(if message.is_some() {
+            "ALTRun.Native.Confirmation"
+        } else {
+            "ALTRun.Native.ParameterDialog"
+        });
         let mut wc: WNDCLASSW = std::mem::zeroed();
         wc.lpfnWndProc = Some(procedure);
         wc.hInstance = instance;
@@ -123,7 +127,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            wide(title).as_ptr(),
+            ui(title).as_ptr(),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -142,24 +146,38 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
             return None;
         }
         theme::frame(hwnd);
-        let dpi =
-            crate::window_geometry::fit(hwnd, 420, if message.is_some() { 135 } else { 110 }, None);
+        let long =
+            message.is_some_and(|message| message.chars().count() > 84 || message.contains('\n'));
+        let (height, content_height, action_y) = if long {
+            (278, 203, 230)
+        } else if message.is_some() {
+            (135, 55, 88)
+        } else {
+            (110, 28, 66)
+        };
+        let dpi = crate::window_geometry::fit(hwnd, 420, height, None);
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
+        let content_style = if long {
+            WS_TABSTOP | WS_VSCROLL | WS_BORDER | (ES_MULTILINE | ES_READONLY) as u32
+        } else if message.is_none() {
+            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32
+        } else {
+            0
+        };
         let content = CreateWindowExW(
             0,
-            wide(if message.is_some() { "STATIC" } else { "EDIT" }).as_ptr(),
+            wide(if message.is_some() && !long {
+                "STATIC"
+            } else {
+                "EDIT"
+            })
+            .as_ptr(),
             ui(message.unwrap_or("")).as_ptr(),
-            WS_CHILD
-                | WS_VISIBLE
-                | if message.is_some() {
-                    0
-                } else {
-                    WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32
-                },
+            WS_CHILD | WS_VISIBLE | content_style,
             scaled(16, dpi),
             scaled(16, dpi),
             scaled(388, dpi),
-            scaled(if message.is_some() { 54 } else { 28 }, dpi),
+            scaled(content_height, dpi),
             hwnd,
             10usize as HMENU,
             instance,
@@ -182,15 +200,20 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
         }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
         let mut focus = content;
-        for (text, id, x) in [("确定", 1, 224), ("取消", 2, 320)] {
+        let actions = if title == "关闭设置" {
+            [("放弃并关闭", 1, 156, 120), ("继续编辑", 2, 284, 120)]
+        } else {
+            [("确定", 1, 224, 84), ("取消", 2, 320, 84)]
+        };
+        for (text, id, x, width) in actions {
             let button = CreateWindowExW(
                 0,
                 wide("BUTTON").as_ptr(),
                 ui(text).as_ptr(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
                 scaled(x, dpi),
-                scaled(if message.is_some() { 88 } else { 66 }, dpi),
-                scaled(84, dpi),
+                scaled(action_y, dpi),
+                scaled(width, dpi),
                 scaled(28, dpi),
                 hwnd,
                 id as HMENU,

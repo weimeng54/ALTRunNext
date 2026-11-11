@@ -380,14 +380,7 @@ fn save() {
     }
 }
 fn confirm(hwnd: HWND, message: &str) -> bool {
-    unsafe {
-        MessageBoxW(
-            hwnd,
-            wide(message).as_ptr(),
-            ui("管理快捷项").as_ptr(),
-            MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2,
-        ) == IDOK
-    }
+    crate::input_dialog::confirm(hwnd, "管理快捷项", message)
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     if msg == WM_DESTROY {
