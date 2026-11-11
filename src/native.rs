@@ -67,6 +67,7 @@ struct State {
     match_sender: std::sync::mpsc::Sender<(u64, String, Vec<String>, bool)>,
     match_results: std::sync::mpsc::Receiver<MatchResult>,
     current_query: String,
+    default_list_ready: bool,
     matching: bool,
     last_key: u16,
     context: altrun_probe::launch::LaunchContext,
@@ -175,35 +176,34 @@ fn refresh() {
             .store(s.generation, std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
         s.matching = false;
-        if query.is_empty() {
-            s.hits.clear();
-        } else {
-            s.hits = match s.index.query_options(
-                &query,
-                s.preferences.flag("Regex"),
-                s.preferences.flag("MatchAnywhere"),
-                s.preferences.flag("StandardRegex"),
-            ) {
-                Ok(hits) => hits,
-                Err(e) if e == "advanced" => {
-                    let pattern = if s.preferences.flag("StandardRegex") {
-                        query.clone()
-                    } else {
-                        altrun_probe::matching::prepare_legacy(&query)
-                    };
-                    let _ = s.match_sender.send((
-                        s.generation,
-                        pattern,
-                        s.index.aliases().to_vec(),
-                        !s.preferences.flag("MatchAnywhere"),
-                    ));
-                    s.matching = true;
-                    Vec::new()
-                }
-                Err(_) => Vec::new(),
-            };
+        s.default_list_ready = query.is_empty();
+        s.hits = match s.index.query_options(
+            &query,
+            s.preferences.flag("Regex"),
+            s.preferences.flag("MatchAnywhere"),
+            s.preferences.flag("StandardRegex"),
+        ) {
+            Ok(hits) => hits,
+            Err(e) if e == "advanced" => {
+                let pattern = if s.preferences.flag("StandardRegex") {
+                    query.clone()
+                } else {
+                    altrun_probe::matching::prepare_legacy(&query)
+                };
+                let _ = s.match_sender.send((
+                    s.generation,
+                    pattern,
+                    s.index.aliases().to_vec(),
+                    !s.preferences.flag("MatchAnywhere"),
+                ));
+                s.matching = true;
+                Vec::new()
+            }
+            Err(_) => Vec::new(),
+        };
+        if !s.default_list_ready {
+            promote_preference(s);
         }
-        promote_preference(s);
         s.selected = 0;
     });
     render_hits();
@@ -465,9 +465,9 @@ fn reset_search() {
             was_parameter,
             s.preferences.flag("ShowOperationHint"),
             was_parameter
-                || !s.current_query.is_empty()
-                || !s.hits.is_empty()
-                || s.matching
+                || !s.default_list_ready
+                || s.selected != 0
+                || s.launching.is_some()
                 || s.error,
         )
     });
@@ -1578,10 +1578,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         } else {
                             ' '
                         },
-                        if s.preferences.flag("IndexFrom0to9") {
-                            d.itemID % 10
+                        if d.itemID >= 10 {
+                            ' '
+                        } else if s.preferences.flag("IndexFrom0to9") {
+                            char::from(b'0' + d.itemID as u8)
                         } else {
-                            (d.itemID + 1) % 10
+                            char::from(b'0' + ((d.itemID + 1) % 10) as u8)
                         }
                     );
                     let a = wide(&number);
@@ -1976,6 +1978,7 @@ pub fn run() -> Result<(), String> {
                 match_results,
                 match_generation,
                 current_query: String::new(),
+                default_list_ready: false,
                 matching: false,
                 last_key: 0,
                 context: altrun_probe::launch::LaunchContext {
@@ -2194,13 +2197,14 @@ fn open_manager() {
     }
 }
 fn visible_count(s: &State) -> usize {
-    if s.preferences.flag("ShowTopTen") {
+    if !s.current_query.is_empty() && s.preferences.flag("ShowTopTen") {
         s.hits.len().min(10)
     } else {
         s.hits.len()
     }
 }
 fn rebuild_index(s: &mut State) {
+    s.default_list_ready = false;
     let mut rows = s.entries.clone();
     for entry in &mut rows {
         entry.frequency = entry.frequency.saturating_add(
@@ -2301,6 +2305,7 @@ fn recent() {
     STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
+        s.default_list_ready = false;
         s.hits = s
             .usage
             .recent

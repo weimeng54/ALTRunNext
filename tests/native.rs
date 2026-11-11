@@ -55,6 +55,9 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
     );
     let mut fixture = std::fs::read_to_string(&data).unwrap();
     fixture.push_str(&success_command);
+    for i in 0..7 {
+        fixture.push_str(&format!("z{i}\tExtra command {i}\t__missing__.exe\t0\n"));
+    }
     std::fs::write(&data, fixture).unwrap();
     for scale in ["100", "150"] {
         let _child = Running(
@@ -94,9 +97,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 0
             );
             assert!(!edit.is_null() && !list.is_null());
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+            assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
             SendMessageW(edit, WM_SETTEXT, 0, wide("*").as_ptr() as isize);
-            assert!(SendMessageW(list, LB_GETCOUNT, 0, 0) >= 2);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 10);
+            SendMessageW(edit, WM_SETTEXT, 0, [0_u16].as_ptr() as isize);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
             let row_height = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) as u32;
             let click = (((row_height + row_height / 2) << 16) | 5) as isize;
             SendMessageW(list, WM_LBUTTONDOWN, 1, click);
@@ -156,8 +162,8 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             assert_ne!(IsWindowVisible(hwnd), 0);
             assert_ne!(IsWindowEnabled(list), 0);
             assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
-            assert_eq!(
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
+            assert_ne!(
                 SendMessageW(GetDlgItem(hwnd, 1003), WM_GETTEXTLENGTH, 0, 0),
                 0
             );

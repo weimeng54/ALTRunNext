@@ -1,6 +1,7 @@
 ALTRun Modern 0.2 — Windows 11 x64 便携版
 
 双击 ALTRun.exe 后按 Alt+R 呼出，输入快捷字，Enter 启动。
+呼出时清空输入框并显示全部启用的命令，可以滚动浏览。
 正式构建默认允许启动；--safe-mode 为不执行命令的预览模式。
 
 Ctrl+Alt+L / Ctrl+L：最近启动

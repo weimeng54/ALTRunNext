@@ -35,7 +35,7 @@ pub const SPECS: &[Spec] = &[
     spec!("ShowOperationHint", "显示操作提示", Bool, "1"),
     spec!("ShowCommandLine", "显示命令预览", Bool, "1"),
     spec!("ShowStartNotification", "启动通知", Bool, "0"),
-    spec!("ShowTopTen", "只显示前十项", Bool, "1"),
+    spec!("ShowTopTen", "搜索只显示前十项", Bool, "1"),
     spec!("PlayPopupNotify", "呼出声音", Bool, "0"),
     spec!("ExitWhenExecute", "执行后退出", Bool, "0"),
     spec!("ShowSkin", "启用背景图片", Bool, "0"),

@@ -281,8 +281,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert!(second.wait().unwrap().success());
         wait(|| IsWindowVisible(launcher) != 0);
         assert!(text(edit).is_empty());
-        assert!(text(GetDlgItem(launcher, 1003)).is_empty());
-        assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+        assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 3);
         set(edit, "self");
         SendMessageW(edit, WM_KEYDOWN, 13, 0);
         wait(|| marker.exists());
@@ -291,7 +290,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
         command(launcher, 18012);
         assert!(text(edit).is_empty());
-        assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+        assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 3);
         command(launcher, 18006);
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
         command(launcher, 18003);
