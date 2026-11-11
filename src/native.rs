@@ -1707,7 +1707,10 @@ pub fn run() -> Result<(), String> {
                         Some(legacy) if !path.is_file() => legacy,
                         _ => path,
                     };
-                    (path.to_string_lossy().into_owned(), SND_FILENAME | SND_NODEFAULT)
+                    (
+                        path.to_string_lossy().into_owned(),
+                        SND_FILENAME | SND_NODEFAULT,
+                    )
                 }
             };
             unsafe {
