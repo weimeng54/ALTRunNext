@@ -1108,10 +1108,10 @@ unsafe extern "system" fn hotkey_proc(
                 }
             }
             WM_SETFOCUS => start_capture(GetParent(control), index),
-            WM_MOUSELEAVE | WM_KILLFOCUS | WM_NCDESTROY => {
-                if CAPTURE.get().is_some_and(|capture| capture.index == index) {
-                    stop_capture();
-                }
+            WM_MOUSELEAVE | WM_KILLFOCUS | WM_NCDESTROY
+                if CAPTURE.get().is_some_and(|capture| capture.index == index) =>
+            {
+                stop_capture();
             }
             _ => {}
         }
