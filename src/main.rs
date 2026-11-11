@@ -17,11 +17,13 @@ mod settings;
 #[cfg(windows)]
 mod settings_pickers;
 #[cfg(windows)]
+mod settings_preview;
+#[cfg(windows)]
 mod skin;
 #[cfg(windows)]
 mod theme;
 #[cfg(windows)]
-mod window_actions;
+mod theme_ui;
 #[cfg(windows)]
 mod window_geometry;
 
@@ -42,63 +44,29 @@ fn main() {
             }
         }
     }
-    if std::env::args().any(|arg| arg == "--migrate") {
-        let args = std::env::args_os().collect::<Vec<_>>();
-        let value = |key: &str| {
-            args.iter()
-                .position(|a| a == key)
-                .and_then(|i| args.get(i + 1))
-                .map(std::path::PathBuf::from)
-                .ok_or_else(|| format!("Missing {key}"))
-        };
-        let result = value("--migrate").and_then(|source| {
-            value("--output-dir").and_then(|destination| {
-                altrun_probe::migration::Migration::read(
-                    &source,
-                    args.iter().any(|a| a == "--legacy-appearance"),
-                )
-                .and_then(|m| m.write_new(&destination))
-            })
-        });
-        if let Err(error) = &result {
-            eprintln!("{error}");
-        }
-        std::process::exit(i32::from(result.is_err()));
-    }
     if std::env::args().any(|arg| arg == "--regex-worker") {
         std::process::exit(i32::from(
             altrun_probe::isolated_matching::worker_main().is_err(),
         ));
     }
-    if std::env::args().any(|arg| arg == "--convert-legacy") {
-        let result = convert_legacy();
+    if std::env::args().any(|arg| arg == "--check") {
+        let args = std::env::args_os().collect::<Vec<_>>();
+        let result = if let Some(i) = args.iter().position(|arg| arg == "--data") {
+            args.get(i + 1)
+                .ok_or_else(|| "--data needs a path".to_owned())
+                .and_then(|path| altrun_probe::library::Snapshot::open(path.as_ref()))
+                .map(|_| ())
+        } else {
+            Ok(())
+        };
         if let Err(error) = &result {
             eprintln!("{error}");
         }
         std::process::exit(i32::from(result.is_err()));
     }
-    if std::env::args().any(|arg| arg == "--check") {
-        return;
-    }
     #[cfg(windows)]
     if let Err(message) = native::run() {
-        // A prototype must fail visibly rather than silently running without a hotkey.
         native::show_error(&message);
         std::process::exit(1);
     }
-}
-
-fn convert_legacy() -> Result<(), String> {
-    let args: Vec<_> = std::env::args_os().collect();
-    let value = |flag: &str| {
-        args.iter()
-            .position(|a| a == flag)
-            .and_then(|i| args.get(i + 1))
-            .ok_or_else(|| format!("Missing {flag} value"))
-    };
-    let source = std::path::PathBuf::from(value("--convert-legacy")?);
-    let destination = std::path::PathBuf::from(value("--output")?);
-    let original = altrun_probe::library::Snapshot::open(&source)?;
-    let mut output = altrun_probe::library::Snapshot::new(destination, original.entries.clone())?;
-    output.save(&original.entries)
 }

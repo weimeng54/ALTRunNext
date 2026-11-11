@@ -2,13 +2,13 @@
 pub const fn rgb(r: u32, g: u32, b: u32) -> u32 {
     r | (g << 8) | (b << 16)
 }
-pub const SURFACE: u32 = rgb(245, 247, 250);
+pub const SURFACE: u32 = rgb(245, 247, 251);
 pub const PAPER: u32 = rgb(255, 255, 255);
-pub const TEXT: u32 = rgb(32, 44, 58);
-pub const MUTED: u32 = rgb(97, 112, 132);
-pub const SELECTION: u32 = rgb(231, 239, 248);
-pub const ACCENT: u32 = rgb(49, 95, 136);
-pub const BORDER: u32 = rgb(198, 208, 220);
+pub const TEXT: u32 = rgb(23, 37, 53);
+pub const MUTED: u32 = rgb(79, 96, 116);
+pub const SELECTION: u32 = rgb(220, 234, 250);
+pub const ACCENT: u32 = rgb(36, 92, 153);
+pub const BORDER: u32 = rgb(118, 137, 158);
 pub const ERROR: u32 = rgb(165, 44, 54);
 pub const ROW: i32 = 22;
 pub const LIST_Y: i32 = 65;
@@ -47,6 +47,7 @@ pub fn border() -> u32 {
     PALETTE.with(|p| p.get().border)
 }
 thread_local! {static KEYWORD:std::cell::Cell<u32>=const{std::cell::Cell::new(PAPER)};static CONTRAST:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+thread_local! {static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };}
 pub fn keyword() -> u32 {
     KEYWORD.with(std::cell::Cell::get)
 }
@@ -56,10 +57,59 @@ pub fn font_colour(value: &str) -> u32 {
     }
     let colour = altrun_probe::preferences::Font::parse(value)
         .map(|f| f.colour)
-        .unwrap_or(TEXT);
-    if colour == TEXT { text() } else { colour }
+        .unwrap_or(rgb(32, 44, 58));
+    if colour == rgb(32, 44, 58) {
+        text()
+    } else {
+        colour
+    }
 }
 pub fn install(prefs: &altrun_probe::preferences::Preferences) {
+    install_palette(prefs, true);
+}
+pub fn install_chrome(prefs: &altrun_probe::preferences::Preferences) {
+    install_palette(prefs, false);
+}
+pub fn high_contrast() -> bool {
+    CONTRAST.with(std::cell::Cell::get)
+}
+pub fn chrome() -> u32 {
+    if high_contrast() {
+        surface()
+    } else if DARK.with(std::cell::Cell::get) {
+        rgb(21, 26, 32)
+    } else {
+        rgb(236, 240, 246)
+    }
+}
+pub fn control_surface() -> u32 {
+    if high_contrast() {
+        surface()
+    } else if DARK.with(std::cell::Cell::get) {
+        rgb(34, 41, 50)
+    } else {
+        PAPER
+    }
+}
+pub fn on_accent() -> u32 {
+    if high_contrast() {
+        selection()
+    } else if DARK.with(std::cell::Cell::get) {
+        rgb(19, 41, 65)
+    } else {
+        PAPER
+    }
+}
+pub fn frame(hwnd: windows_sys::Win32::Foundation::HWND) {
+    use windows_sys::Win32::Graphics::Dwm::*;
+    let dark = u32::from(DARK.with(std::cell::Cell::get) && !high_contrast());
+    let caption = if high_contrast() { u32::MAX } else { chrome() };
+    let ink = if high_contrast() { u32::MAX } else { text() };
+    for (attribute, value) in [(20, dark), (35, caption), (36, ink)] {
+        unsafe { DwmSetWindowAttribute(hwnd, attribute, &value as *const _ as _, 4) };
+    }
+}
+fn install_palette(prefs: &altrun_probe::preferences::Preferences, custom: bool) {
     use windows_sys::Win32::{Graphics::Gdi::*, System::Registry::*, UI::WindowsAndMessaging::*};
     #[repr(C)]
     struct Contrast {
@@ -76,6 +126,7 @@ pub fn install(prefs: &altrun_probe::preferences::Preferences) {
         SystemParametersInfoW(0x42, contrast.size, &mut contrast as *mut _ as _, 0);
     }
     if contrast.flags & 1 != 0 {
+        DARK.with(|c| c.set(false));
         CONTRAST.with(|c| c.set(true));
         KEYWORD.with(|c| c.set(unsafe { GetSysColor(COLOR_WINDOW) }));
         unsafe {
@@ -118,15 +169,16 @@ pub fn install(prefs: &altrun_probe::preferences::Preferences) {
             dark = value == 0;
         }
     }
+    DARK.with(|c| c.set(dark));
     let mut palette = if dark {
         Palette {
-            surface: rgb(30, 34, 40),
-            paper: rgb(24, 28, 34),
-            text: rgb(231, 235, 242),
-            muted: rgb(161, 174, 192),
-            selection: rgb(46, 65, 87),
-            accent: rgb(128, 180, 229),
-            border: rgb(73, 83, 98),
+            surface: rgb(25, 30, 37),
+            paper: rgb(23, 29, 36),
+            text: rgb(240, 244, 248),
+            muted: rgb(180, 192, 206),
+            selection: rgb(40, 61, 85),
+            accent: rgb(154, 199, 255),
+            border: rgb(101, 119, 138),
         }
     } else {
         Palette {
@@ -147,7 +199,8 @@ pub fn install(prefs: &altrun_probe::preferences::Preferences) {
         ("SelectionColor", &mut palette.selection),
     ] {
         let value = prefs.get(key);
-        if (!dark || value != defaults.get(key))
+        if custom
+            && value != defaults.get(key)
             && let Ok(value) = altrun_probe::preferences::parse_colour(&value)
         {
             *target = value;
@@ -157,7 +210,7 @@ pub fn install(prefs: &altrun_probe::preferences::Preferences) {
     CONTRAST.with(|c| c.set(false));
     let value = prefs.get("KeywordColor");
     KEYWORD.with(|c| {
-        c.set(if dark && value == defaults.get("KeywordColor") {
+        c.set(if !custom || value == defaults.get("KeywordColor") {
             palette.paper
         } else {
             altrun_probe::preferences::parse_colour(&value).unwrap_or(palette.paper)

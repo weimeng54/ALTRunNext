@@ -119,12 +119,13 @@ fn select_page(hwnd: HWND, page: usize) {
     use windows_sys::Win32::UI::Controls::TCM_GETCURSEL;
     unsafe {
         let tabs = GetDlgItem(hwnd, 2301);
-        let current = SendMessageW(tabs, TCM_GETCURSEL, 0, 0) as usize;
-        let key = if page < current { 0x25 } else { 0x27 };
-        for _ in 0..page.abs_diff(current) {
-            SendMessageW(tabs, WM_KEYDOWN, key, 0);
-        }
-        assert_eq!(SendMessageW(tabs, TCM_GETCURSEL, 0, 0) as usize, page);
+        assert_eq!(SendMessageW(tabs, LB_SETCURSEL, page, 0) as usize, page);
+        SendMessageW(
+            hwnd,
+            WM_COMMAND,
+            (LBN_SELCHANGE as usize) << 16 | 2301,
+            tabs as isize,
+        );
     }
 }
 #[test]
@@ -206,8 +207,22 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         });
         assert_ne!(IsWindowVisible(setting(dialog, "AddToSendTo")), 0);
         assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
+        assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
         native_snapshot::save(dialog, "settings-general");
         select_page(dialog, 3);
+        let preview = GetDlgItem(dialog, 2306);
+        assert_ne!(IsWindowVisible(preview), 0);
+        set(preview, "db");
+        let theme = setting(dialog, "Theme");
+        SendMessageW(theme, CB_SETCURSEL, 1, 0);
+        SendMessageW(
+            dialog,
+            WM_COMMAND,
+            (CBN_SELCHANGE as usize) << 16 | GetDlgCtrlID(theme) as usize,
+            theme as isize,
+        );
+        native_snapshot::save(dialog, "settings-dark-appearance");
+        SendMessageW(theme, CB_SETCURSEL, 0, 0);
         assert_ne!(IsWindowVisible(setting(dialog, "RowHeight")), 0);
         set(setting(dialog, "RowHeight"), "024 ");
         command(dialog, 2310);
@@ -345,5 +360,32 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             ),
         )
         .unwrap();
+
+        command(launcher, 18005);
+        let mut settings_window = null_mut();
+        wait(|| {
+            settings_window = window("ALTRun.Native.Settings", pid);
+            !settings_window.is_null() && IsWindowVisible(settings_window) != 0
+        });
+        SendMessageW(setting(settings_window, "Lang"), CB_SETCURSEL, 1, 0);
+        command(settings_window, 2310);
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("Lang=EN")
+        );
+        command(settings_window, 2314);
+        wait(|| IsWindow(settings_window) == 0);
+        wait(|| {
+            settings_window = window("ALTRun.Native.Settings", pid);
+            if settings_window.is_null() {
+                PostMessageW(launcher, WM_COMMAND, 18005, 0);
+            }
+            !settings_window.is_null() && IsWindowVisible(settings_window) != 0
+        });
+        assert_eq!(text(settings_window), "ALTRun · Settings");
+        assert_eq!(text(GetDlgItem(settings_window, 2310)), "Save and apply");
+        command(settings_window, 2314);
+        wait(|| IsWindow(settings_window) == 0);
     }
 }

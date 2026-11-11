@@ -5,41 +5,15 @@ use altrun_probe::{
 };
 
 #[test]
-fn legacy_import_preserves_types_frequency_duplicates_and_command_delimiters() {
-    let imported = library::import_legacy(concat!(
-        "备注：常用程序\n",
-        "F12 | utf8_query | web | 中文搜索 | https://example.com/?q={%p}&flags=a|b,c\n",
-        "F3 | no_encoding | cmd | 命令 | cmd.exe /k %p\n",
-        "np,记事本,notepad.exe\n",
-        "np,另一个,other.exe /a,b\n"
-    ))
-    .unwrap();
-    assert_eq!(imported.entries.len(), 4);
-    assert_eq!(imported.ignored_lines, 1);
-    assert_eq!(imported.entries[0].frequency, 12);
-    assert_eq!(imported.entries[0].param_type, ParamType::Utf8Url);
-    assert_eq!(
-        imported.entries[0].command,
-        "https://example.com/?q={%p}&flags=a|b,c"
-    );
-    assert_eq!(imported.entries[2].param_type, ParamType::None);
-    assert_eq!(imported.entries[3].command, "other.exe /a,b");
-    let saved = library::serialize(&imported.entries).unwrap();
-    let restored = parse_entries(&saved).unwrap();
-    assert_eq!(restored[0].param_type, ParamType::Utf8Url);
-    assert_eq!(restored[3].alias, "np");
-}
-
-#[test]
 fn malformed_data_does_not_silently_drop_shortcuts() {
-    assert!(library::import_legacy("F1|utf8_query|only_alias").is_err());
+    assert!(parse_entries("F1|utf8_query|only_alias").is_err());
     assert!(parse_entries("a\tname\tapp.exe\t2\tunknown_type\n").is_err());
     let old = parse_entries("np\t记事本\tnotepad.exe\t7\n").unwrap();
     assert_eq!(old[0].param_type, ParamType::Auto);
 }
 
 #[test]
-fn typed_parameters_match_original_url_encoding_and_brace_marker() {
+fn typed_parameters_support_url_encoding_and_brace_marker() {
     let url = "https://example.com/?q={%p}";
     let r = launch::resolve_typed(url, Some("中文 12+&"), ParamType::Utf8Url).unwrap();
     assert_eq!(
@@ -95,67 +69,16 @@ fn save_creates_backup_and_rejects_external_changes() {
 }
 
 #[test]
-fn old_chinese_file_decodes_without_replacement_characters() {
-    assert_eq!(library::decode(&[0xd6, 0xd0, 0xce, 0xc4]).unwrap(), "中文");
+fn ansi_url_parameters_use_the_system_encoding() {
+    assert!(library::decode(&[0xd6, 0xd0, 0xce, 0xc4]).is_err());
     assert!(library::decode(&[0xff]).is_err());
     let encoded = launch::resolve_typed(
         "https://example.com/?q=%p",
         Some("A1 +@"),
-        ParamType::LegacyUrl,
+        ParamType::AnsiUrl,
     )
     .unwrap();
     assert_eq!(encoded.file, "https://example.com/?q=A%31+%2B@");
-}
-
-#[test]
-fn headless_conversion_never_overwrites_the_import_source() {
-    let dir = std::env::current_dir()
-        .unwrap()
-        .join("target/library-conversion-test");
-    std::fs::create_dir_all(&dir).unwrap();
-    let source = dir.join("legacy.txt");
-    let output = dir.join("converted.tsv");
-    let original = "F8|utf8_query|web|网页搜索|https://example.com/?q={%p}\n";
-    std::fs::write(&source, original).unwrap();
-    let _ = std::fs::remove_file(&output);
-    let program = env!("CARGO_BIN_EXE_altrun-probe");
-    assert!(
-        std::process::Command::new(program)
-            .arg("--convert-legacy")
-            .arg(&source)
-            .arg("--output")
-            .arg(&output)
-            .status()
-            .unwrap()
-            .success()
-    );
-    assert_eq!(
-        Snapshot::open(&output).unwrap().entries[0].param_type,
-        ParamType::Utf8Url
-    );
-    assert!(
-        !std::process::Command::new(program)
-            .arg("--convert-legacy")
-            .arg(&source)
-            .arg("--output")
-            .arg(&source)
-            .status()
-            .unwrap()
-            .success()
-    );
-    assert_eq!(std::fs::read_to_string(source).unwrap(), original);
-}
-
-#[test]
-fn comma_headers_starting_with_f_keep_pipes_in_command_tails() {
-    let imported = library::import_legacy(
-        "Firefox,浏览器,app.exe --filter a|b\nF7,no_encoding,Find,查找,app.exe %p | other\n",
-    )
-    .unwrap();
-    assert_eq!(imported.entries[0].alias, "Firefox");
-    assert_eq!(imported.entries[0].command, "app.exe --filter a|b");
-    assert_eq!(imported.entries[1].frequency, 7);
-    assert_eq!(imported.entries[1].command, "app.exe %p | other");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-pub fn prepare_legacy(pattern: &str) -> String {
+pub fn expand_wildcards(pattern: &str) -> String {
     let mut output = String::new();
     let mut escaped = false;
     let mut class = false;

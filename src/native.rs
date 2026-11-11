@@ -34,16 +34,15 @@ const STATE_ERROR: u32 = WM_APP + 17;
 const SEARCH_IME_UPDATE: u32 = WM_APP + 18;
 const TITLE_STRIP: i32 = 29;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
-const STATIC_CENTER: u32 = 0x00000000;
+const TITLE: usize = 1000;
+const STATIC_OWNER_DRAW: u32 = 0x0000000d;
 type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
+type BackdropResult = (crate::skin::Request, Result<crate::skin::Bitmap, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
 enum PopupSound {
     System,
-    File {
-        path: std::path::PathBuf,
-        legacy_path: Option<std::path::PathBuf>,
-    },
+    File(std::path::PathBuf),
 }
 
 struct State {
@@ -54,10 +53,10 @@ struct State {
     font_colours: [u32; 3],
     alias_font: HFONT,
     buttons: [HWND; 3],
-    skin: usize,
-    skin_path: String,
-    skin_sender: std::sync::mpsc::Sender<(String, Result<usize, String>)>,
-    skin_results: std::sync::mpsc::Receiver<(String, Result<usize, String>)>,
+    skin: Option<crate::skin::Bitmap>,
+    skin_request: Option<crate::skin::Request>,
+    skin_sender: std::sync::mpsc::Sender<BackdropResult>,
+    skin_results: std::sync::mpsc::Receiver<BackdropResult>,
     preferences: altrun_probe::preferences::Preferences,
     usage: altrun_probe::usage::Usage,
     usage_writer: altrun_probe::state_store::Writer,
@@ -191,7 +190,7 @@ fn refresh() {
                 let pattern = if s.preferences.flag("StandardRegex") {
                     query.clone()
                 } else {
-                    altrun_probe::matching::prepare_legacy(&query)
+                    altrun_probe::matching::expand_wildcards(&query)
                 };
                 let _ = s.match_sender.send((
                     s.generation,
@@ -444,7 +443,7 @@ fn show_inline_error(message: &str) {
         (s.hwnd, s.edit, s.command)
     });
     unsafe {
-        SetWindowTextW(command, wide(message).as_ptr());
+        SetWindowTextW(command, ui(message).as_ptr());
         InvalidateRect(command, std::ptr::null(), 1);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetForegroundWindow(hwnd);
@@ -681,8 +680,7 @@ fn launch_selected() {
             &context,
         )
         .and_then(|(request, mode, directory)| {
-            crate::window_actions::execute(&request.file, &request.parameters, context.window_id)
-                .unwrap_or_else(|| execute_request_with(&request, mode, directory.as_deref()))
+            execute_request_with(&request, mode, directory.as_deref())
         });
         let _ = result_sender.send(result);
         unsafe {
@@ -752,6 +750,41 @@ pub(crate) fn make_font(size: i32, weight: i32, family: &str, dpi: i32) -> HFONT
         )
     }
 }
+fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {
+    let name = crate::theme_ui::window_text(item.hwndItem);
+    STATE.with(|state| {
+        let state = state.borrow();
+        let Some(s) = state.as_ref() else {
+            return;
+        };
+        let dc = item.hDC;
+        crate::theme_ui::fill(dc, &item.rcItem, theme::surface());
+        unsafe {
+            if let Some(bitmap) = &s.skin {
+                let mut origin = POINT { x: 0, y: 0 };
+                let mut rect: RECT = zeroed();
+                GetClientRect(hwnd, &mut rect);
+                MapWindowPoints(item.hwndItem, hwnd, &mut origin, 1);
+                OffsetRect(&mut rect, -origin.x, -origin.y);
+                let old = SaveDC(dc);
+                if old != 0 {
+                    IntersectClipRect(
+                        dc,
+                        item.rcItem.left,
+                        item.rcItem.top,
+                        item.rcItem.right,
+                        item.rcItem.bottom,
+                    );
+                    bitmap.draw(dc, rect, &s.preferences.get("BGCrop"));
+                    RestoreDC(dc, old);
+                }
+            }
+            let font = SelectObject(dc, s.title_font);
+            crate::theme_ui::line_text(dc, item.rcItem, &name, s.font_colours[0], 0);
+            SelectObject(dc, font);
+        }
+    });
+}
 fn paint_panel(hwnd: HWND) {
     unsafe {
         let mut ps: PAINTSTRUCT = zeroed();
@@ -761,32 +794,10 @@ fn paint_panel(hwnd: HWND) {
             let Some(s) = s.as_ref() else {
                 return;
             };
-            if s.skin != 0 {
-                let memory = CreateCompatibleDC(dc);
-                let old = SelectObject(memory, s.skin as HBITMAP);
-                let mut bitmap: BITMAP = zeroed();
-                GetObjectW(
-                    s.skin as _,
-                    std::mem::size_of_val(&bitmap) as i32,
-                    &mut bitmap as *mut _ as _,
-                );
+            if let Some(bitmap) = &s.skin {
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect);
-                StretchBlt(
-                    dc,
-                    0,
-                    0,
-                    rect.right,
-                    rect.bottom,
-                    memory,
-                    0,
-                    0,
-                    bitmap.bmWidth,
-                    bitmap.bmHeight,
-                    SRCCOPY,
-                );
-                SelectObject(memory, old);
-                DeleteDC(memory);
+                bitmap.draw(dc, rect, &s.preferences.get("BGCrop"));
             }
             let old_brush = SelectObject(dc, s.input_paper);
             let old_pen = SelectObject(dc, s.border);
@@ -1261,26 +1272,22 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             STATE.with(|c| {
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
-                while let Ok((path, result)) = s.skin_results.try_recv() {
-                    match result {
-                        Ok(bitmap) if path == s.skin_path => {
-                            if s.skin != 0 {
-                                unsafe {
-                                    DeleteObject(s.skin as _);
-                                }
-                            }
-                            s.skin = bitmap;
+                while let Ok((request, result)) = s.skin_results.try_recv() {
+                    if s.skin_request.as_ref() == Some(&request) {
+                        match result {
+                            Ok(bitmap) => s.skin = Some(bitmap),
+                            Err(error) => errors.push(error),
                         }
-                        Ok(bitmap) => unsafe {
-                            DeleteObject(bitmap as _);
-                        },
-                        Err(e) if path == s.skin_path => errors.push(e),
-                        Err(_) => {}
                     }
                 }
             });
             unsafe {
-                InvalidateRect(hwnd, std::ptr::null(), 1);
+                RedrawWindow(
+                    hwnd,
+                    std::ptr::null(),
+                    null_mut(),
+                    RDW_INVALIDATE | RDW_ALLCHILDREN,
+                );
             }
             if let Some(e) = errors.pop() {
                 show_inline_error(&e);
@@ -1625,6 +1632,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         }
         WM_DRAWITEM => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+            if d.CtlID as usize == TITLE {
+                paint_title(hwnd, d);
+                return 1;
+            }
             if d.itemID == u32::MAX {
                 return 1;
             }
@@ -1736,7 +1747,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 return 0;
             };
             let dc = w as HDC;
-            let paper = l as HWND == s.edit || l as HWND == s.list;
+            let paper = l as HWND == s.edit || l as HWND == s.list || l as HWND == s.command;
             unsafe {
                 SetTextColor(
                     dc,
@@ -1870,16 +1881,10 @@ pub fn run() -> Result<(), String> {
             }
             let (source, flags) = match sound {
                 PopupSound::System => ("SystemAsterisk".to_owned(), SND_ALIAS),
-                PopupSound::File { path, legacy_path } => {
-                    let path = match legacy_path {
-                        Some(legacy) if !path.is_file() => legacy,
-                        _ => path,
-                    };
-                    (
-                        path.to_string_lossy().into_owned(),
-                        SND_FILENAME | SND_NODEFAULT,
-                    )
-                }
+                PopupSound::File(path) => (
+                    path.to_string_lossy().into_owned(),
+                    SND_FILENAME | SND_NODEFAULT,
+                ),
             };
             unsafe {
                 PlaySoundW(wide(&source).as_ptr(), null_mut(), flags | SND_ASYNC);
@@ -1887,10 +1892,7 @@ pub fn run() -> Result<(), String> {
         }
     });
     theme::install(&preferences);
-    crate::localization::install(
-        &preferences.get("Lang"),
-        data_path.parent().unwrap_or(std::path::Path::new(".")),
-    )?;
+    crate::localization::install(&preferences.get("Lang"));
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance = GetModuleHandleW(std::ptr::null());
@@ -1963,7 +1965,7 @@ pub fn run() -> Result<(), String> {
         );
         let title_font = make_font(13, 600, "Microsoft YaHei UI", dpi);
         let input_font = make_font(16, 400, "Microsoft YaHei UI", dpi);
-        let command_font = make_font(11, 400, "Consolas", dpi);
+        let command_font = make_font(12, 400, "Consolas", dpi);
         let control = |class_name: &str, style: u32, x, y, width, height, id: usize| {
             CreateWindowExW(
                 0,
@@ -1980,7 +1982,7 @@ pub fn run() -> Result<(), String> {
                 std::ptr::null(),
             )
         };
-        let title = control("STATIC", STATIC_CENTER, 12, 6, 396, 20, 1000);
+        let title = control("STATIC", STATIC_OWNER_DRAW, 12, 6, 396, 20, TITLE);
         let edit = control("EDIT", ES_AUTOHSCROLL as u32, 18, 35, 384, 22, ID_EDIT);
         let list = control(
             "LISTBOX",
@@ -2051,8 +2053,8 @@ pub fn run() -> Result<(), String> {
                 alias_font,
                 font_colours: [theme::text(); 3],
                 buttons,
-                skin: 0,
-                skin_path: String::new(),
+                skin: None,
+                skin_request: None,
                 skin_sender,
                 skin_results,
                 preferences,
@@ -2230,9 +2232,6 @@ pub fn run() -> Result<(), String> {
                 DeleteObject(s.border);
                 DeleteObject(s.selected_brush);
                 DeleteObject(s.background);
-                if s.skin != 0 {
-                    DeleteObject(s.skin as _);
-                }
             }
         });
         UnregisterClassW(class.as_ptr(), instance);
@@ -2584,6 +2583,9 @@ fn apply_settings_messages() {
                     true
                 });
                 if accepted {
+                    let language =
+                        STATE.with(|c| c.borrow().as_ref().unwrap().preferences.get("Lang"));
+                    crate::localization::install(&language);
                     apply_appearance();
                     refresh();
                     update_search_ime(true);
@@ -2699,7 +2701,7 @@ fn apply_appearance() {
         });
         if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("ListFont")) {
             let alias = make_font(font.points * 4 / 3, 600, &font.name, dpi);
-            let preview = make_font(11, 400, "Consolas", dpi);
+            let preview = make_font(12, 400, "Consolas", dpi);
             SendMessageW(command, WM_SETFONT, preview as usize, 1);
             STATE.with(|c| {
                 let mut s = c.borrow_mut();
@@ -2712,11 +2714,6 @@ fn apply_appearance() {
         let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_LAYERED) as i32);
         SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-        if prefs.flag("ShowSkin") || prefs.get("AlphaColor") != "0" {
-            let colour =
-                altrun_probe::preferences::parse_colour(&prefs.get("AlphaColor")).unwrap_or(0);
-            SetLayeredWindowAttributes(hwnd, colour, alpha, LWA_ALPHA | LWA_COLORKEY);
-        }
         let hint = search_hint(prefs.flag("ShowOperationHint"));
         SendMessageW(edit, EM_SETCUEBANNER, 0, hint.as_ptr() as isize);
         ShowWindow(
@@ -2752,6 +2749,14 @@ fn apply_appearance() {
         );
     }
     load_skin();
+    unsafe {
+        RedrawWindow(
+            hwnd,
+            std::ptr::null(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_ALLCHILDREN,
+        );
+    }
 }
 fn choose_number(digit: usize) {
     let chosen = STATE.with(|c| {
@@ -2845,47 +2850,21 @@ fn selected_action(copy: bool) {
 
 fn load_skin() {
     let task = STATE.with(|c| {
-        let mut s = c.borrow_mut();
-        let s = s.as_mut().unwrap();
-        let path = if s.preferences.flag("ShowSkin") {
-            s.preferences.get("BGFileName")
-        } else {
-            String::new()
-        };
-        if path == s.skin_path {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        let request =
+            crate::skin::Request::for_settings(&s.preferences, &s.data_path, theme::surface());
+        if request == s.skin_request {
             return None;
         }
-        s.skin_path = path.clone();
-        if s.skin != 0 {
-            unsafe {
-                DeleteObject(s.skin as _);
-            }
-            s.skin = 0;
-        }
-        if path.is_empty() {
-            return None;
-        }
-        let resolved = std::path::PathBuf::from(&path);
-        let resolved = if resolved.is_absolute() {
-            resolved
-        } else {
-            s.data_path
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join(resolved)
-        };
-        Some((path, resolved, s.skin_sender.clone(), s.hwnd as usize))
+        s.skin = None;
+        s.skin_request = request.clone();
+        request.map(|request| (request, s.skin_sender.clone(), s.hwnd as usize))
     });
-    if let Some((path, resolved, sender, owner)) = task {
+    if let Some((request, sender, owner)) = task {
         std::thread::spawn(move || {
-            let result = crate::skin::load(&resolved);
-            if let Err(undelivered) = sender.send((path, result)) {
-                if let Ok(bitmap) = undelivered.0.1 {
-                    unsafe {
-                        DeleteObject(bitmap as _);
-                    }
-                }
-            } else {
+            let result = crate::skin::load(&request);
+            if sender.send((request, result)).is_ok() {
                 unsafe {
                     PostMessageW(owner as HWND, SKIN_DONE, 0, 0);
                 }
@@ -3023,16 +3002,10 @@ fn popup_sound() {
         let sound = if file.is_empty() {
             PopupSound::System
         } else if path.is_absolute() {
-            PopupSound::File {
-                path: path.into(),
-                legacy_path: None,
-            }
+            PopupSound::File(path.into())
         } else {
             let data_directory = s.data_path.parent().unwrap_or(std::path::Path::new("."));
-            PopupSound::File {
-                path: data_directory.join(path),
-                legacy_path: Some(std::path::Path::new(&s.context.base_directory).join(path)),
-            }
+            PopupSound::File(data_directory.join(path))
         };
         let _ = s.sound_sender.try_send(sound);
     });
@@ -3052,8 +3025,8 @@ fn lifecycle(clean: bool) {
         if unsafe {
             MessageBoxW(
                 hwnd,
-                ui("移除新版的开机启动和“发送到”项目，然后退出？快捷项和原版配置均保留。").as_ptr(),
-                ui("清理新版系统集成").as_ptr(),
+                ui("关闭开机启动并移除“发送到”入口，然后退出 ALTRun？").as_ptr(),
+                ui("移除系统集成").as_ptr(),
                 MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
             )
         } != IDOK

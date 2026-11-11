@@ -128,8 +128,15 @@ pub const SPECS: &[Spec] = &[
         default: "100",
     },
     spec!("BGFileName", "背景图片", Text, ""),
+    spec!("BGCrop", "裁切位置", Text, "center"),
+    Spec {
+        key: "BGStrength",
+        label: "底纹强度（%）",
+        kind: Kind::Number(0, 100),
+        default: "68",
+    },
     spec!("PopupFileName", "呼出声音文件", Text, ""),
-    spec!("Lang", "语言（简体中文 / EN / 语言文件）", Text, "简体中文"),
+    spec!("Lang", "显示语言", Text, "简体中文"),
     spec!("WorkingDirectory", "默认工作目录", Text, ""),
     spec!("ListFormat", "列表格式", Text, "%-25s| %s"),
     spec!("Theme", "主题（light / dark / system）", Text, "light"),
@@ -144,7 +151,6 @@ pub const SPECS: &[Spec] = &[
     spec!("ListColor", "列表背景色", Text, "#FFFFFF"),
     spec!("TextColor", "文字颜色", Text, "#202C3A"),
     spec!("SelectionColor", "选中背景色", Text, "#E7EFF8"),
-    spec!("AlphaColor", "透明色（旧版兼容）", Text, "0"),
     spec!(
         "TitleFont",
         "标题字体",
@@ -200,6 +206,9 @@ impl Preferences {
             let Some((key, value)) = line.split_once('=') else {
                 return Err(format!("设置第 {} 行缺少等号", i + 1));
             };
+            if key.trim().eq_ignore_ascii_case("AlphaColor") {
+                continue;
+            }
             if SPECS.iter().any(|s| s.key.eq_ignore_ascii_case(key.trim())) {
                 result.set(key.trim(), value.trim())?;
             } else {
@@ -256,6 +265,17 @@ impl Preferences {
                 value.to_owned()
             }
             Kind::Text => {
+                if spec.key == "Lang" {
+                    let language = if value.eq_ignore_ascii_case("EN")
+                        || value.eq_ignore_ascii_case("English")
+                    {
+                        "EN"
+                    } else {
+                        "简体中文"
+                    };
+                    self.values.insert(spec.key.into(), language.into());
+                    return Ok(());
+                }
                 if spec.key == "ListFormat" {
                     crate::list_format::render(value, "a", "b")?;
                 }
@@ -264,6 +284,9 @@ impl Preferences {
                 }
                 if spec.key == "PositionMode" && !matches!(value, "remember" | "mouse" | "center") {
                     return Err("位置应为 remember、mouse 或 center".into());
+                }
+                if spec.key == "BGCrop" && !matches!(value, "top" | "center" | "bottom") {
+                    return Err("请选择有效的裁切位置".into());
                 }
                 if spec.key.ends_with("Color") {
                     parse_colour(value)?;
@@ -287,9 +310,10 @@ impl Preferences {
                 let section = if [
                     "FormWidth",
                     "Alpha",
-                    "AlphaColor",
                     "RoundBorderRadius",
                     "BGFileName",
+                    "BGCrop",
+                    "BGStrength",
                     "Lang",
                     "Theme",
                     "RowHeight",

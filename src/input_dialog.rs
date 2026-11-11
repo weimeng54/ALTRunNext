@@ -1,10 +1,13 @@
-use crate::native::{make_font, scaled, ui, wide};
+use crate::{
+    native::{make_font, scaled, ui, wide},
+    theme, theme_ui,
+};
 use std::ptr::null_mut;
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+    UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 struct Input {
     done: bool,
@@ -12,10 +15,38 @@ struct Input {
     edit: HWND,
     old_edit: isize,
     composing: bool,
+    background: HBRUSH,
+    paper: HBRUSH,
 }
 
 unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     let state = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Input;
+    if !state.is_null() {
+        match msg {
+            WM_ERASEBKGND => unsafe {
+                let mut rect = std::mem::zeroed();
+                GetClientRect(hwnd, &mut rect);
+                FillRect(w as HDC, &rect, (*state).background);
+                return 1;
+            },
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => unsafe {
+                let (color, brush) = if msg == WM_CTLCOLOREDIT {
+                    (theme::paper(), (*state).paper)
+                } else {
+                    (theme::surface(), (*state).background)
+                };
+                SetTextColor(w as HDC, theme::text());
+                SetBkColor(w as HDC, color);
+                return brush as isize;
+            },
+            WM_DRAWITEM if l != 0 => {
+                let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+                theme_ui::button(item, item.CtlID == 1);
+                return 1;
+            }
+            _ => {}
+        }
+    }
     unsafe {
         match msg {
             WM_IME_STARTCOMPOSITION => (*state).composing = true,
@@ -61,6 +92,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
 pub fn ask(owner: HWND, title: &str) -> Option<String> {
+    open(owner, title, None)
+}
+
+pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
+    open(owner, title, Some(message)).is_some()
+}
+
+fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide("ALTRun.Native.ParameterDialog");
@@ -68,7 +107,8 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
         wc.lpfnWndProc = Some(procedure);
         wc.hInstance = instance;
         wc.lpszClassName = class.as_ptr();
-        wc.hbrBackground = (COLOR_WINDOW + 1) as HBRUSH;
+        let background = CreateSolidBrush(theme::surface());
+        let paper = CreateSolidBrush(theme::paper());
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         RegisterClassW(&wc);
         let state = Box::into_raw(Box::new(Input {
@@ -77,6 +117,8 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
             edit: null_mut(),
             old_edit: 0,
             composing: false,
+            background,
+            paper,
         }));
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
@@ -94,47 +136,60 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
         );
         if hwnd.is_null() {
             UnregisterClassW(class.as_ptr(), instance);
+            DeleteObject(background);
+            DeleteObject(paper);
             drop(Box::from_raw(state));
             return None;
         }
-        let dpi = crate::window_geometry::fit(hwnd, 420, 110, None);
-        let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
-        (*state).edit = CreateWindowExW(
+        theme::frame(hwnd);
+        let dpi =
+            crate::window_geometry::fit(hwnd, 420, if message.is_some() { 135 } else { 110 }, None);
+        let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
+        let content = CreateWindowExW(
             0,
-            wide("EDIT").as_ptr(),
-            wide("").as_ptr(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            wide(if message.is_some() { "STATIC" } else { "EDIT" }).as_ptr(),
+            ui(message.unwrap_or("")).as_ptr(),
+            WS_CHILD
+                | WS_VISIBLE
+                | if message.is_some() {
+                    0
+                } else {
+                    WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32
+                },
             scaled(16, dpi),
             scaled(16, dpi),
             scaled(388, dpi),
-            scaled(28, dpi),
+            scaled(if message.is_some() { 54 } else { 28 }, dpi),
             hwnd,
             10usize as HMENU,
             instance,
             std::ptr::null(),
         );
-        if (*state).edit.is_null() {
+        if content.is_null() {
             DestroyWindow(hwnd);
             DeleteObject(font);
             UnregisterClassW(class.as_ptr(), instance);
+            DeleteObject(background);
+            DeleteObject(paper);
             drop(Box::from_raw(state));
             return None;
         }
-        SetWindowLongPtrW((*state).edit, GWLP_USERDATA, state as isize);
-        (*state).old_edit = SetWindowLongPtrW(
-            (*state).edit,
-            GWLP_WNDPROC,
-            edit_procedure as *const () as isize,
-        );
-        SendMessageW((*state).edit, WM_SETFONT, font as usize, 0);
+        if message.is_none() {
+            (*state).edit = content;
+            SetWindowLongPtrW(content, GWLP_USERDATA, state as isize);
+            (*state).old_edit =
+                SetWindowLongPtrW(content, GWLP_WNDPROC, edit_procedure as *const () as isize);
+        }
+        SendMessageW(content, WM_SETFONT, font as usize, 0);
+        let mut focus = content;
         for (text, id, x) in [("确定", 1, 224), ("取消", 2, 320)] {
             let button = CreateWindowExW(
                 0,
                 wide("BUTTON").as_ptr(),
                 ui(text).as_ptr(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
                 scaled(x, dpi),
-                scaled(66, dpi),
+                scaled(if message.is_some() { 88 } else { 66 }, dpi),
                 scaled(84, dpi),
                 scaled(28, dpi),
                 hwnd,
@@ -143,10 +198,13 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
                 std::ptr::null(),
             );
             SendMessageW(button, WM_SETFONT, font as usize, 0);
+            if message.is_some() && id == 2 {
+                focus = button;
+            }
         }
         EnableWindow(owner, 0);
         ShowWindow(hwnd, SW_SHOW);
-        SetFocus((*state).edit);
+        SetFocus(focus);
         loop {
             if (*state).done {
                 break;
@@ -191,6 +249,8 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
         SetForegroundWindow(owner);
         DeleteObject(font);
         UnregisterClassW(class.as_ptr(), instance);
+        DeleteObject(background);
+        DeleteObject(paper);
         Box::from_raw(state).value.take()
     }
 }

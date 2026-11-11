@@ -54,7 +54,6 @@ const COMMAND: usize = 2104;
 const KIND: usize = 2105;
 const ADD: usize = 2110;
 const DELETE: usize = 2111;
-const IMPORT: usize = 2112;
 const SAVE: usize = 2113;
 const CLOSE: usize = 2114;
 const WORKDIR: usize = 2115;
@@ -78,7 +77,6 @@ const SORT_FREQUENCY: usize = 2134;
 const MOVE_UP: usize = 2135;
 const MOVE_DOWN: usize = 2136;
 const TEST: usize = 2137;
-const MIGRATE: usize = 2138;
 const RELOAD: usize = 2139;
 static TEST_CONTEXT: std::sync::Mutex<altrun_probe::launch::LaunchContext> =
     std::sync::Mutex::new(altrun_probe::launch::LaunchContext {
@@ -183,7 +181,7 @@ fn status(message: &str, error: bool) {
         s.status
     });
     unsafe {
-        SetWindowTextW(hwnd, wide(message).as_ptr());
+        SetWindowTextW(hwnd, ui(message).as_ptr());
         InvalidateRect(hwnd, std::ptr::null(), 1);
     }
 }
@@ -316,7 +314,7 @@ fn update_draft() {
             entry.param_type = match values.3 {
                 1 => ParamType::None,
                 2 => ParamType::Raw,
-                3 => ParamType::LegacyUrl,
+                3 => ParamType::AnsiUrl,
                 4 => ParamType::Utf8Url,
                 _ => ParamType::Auto,
             };
@@ -389,60 +387,6 @@ fn confirm(hwnd: HWND, message: &str) -> bool {
             ui("管理快捷项").as_ptr(),
             MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2,
         ) == IDOK
-    }
-}
-fn import(hwnd: HWND) {
-    unsafe {
-        let mut file = vec![0_u16; 32768];
-        let filter = ui("快捷项文件 (*.txt;*.tsv)\0*.txt;*.tsv\0所有文件\0*.*\0");
-        let mut dialog: OPENFILENAMEW = zeroed();
-        dialog.lStructSize = std::mem::size_of_val(&dialog) as u32;
-        dialog.hwndOwner = hwnd;
-        dialog.lpstrFilter = filter.as_ptr();
-        dialog.lpstrFile = file.as_mut_ptr();
-        dialog.nMaxFile = file.len() as u32;
-        dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-        if GetOpenFileNameW(&mut dialog) == 0 {
-            return;
-        }
-        let length = file.iter().position(|&c| c == 0).unwrap_or(file.len());
-        let path = PathBuf::from(String::from_utf16_lossy(&file[..length]));
-        match std::fs::read(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| library::decode(&bytes))
-            .and_then(|text| library::import_legacy(&text))
-        {
-            Ok(imported) => {
-                if imported.entries.is_empty() {
-                    status("文件中没有可导入的快捷项。", true);
-                    return;
-                }
-                if !confirm(
-                    hwnd,
-                    &format!(
-                        "用导入的 {} 个快捷项替换当前草稿？保存前不会修改数据文件。",
-                        imported.entries.len()
-                    ),
-                ) {
-                    return;
-                }
-                let note = format!(
-                    "已导入 {} 项，跳过 {} 行备注或空行；尚未保存。",
-                    imported.entries.len(),
-                    imported.ignored_lines
-                );
-                EDITOR.with(|c| {
-                    let mut state = c.borrow_mut();
-                    let s = state.as_mut().unwrap();
-                    s.draft = imported.entries;
-                    s.selected = 0;
-                    s.dirty = true;
-                });
-                refresh_list();
-                status(&note, false);
-            }
-            Err(error) => status(&error, true),
-        }
     }
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -575,15 +519,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             status("已从草稿删除，尚未保存。", false);
                         }
                     }
-                    IMPORT => import(hwnd),
                     SAVE => save(),
                     CLOSE => unsafe {
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
                     ADD_FILE | ADD_FOLDER | SEPARATOR | REMARK | VALIDATE | CLEAN_MISSING
                     | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO | SORT_ALIAS
-                    | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | MIGRATE
-                    | RELOAD => tool(hwnd, id),
+                    | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | RELOAD => {
+                        tool(hwnd, id)
+                    }
                     _ => {}
                 }
             }
@@ -591,6 +535,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         WM_DRAWITEM => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+            if d.CtlType == ODT_BUTTON {
+                crate::theme_ui::button(d, d.CtlID as usize == SAVE);
+                return 1;
+            }
+            if d.CtlType == ODT_COMBOBOX {
+                crate::theme_ui::combo(d);
+                return 1;
+            }
             EDITOR.with(|c| {
                 let state = c.borrow();
                 let s = state.as_ref().unwrap();
@@ -681,9 +633,7 @@ fn run(
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
     {
-        return Err(
-            "旧版文件仅用于只读导入。请使用新版 shortcuts.tsv 数据文件，再选择“导入旧版”。".into(),
-        );
+        return Err("请选择 ALTRun 的 TSV 快捷项数据文件。".into());
     }
     let file = if path.exists() {
         Snapshot::open(&path)?
@@ -693,11 +643,8 @@ fn run(
     let (_, text) =
         altrun_probe::state_store::TextFile::open(&file.path.with_extension("settings.ini"))?;
     let prefs = altrun_probe::preferences::Preferences::parse(&text)?;
-    theme::install(&prefs);
-    let _ = crate::localization::install(
-        &prefs.get("Lang"),
-        file.path.parent().unwrap_or(std::path::Path::new(".")),
-    );
+    theme::install_chrome(&prefs);
+    crate::localization::install(&prefs.get("Lang"));
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let background = CreateSolidBrush(theme::surface());
@@ -744,6 +691,7 @@ fn run(
             return Err("无法读取显示器工作区域".into());
         }
         let work = monitor.rcWork;
+        theme::frame(hwnd);
         let dpi = (GetDpiForWindow(hwnd).max(96) as i32)
             .min(((work.right - work.left - 64) * 96 / 760).max(72))
             .min(((work.bottom - work.top - 80) * 96 / 420).max(72));
@@ -773,6 +721,13 @@ fn run(
         let font = make_font(13, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(16, 600, "Microsoft YaHei UI", dpi);
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
+            let style = if class == "BUTTON" && style & 15 != BS_AUTOCHECKBOX as u32 {
+                (style & !15) | BS_OWNERDRAW as u32
+            } else if class == "COMBOBOX" {
+                style | (CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32
+            } else {
+                style
+            };
             let child = CreateWindowExW(
                 0,
                 wide(class).as_ptr(),
@@ -854,10 +809,10 @@ fn run(
             KIND,
         );
         for label in [
-            "自动（旧体验数据）",
+            "自动检测参数",
             "无参数",
             "原样参数",
-            "旧式 URL 编码",
+            "Windows ANSI URL 编码",
             "UTF-8 URL 编码",
         ] {
             SendMessageW(
@@ -897,6 +852,7 @@ fn run(
             24,
             ENABLED,
         );
+        crate::theme_ui::switch(enabled, dpi);
         let entry_kind = control(
             "COMBOBOX",
             "",
@@ -915,19 +871,9 @@ fn run(
                 wide(&crate::localization::tr(label)).as_ptr() as isize,
             );
         }
-        let status = control(
-            "STATIC",
-            "修改后点击保存。原版配置不会被改写。",
-            0,
-            280,
-            318,
-            464,
-            40,
-            0,
-        );
+        let status = control("STATIC", "修改后点击保存。", 0, 280, 318, 464, 40, 0);
         control("BUTTON", "新增", WS_TABSTOP, 12, 374, 72, 30, ADD);
         let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
-        control("BUTTON", "导入旧版…", WS_TABSTOP, 172, 374, 90, 30, IMPORT);
         let save = control(
             "BUTTON",
             "保存",
@@ -1002,7 +948,6 @@ fn run(
             ("用文本编辑器打开数据", EDIT_TEXT),
             ("重新读取快捷项文件", RELOAD),
             ("撤销上一次批量操作", UNDO),
-            ("完整迁移旧版配置到新目录…", MIGRATE),
             ("按快捷字排序", SORT_ALIAS),
             ("按名称排序", SORT_NAME),
             ("按频率排序", SORT_FREQUENCY),
@@ -1273,41 +1218,6 @@ pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf>
     }
 }
 fn tool(hwnd: HWND, id: usize) {
-    if id == MIGRATE {
-        if let Some(source) = pick_path(hwnd, false, true) {
-            let base = EDITOR.with(|c| {
-                c.borrow()
-                    .as_ref()
-                    .unwrap()
-                    .file
-                    .path
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .to_path_buf()
-            });
-            let output = base.join(format!("migration-{}", library::new_id()));
-            match altrun_probe::migration::Migration::read(&source, false)
-                .and_then(|import| import.write_new(&output))
-            {
-                Ok(path) => {
-                    let message = format!(
-                        "完整配置已迁移到新目录：{}\n\n原文件保持不变。迁移说明保存在 migration-report.txt。\n使用 --data 参数选择新 shortcuts.tsv；当前草稿和运行配置未切换。",
-                        path.display()
-                    );
-                    unsafe {
-                        MessageBoxW(
-                            hwnd,
-                            wide(&message).as_ptr(),
-                            ui("迁移完成").as_ptr(),
-                            MB_OK | MB_ICONINFORMATION,
-                        );
-                    }
-                }
-                Err(e) => status(&e, true),
-            }
-        }
-        return;
-    }
     if id == TEST {
         test_selected(hwnd);
         return;

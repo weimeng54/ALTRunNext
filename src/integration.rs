@@ -1,4 +1,4 @@
-//! Explicit per-user integrations. Never modifies the original ALTRun entries.
+//! Per-user startup and File Explorer integration for each data file.
 use std::{
     path::{Path, PathBuf},
     ptr::null_mut,

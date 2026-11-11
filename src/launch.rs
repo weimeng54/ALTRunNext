@@ -167,12 +167,12 @@ pub fn resolve_context(
             let value = values.get(i).ok_or("无效上下文标记")?;
             if value.contains('\0')
                 || (value.contains(['\r', '\n'])
-                    && !matches!(kind, ParamType::LegacyUrl | ParamType::Utf8Url))
+                    && !matches!(kind, ParamType::AnsiUrl | ParamType::Utf8Url))
             {
                 return Err("上下文包含换行或空字符，请先复制单行文本".into());
             }
             out.push_str(&match kind {
-                ParamType::LegacyUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
+                ParamType::AnsiUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
                 ParamType::Utf8Url => percent_encode(value.as_bytes()),
                 _ => value.clone(),
             });
@@ -235,7 +235,7 @@ pub(crate) fn resolve_typed_in(
     let encoded = if active {
         let value = parameter.ok_or("请输入参数")?;
         Some(match kind {
-            ParamType::LegacyUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
+            ParamType::AnsiUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
             ParamType::Utf8Url => percent_encode(value.as_bytes()),
             _ => value.to_owned(),
         })
@@ -394,7 +394,7 @@ fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<Stri
                     remaining = &remaining[1..];
                     continue;
                 }
-                return Err("尚未支持这个旧版命令模板".into());
+                return Err("命令包含无法识别的百分号模板".into());
             }
             let value = match std::env::var(key) {
                 Ok(value) => value,
@@ -416,7 +416,7 @@ fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<Stri
                 remaining = &remaining[1..];
                 continue;
             }
-            return Err("尚未支持这个旧版命令模板".into());
+            return Err("命令包含无法识别的百分号模板".into());
         }
     }
     output.push_str(remaining);

@@ -15,7 +15,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
     input
         .lines()
         .enumerate()
-        .filter(|(_, line)| !line.is_empty())
+        .filter(|(_, line)| !line.trim().is_empty())
         .map(|(i, line)| {
             let fields: Vec<_> = line.split('\t').collect();
             if !(4..=9).contains(&fields.len()) || fields[0].is_empty() {
@@ -32,7 +32,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                     .get(5)
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| library::legacy_id(fields[0], fields[1], fields[2], i)),
+                    .unwrap_or_else(|| library::derived_id(fields[0], fields[1], fields[2], i)),
                 working_directory: fields.get(6).unwrap_or(&"").to_string(),
                 kind: library::EntryKind::parse(fields.get(7).unwrap_or(&"command"))?,
                 enabled: match fields.get(8).copied().unwrap_or("1") {
@@ -136,7 +136,7 @@ impl SearchIndex {
             let pattern = if standard {
                 input.to_owned()
             } else {
-                matching::prepare_legacy(input)
+                matching::expand_wildcards(input)
             };
             if matching::advanced(&pattern) {
                 return Err("advanced".into());
@@ -319,7 +319,6 @@ pub mod list_format;
 pub mod local_target;
 pub mod management;
 pub mod matching;
-pub mod migration;
 pub mod observation;
 pub mod preferences;
 pub mod state_store;

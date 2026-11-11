@@ -1,4 +1,4 @@
-ALTRun Modern 0.2 — Windows 11 x64 便携版
+ALTRun 0.2 — Windows 11 x64 便携版
 
 双击 ALTRun.exe 后按 Alt+R 呼出，输入快捷字，Enter 启动。
 呼出时清空输入框并显示全部启用的命令，可以滚动浏览。
@@ -20,17 +20,19 @@ shortcuts.tsv / shortcuts.settings.ini / shortcuts.state.tsv
 保存会保留上一版 .bak，外部修改冲突时不会强制覆盖。
 高级正则在受限进程运行；普通输入和呼出不等待磁盘、网络或图片。
 
-导入旧快捷项：管理窗口 → 导入旧版。
-完整迁移：工具 → 完整迁移旧版配置到新目录。
-也可用：ALTRun.exe --migrate "旧版目录" --output-dir "尚不存在的新目录"
-使用迁移数据：ALTRun.exe --data "新目录\shortcuts.tsv"
+管理窗口的工具菜单可以导出快捷项备份，或把备份载入为待保存草稿。
+使用另一个数据文件：ALTRun.exe --data "目录\shortcuts.tsv"
 默认呼出键为 Alt+R。可在设置的“快捷键”页按键录制。
 在设置的“常规”页开启或取消“添加到‘发送到’”，再保存并应用。
-原版配置不被改写；旧版 MyCmd / 外部工具仍从旧目录调用。
-
-语言 EN 或自定义语言文件在下次启动生效。
-自定义语言文件：每行 中文界面原文=译文，UTF-8/UTF-16/GB18030 均可。
-未知 WinCtl 子命令继续交给原外部程序；缺失时明确报错。
+「常规 → 显示语言」可选简体中文或 English。保存后重新打开设置即可看到变化。
+「外观」支持浅色、深色和跟随系统。背景图可选择强度与裁切位置，预览可试输快捷字。
+「字体与颜色」可以分别调整标题、输入框和结果列表的字体，保存后应用到启动面板。
 
 项目：https://github.com/weimeng54/altrun
-依赖许可证见 licenses；当前新代码尚未另行指定开源许可证。
+依赖许可证见 licenses。
+
+English quick start
+Run ALTRun.exe, then press Alt+R to show the launcher. Type a shortcut and press Enter.
+Open Settings → General → Display language to select English or Simplified Chinese.
+Appearance includes Light, Dark and Follow system themes with a live background preview.
+Alt+S opens shortcut management. Open Settings → General to enable or disable File Explorer Send to.

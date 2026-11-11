@@ -55,7 +55,7 @@ fn actual_regular_expressions_support_classes_anchors_groups_and_prefix_mode() {
         matching::positions("note", &aliases, true).unwrap(),
         vec![Some(0), Some(0), None, None]
     );
-    assert_eq!(matching::prepare_legacy("n*e?"), "n.*e.");
+    assert_eq!(matching::expand_wildcards("n*e?"), "n.*e.");
     assert!(matching::positions("[", &aliases, false).is_err());
 }
 #[test]

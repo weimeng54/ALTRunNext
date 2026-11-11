@@ -22,7 +22,7 @@ impl EntryKind {
         }
     }
 }
-pub fn legacy_id(alias: &str, name: &str, command: &str, row: usize) -> String {
+pub fn derived_id(alias: &str, name: &str, command: &str, row: usize) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in alias
         .bytes()
@@ -59,7 +59,7 @@ pub enum ParamType {
     Auto,
     None,
     Raw,
-    LegacyUrl,
+    AnsiUrl,
     Utf8Url,
 }
 impl ParamType {
@@ -70,8 +70,8 @@ impl ParamType {
         match s.trim().to_ascii_lowercase().as_str() {
             "auto" => Ok(Self::Auto),
             "" | "none" => Ok(Self::None),
-            "raw" | "no_encoding" => Ok(Self::Raw),
-            "url_query" => Ok(Self::LegacyUrl),
+            "raw" => Ok(Self::Raw),
+            "url_query" => Ok(Self::AnsiUrl),
             "utf8_query" => Ok(Self::Utf8Url),
             _ => Err("未知参数类型".into()),
         }
@@ -81,86 +81,10 @@ impl ParamType {
             Self::Auto => "auto",
             Self::None => "none",
             Self::Raw => "raw",
-            Self::LegacyUrl => "url_query",
+            Self::AnsiUrl => "url_query",
             Self::Utf8Url => "utf8_query",
         }
     }
-}
-pub struct Import {
-    pub entries: Vec<Entry>,
-    pub ignored_lines: usize,
-}
-pub fn import_legacy(text: &str) -> Result<Import, String> {
-    if text.lines().any(|line| line.contains('\t')) {
-        return Ok(Import {
-            entries: crate::parse_entries(text)?,
-            ignored_lines: 0,
-        });
-    }
-    let mut entries = Vec::new();
-    let mut ignored_lines = 0;
-    for (number, line) in text.trim_start_matches('\u{feff}').lines().enumerate() {
-        let line = line.trim();
-        let Some(delimiter) = line.chars().find(|c| matches!(c, '|' | ',' | '，')) else {
-            ignored_lines += 1;
-            continue;
-        };
-        let mut fields = line.split(delimiter);
-        let mut consumed = 0;
-        let mut take = || {
-            consumed += 1;
-            fields
-                .next()
-                .map(str::trim)
-                .ok_or_else(|| format!("第 {} 行快捷项不完整", number + 1))
-        };
-        let mut first = take()?;
-        let mut frequency = 0;
-        if let Some(digits) = first.strip_prefix('F')
-            && !digits.is_empty()
-            && digits.bytes().all(|b| b.is_ascii_digit())
-        {
-            frequency = if digits.len() > 8 {
-                10000
-            } else {
-                digits.parse().map_err(|_| "无效频率")?
-            };
-            first = take()?;
-        }
-        let (kind, alias) = if first.is_empty()
-            || ["no_encoding", "url_query", "utf8_query"]
-                .contains(&first.to_ascii_lowercase().as_str())
-        {
-            (ParamType::parse(first)?, take()?.to_owned())
-        } else {
-            (ParamType::None, first.to_owned())
-        };
-        let name = take()?.to_owned();
-        let command = line
-            .splitn(consumed + 1, delimiter)
-            .nth(consumed)
-            .ok_or_else(|| format!("第 {} 行缺少命令", number + 1))?
-            .trim()
-            .to_owned();
-        let id = legacy_id(&alias, &name, &command, number);
-        let entry = Entry {
-            alias,
-            name,
-            command,
-            frequency,
-            param_type: kind,
-            id,
-            working_directory: String::new(),
-            enabled: true,
-            kind: EntryKind::Command,
-        };
-        validate(&entry).map_err(|e| format!("第 {} 行：{e}", number + 1))?;
-        entries.push(entry);
-    }
-    Ok(Import {
-        entries,
-        ignored_lines,
-    })
 }
 pub(crate) fn validate(e: &Entry) -> Result<(), String> {
     if e.alias.trim().is_empty() || (e.kind == EntryKind::Command && e.command.trim().is_empty()) {
@@ -185,7 +109,7 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
             e.frequency,
             e.param_type.name(),
             if e.id.is_empty() {
-                legacy_id(&e.alias, &e.name, &e.command, i)
+                derived_id(&e.alias, &e.name, &e.command, i)
             } else {
                 e.id.clone()
             },
@@ -222,7 +146,7 @@ pub fn decode(bytes: &[u8]) -> Result<String, String> {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Ok(text.into());
     }
-    crate::textcodec::decode_legacy(bytes)
+    Err("文件应使用 UTF-8 或 UTF-16 编码".into())
 }
 pub struct Snapshot {
     pub path: PathBuf,
@@ -244,11 +168,7 @@ impl Snapshot {
             return Err("快捷项文件超过 16 MiB".into());
         }
         let text = decode(&bytes)?;
-        let entries = if text.trim().is_empty() {
-            Vec::new()
-        } else {
-            import_legacy(&text)?.entries
-        };
+        let entries = crate::parse_entries(&text)?;
         Ok(Self {
             path: path.into(),
             entries,
