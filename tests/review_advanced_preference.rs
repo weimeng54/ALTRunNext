@@ -2,4 +2,37 @@
 mod review_native_support;
 use review_native_support::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
-#[test]fn advanced_and_regular_queries_apply_the_same_saved_choice(){let root=std::env::current_dir().unwrap().join("target/review-advanced-preference");std::fs::create_dir_all(&root).unwrap();let data=root.join("shortcuts.tsv");let rows=altrun_probe::parse_entries("abab\tFirst\t__missing__.exe\t0\naaaa\tPreferred\t__missing__.exe\t0\n").unwrap();std::fs::write(&data,altrun_probe::library::serialize(&rows).unwrap()).unwrap();let pattern=r"^(..)\1$";let mut usage=altrun_probe::usage::Usage::default();usage.favourites.insert("a".into(),rows[1].id.clone());usage.favourites.insert(pattern.into(),rows[1].id.clone());std::fs::write(data.with_extension("state.tsv"),usage.text()).unwrap();std::fs::write(data.with_extension("settings.ini"),"[Config]\nRememberFavouratMatch=1\n").unwrap();let(_process,launcher)=start(&data,Some("--safe-mode"));unsafe{let edit=GetDlgItem(launcher,1001);let list=GetDlgItem(launcher,1002);let title=GetDlgItem(launcher,1000);set(edit,"a");assert_eq!(text(title),"Preferred");set(edit,pattern);wait(||SendMessageW(list,LB_GETCOUNT,0,0)==2);assert_eq!(text(title),"Preferred");}}
+#[test]
+fn advanced_and_regular_queries_apply_the_same_saved_choice() {
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target/review-advanced-preference");
+    std::fs::create_dir_all(&root).unwrap();
+    let data = root.join("shortcuts.tsv");
+    let rows = altrun_probe::parse_entries(
+        "abab\tFirst\t__missing__.exe\t0\naaaa\tPreferred\t__missing__.exe\t0\n",
+    )
+    .unwrap();
+    std::fs::write(&data, altrun_probe::library::serialize(&rows).unwrap()).unwrap();
+    let pattern = r"^(..)\1$";
+    let mut usage = altrun_probe::usage::Usage::default();
+    usage.favourites.insert("a".into(), rows[1].id.clone());
+    usage.favourites.insert(pattern.into(), rows[1].id.clone());
+    std::fs::write(data.with_extension("state.tsv"), usage.text()).unwrap();
+    std::fs::write(
+        data.with_extension("settings.ini"),
+        "[Config]\nRememberFavouratMatch=1\n",
+    )
+    .unwrap();
+    let (_process, launcher) = start(&data, Some("--safe-mode"));
+    unsafe {
+        let edit = GetDlgItem(launcher, 1001);
+        let list = GetDlgItem(launcher, 1002);
+        let title = GetDlgItem(launcher, 1000);
+        set(edit, "a");
+        assert_eq!(text(title), "Preferred");
+        set(edit, pattern);
+        wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 2);
+        assert_eq!(text(title), "Preferred");
+    }
+}

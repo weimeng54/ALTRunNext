@@ -191,16 +191,21 @@ fn refresh() {
             }
             Err(_) => Vec::new(),
         };
-        if s.preferences.flag("RememberFavouratMatch")
-            && let Some(id) = s.usage.favourites.get(&query)
-            && let Some(pos) = s.hits.iter().position(|i| &s.entries[*i].id == id)
-        {
-            let hit = s.hits.remove(pos);
-            s.hits.insert(0, hit);
-        }
+        promote_preference(s);
         s.selected = 0;
     });
     render_hits();
+}
+
+fn promote_preference(s: &mut State) {
+    if s.preferences.flag("RememberFavouratMatch")
+        && let Some(id) = s.usage.favourites.get(&s.current_query)
+        && let Some(pos) = s.hits.iter().position(|i| &s.entries[*i].id == id)
+        && pos != 0
+    {
+        let hit = s.hits.remove(pos);
+        s.hits.insert(0, hit);
+    }
 }
 
 fn render_hits() {
@@ -773,7 +778,11 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if msg == WM_IME_ENDCOMPOSITION {
         STATE.with(|c| c.borrow_mut().as_mut().unwrap().composing = false);
     }
-    let composing = STATE.with(|c| c.borrow().as_ref().unwrap().composing);
+    let (composing, parameter_mode) = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (s.composing, s.parameter_entry.is_some())
+    });
     if matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN) && !composing {
         let control = unsafe { GetKeyState(VK_CONTROL as i32) } < 0;
         let alt = unsafe { GetKeyState(VK_MENU as i32) } < 0;
@@ -785,7 +794,7 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     0
                 }
         });
-        if control || alt {
+        if (control || alt) && !parameter_mode {
             let digit = match w as u16 {
                 0x30..=0x39 => Some(w - 0x30),
                 0x60..=0x69 => Some(w - 0x60),
@@ -808,30 +817,33 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         if control {
             match w as u16 {
-                0x43 => {
+                0x43 if !parameter_mode => {
                     selected_action(true);
                     return 0;
                 }
-                0x44 => {
+                0x44 if !parameter_mode => {
                     selected_action(false);
                     return 0;
                 }
-                0x4c => {
+                0x4c if !parameter_mode => {
                     recent();
                     return 0;
                 }
-                VK_UP | VK_DOWN if parameter_history(if w as u16 == VK_UP { -1 } else { 1 }) => {
+                VK_UP | VK_DOWN
+                    if parameter_mode
+                        && parameter_history(if w as u16 == VK_UP { -1 } else { 1 }) =>
+                {
                     return 0;
                 }
                 _ => {}
             }
         }
         match w as u16 {
-            VK_F1 => {
+            VK_F1 if !parameter_mode => {
                 about();
                 return 0;
             }
-            VK_F2 | VK_INSERT | VK_DELETE => {
+            VK_F2 | VK_INSERT | VK_DELETE if !parameter_mode => {
                 let id = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
@@ -850,15 +862,15 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 open_manager();
                 return 0;
             }
-            VK_PRIOR => {
+            VK_PRIOR if !parameter_mode => {
                 move_selection(-10);
                 return 0;
             }
-            VK_NEXT => {
+            VK_NEXT if !parameter_mode => {
                 move_selection(10);
                 return 0;
             }
-            0xba | 0xde => {
+            0xba | 0xde if !parameter_mode => {
                 choose_number(if w == 0xba { 2 } else { 3 });
                 return 0;
             }
@@ -866,15 +878,15 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 parameter_menu();
                 return 0;
             }
-            VK_DOWN => {
+            VK_DOWN if !parameter_mode => {
                 move_selection(1);
                 return 0;
             }
-            VK_UP => {
+            VK_UP if !parameter_mode => {
                 move_selection(-1);
                 return 0;
             }
-            VK_TAB => {
+            VK_TAB if !parameter_mode => {
                 move_selection(if unsafe { GetKeyState(VK_SHIFT as i32) } < 0 {
                     -1
                 } else {
@@ -905,7 +917,11 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             _ => {}
         }
     }
-    if msg == WM_CHAR && !composing && !matches!(w, 3 | 4 | 12 | 13 | 27 | 9 | 59 | 39) {
+    if msg == WM_CHAR
+        && !parameter_mode
+        && !composing
+        && !matches!(w, 3 | 4 | 12 | 13 | 27 | 9 | 59 | 39)
+    {
         let control = unsafe { GetKeyState(VK_CONTROL as i32) } < 0;
         if control && (0x30..=0x39).contains(&w) {
             return 0;
@@ -920,13 +936,17 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
         });
     }
-    if msg == WM_SYSCHAR && (0x30..=0x39).contains(&w) {
+    if msg == WM_SYSCHAR && !parameter_mode && (0x30..=0x39).contains(&w) {
         return 0;
     }
-    if msg == WM_CHAR && unsafe { GetKeyState(VK_CONTROL as i32) } < 0 && matches!(w, 3 | 4 | 12) {
+    if msg == WM_CHAR
+        && !parameter_mode
+        && unsafe { GetKeyState(VK_CONTROL as i32) } < 0
+        && matches!(w, 3 | 4 | 12)
+    {
         return 0;
     }
-    if msg == WM_CHAR && matches!(w, 59 | 39) && !composing {
+    if msg == WM_CHAR && !parameter_mode && matches!(w, 59 | 39) && !composing {
         return 0;
     }
     if msg == WM_CHAR && matches!(w as u16, VK_RETURN | VK_ESCAPE | VK_TAB) && !composing {
@@ -1170,6 +1190,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         .as_ref()
                         .map(|p| s.index.rank_positions(p, &s.current_query))
                         .unwrap_or_default();
+                    promote_preference(s);
                     s.selected = 0;
                     Some(result.err())
                 } else {
@@ -1629,6 +1650,8 @@ pub fn run() -> Result<(), String> {
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("settings.ini"))?;
     drop(settings_file);
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
+    let base_directory = working_directory(&preferences, &data_path);
+    let allow_dynamic_target = preferences.flag("AllowDynamicTarget");
     let (state_file, state_text) =
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("state.tsv"))?;
     let usage = altrun_probe::usage::Usage::parse(&state_text)?;
@@ -1847,10 +1870,8 @@ pub fn run() -> Result<(), String> {
                 matching: false,
                 last_key: 0,
                 context: altrun_probe::launch::LaunchContext {
-                    base_directory: std::env::current_dir()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned(),
+                    base_directory,
+                    allow_dynamic_target,
                     ..Default::default()
                 },
                 successful: None,
@@ -2020,6 +2041,19 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
+fn working_directory(
+    preferences: &altrun_probe::preferences::Preferences,
+    data_path: &std::path::Path,
+) -> String {
+    let parent = data_path.parent().unwrap_or(std::path::Path::new("."));
+    let configured = preferences.get("WorkingDirectory");
+    if configured.is_empty() {
+        parent.to_string_lossy().into_owned()
+    } else {
+        parent.join(configured).to_string_lossy().into_owned()
+    }
+}
+
 fn open_manager() {
     let context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
     crate::manager::configure_context(context);
@@ -2037,7 +2071,7 @@ fn open_manager() {
         }
     });
     crate::manager::configure(geometry);
-    let (path, entries, hwnd, sender) = STATE.with(|c| {
+    let (path, entries, hwnd, sender, enabled) = STATE.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
         (
@@ -2045,9 +2079,10 @@ fn open_manager() {
             s.entries.clone(),
             s.hwnd,
             s.library_sender.clone(),
+            s.enabled,
         )
     });
-    crate::manager::open(path, entries, hwnd, sender);
+    crate::manager::open(path, entries, hwnd, sender, enabled);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }
@@ -2174,17 +2209,6 @@ fn capture_context() {
             s.context.window_id = foreground as usize;
             s.context.window_title = title;
             s.context.window_class = String::from_utf16_lossy(&class[..n.max(0) as usize]);
-            s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
-            let dir = s.preferences.get("WorkingDirectory");
-            s.context.base_directory = if !dir.is_empty() {
-                dir
-            } else {
-                s.data_path
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .to_string_lossy()
-                    .into_owned()
-            };
         });
     }
 }
@@ -2356,6 +2380,9 @@ fn apply_settings_messages() {
                         s.usage.positions.remove("launcher");
                     }
                     s.preferences = prefs;
+                    s.context.base_directory = working_directory(&s.preferences, &s.data_path);
+                    s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
+                    crate::manager::configure_context(s.context.clone());
                     s.hotkeys = keys;
                     true
                 });

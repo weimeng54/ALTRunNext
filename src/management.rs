@@ -17,10 +17,18 @@ pub fn validate(entry: &Entry, base: &Path) -> Validation {
     if entry.command.contains('%') || entry.command.starts_with(['@']) {
         return Validation::Unconfirmed("含模板或显示模式".into());
     }
-    let Ok(request) = launch::resolve_typed(&entry.command, None, ParamType::None) else {
+    let Ok(directory) = launch::effective_directory(&entry.working_directory, base) else {
+        return Validation::Unconfirmed("工作目录无效".into());
+    };
+    if launch::is_network_path(&directory.to_string_lossy()) {
+        return Validation::Unconfirmed("网络工作目录，不探测".into());
+    }
+    let Ok(request) =
+        launch::resolve_typed_in(&entry.command, None, ParamType::None, Some(&directory))
+    else {
         return Validation::Unconfirmed("命令需要人工检查".into());
     };
-    if request.file.starts_with("\\\\")
+    if launch::is_network_path(&request.file)
         || request.file.contains("://")
         || request.file.starts_with("shell:")
         || request.file.starts_with("::")
@@ -31,28 +39,26 @@ pub fn validate(entry: &Entry, base: &Path) -> Validation {
     if !path.is_absolute() && !request.file.contains(['\\', '/']) {
         return Validation::Unconfirmed("由 Windows 搜索路径解析".into());
     }
-    if (if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
-    })
-    .exists()
-    {
-        Validation::Present
-    } else {
-        Validation::Missing
+    match directory.join(path).try_exists() {
+        Ok(true) => Validation::Present,
+        Ok(false) => Validation::Missing,
+        Err(_) => Validation::Unconfirmed("无法读取目标路径".into()),
     }
 }
 pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bool, String> {
-    if entry.kind != EntryKind::Command || entry.command.contains('%') {
+    if entry.kind != EntryKind::Command
+        || entry.command.contains('%')
+        || entry.command.starts_with('@')
+    {
         return Ok(false);
     }
-    let request = launch::resolve_typed(&entry.command, None, ParamType::None)?;
+    let directory = launch::effective_directory(&entry.working_directory, base)?;
+    if launch::is_network_path(&directory.to_string_lossy()) {
+        return Ok(false);
+    }
+    let request = launch::resolve_typed_in(&entry.command, None, ParamType::None, Some(&directory))?;
     let path = Path::new(&request.file);
-    if request.file.contains("://")
-        || request.file.starts_with("\\\\")
-        || (!path.is_absolute() && !request.file.contains(['\\', '/']))
-    {
+    if !launch::explicit_path(&request.file) || launch::is_network_path(&request.file) {
         return Ok(false);
     }
     let converted = if relative {
@@ -60,14 +66,14 @@ pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bo
             return Ok(false);
         }
         PathBuf::from(".").join(
-            path.strip_prefix(base)
-                .map_err(|_| "目标不在数据目录下，保留绝对路径")?,
+            path.strip_prefix(&directory)
+                .map_err(|_| "目标不在工作目录下，保留绝对路径")?,
         )
     } else {
         if path.is_absolute() {
             return Ok(false);
         }
-        base.join(path)
+        directory.join(path)
     };
     entry.command = format!(
         "\"{}\"{}{}",
@@ -79,9 +85,6 @@ pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bo
         },
         request.parameters
     );
-    if relative {
-        entry.working_directory = base.to_string_lossy().into_owned();
-    }
     Ok(true)
 }
 pub fn from_path(path: &Path) -> Result<Entry, String> {

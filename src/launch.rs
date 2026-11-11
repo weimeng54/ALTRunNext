@@ -1,4 +1,6 @@
 //! Resolve an explicitly selected command without implicitly invoking a shell.
+use std::path::{Path, PathBuf};
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct LaunchRequest {
     pub file: String,
@@ -31,6 +33,31 @@ pub fn has_context(command: &str) -> bool {
         })
     })
 }
+
+pub(crate) fn effective_directory(explicit: &str, base: &Path) -> Result<PathBuf, String> {
+    let directory = if explicit.trim().is_empty() {
+        base.to_path_buf()
+    } else {
+        base.join(expand_environment(explicit.trim(), false)?)
+    };
+    if directory.to_string_lossy().contains(['\0', '\r', '\n']) {
+        return Err("工作目录包含无效字符".into());
+    }
+    std::path::absolute(directory).map_err(|e| e.to_string())
+}
+
+pub(crate) fn is_network_path(path: &str) -> bool {
+    let unc = path.starts_with(r"\\") || path.starts_with("//");
+    unc && !path.starts_with(r"\\?\") || path.to_ascii_lowercase().starts_with(r"\\?\unc\")
+}
+
+pub(crate) fn explicit_path(file: &str) -> bool {
+    file.contains(['\\', '/'])
+        && !file.contains("://")
+        && !file.to_ascii_lowercase().starts_with("shell:")
+        && !file.starts_with("::")
+}
+
 pub fn resolve_context(
     command: &str,
     parameter: Option<&str>,
@@ -113,7 +140,15 @@ pub fn resolve_context(
         } else {
             kind
         };
-    let mut result = resolve_typed(&masked, parameter, actual_kind)?;
+    let directory = if working_directory.trim().is_empty() && context.base_directory.is_empty() {
+        None
+    } else {
+        Some(effective_directory(
+            working_directory,
+            Path::new(&context.base_directory),
+        )?)
+    };
+    let mut result = resolve_typed_in(&masked, parameter, actual_kind, directory.as_deref())?;
     if result.file.contains('\u{e000}')
         && !context.allow_dynamic_target
         && !result.file.to_ascii_lowercase().starts_with("https://")
@@ -148,20 +183,17 @@ pub fn resolve_context(
     };
     result.file = substitute(&result.file)?;
     result.parameters = substitute(&result.parameters)?;
-    let directory = if !working_directory.trim().is_empty() {
-        Some(expand_environment(working_directory, false)?)
-    } else if !context.base_directory.is_empty() {
-        Some(context.base_directory.clone())
-    } else {
-        None
-    };
-    if directory
-        .as_ref()
-        .is_some_and(|d| d.contains(['\0', '\r', '\n']))
+    if let Some(base) = &directory
+        && explicit_path(&result.file)
+        && !Path::new(&result.file).is_absolute()
     {
-        return Err("工作目录包含无效字符".into());
+        result.file = base.join(&result.file).to_string_lossy().into_owned();
     }
-    Ok((result, mode, directory))
+    Ok((
+        result,
+        mode,
+        directory.map(|d| d.to_string_lossy().into_owned()),
+    ))
 }
 
 pub fn has_parameter(command: &str) -> bool {
@@ -185,6 +217,15 @@ pub fn resolve_typed(
     parameter: Option<&str>,
     kind: crate::library::ParamType,
 ) -> Result<LaunchRequest, String> {
+    resolve_typed_in(command, parameter, kind, None)
+}
+
+pub(crate) fn resolve_typed_in(
+    command: &str,
+    parameter: Option<&str>,
+    kind: crate::library::ParamType,
+    base: Option<&Path>,
+) -> Result<LaunchRequest, String> {
     use crate::library::ParamType;
     let marked = has_parameter(command);
     if kind == ParamType::None && marked {
@@ -202,7 +243,7 @@ pub fn resolve_typed(
         None
     };
     let normalized = command.replace("{%p}", "%p");
-    let mut result = resolve_base(&normalized, encoded.as_deref())?;
+    let mut result = resolve_base(&normalized, encoded.as_deref(), base)?;
     if active && !marked {
         let value = encoded.as_deref().unwrap_or("");
         if result.file.to_ascii_lowercase().starts_with("http://")
@@ -235,7 +276,11 @@ fn percent_encode(bytes: &[u8]) -> String {
 pub fn resolve(command: &str, parameter: Option<&str>) -> Result<LaunchRequest, String> {
     resolve_typed(command, parameter, crate::library::ParamType::Auto)
 }
-fn resolve_base(command: &str, parameter: Option<&str>) -> Result<LaunchRequest, String> {
+fn resolve_base(
+    command: &str,
+    parameter: Option<&str>,
+    base: Option<&Path>,
+) -> Result<LaunchRequest, String> {
     if command.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
         || parameter.is_some_and(|p| p.chars().any(|c| matches!(c, '\0' | '\r' | '\n')))
     {
@@ -279,7 +324,10 @@ fn resolve_base(command: &str, parameter: Option<&str>) -> Result<LaunchRequest,
             return Err("程序路径后需要空格".into());
         }
         (&quoted[..end], rest.trim_start())
-    } else if std::path::Path::new(&expanded).exists() {
+    } else if expanded.contains(char::is_whitespace) && {
+        let path = base.unwrap_or(Path::new("")).join(&expanded);
+        !is_network_path(&path.to_string_lossy()) && path.exists()
+    } {
         // Accommodate existing unquoted paths with spaces. This disk check is
         // performed only after Enter, never on show/search.
         (expanded.as_str(), "")

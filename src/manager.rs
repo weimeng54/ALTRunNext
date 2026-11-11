@@ -97,6 +97,7 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
 struct Editor {
+    launch_enabled: bool,
     layout: Vec<crate::window_geometry::Child>,
     client_size: (i32, i32),
     workdir: HWND,
@@ -144,6 +145,7 @@ pub fn open(
     initial: Vec<Entry>,
     parent: HWND,
     sender: altrun_probe::library_updates::LibraryWriter,
+    launch_enabled: bool,
 ) {
     if OPEN.swap(true, Ordering::AcqRel) {
         focus();
@@ -151,7 +153,7 @@ pub fn open(
     }
     let owner = parent as usize;
     std::thread::spawn(move || {
-        if let Err(error) = run(path, initial, owner, sender) {
+        if let Err(error) = run(path, initial, owner, sender, launch_enabled) {
             unsafe {
                 MessageBoxW(
                     null_mut(),
@@ -672,6 +674,7 @@ fn run(
     initial: Vec<Entry>,
     parent: usize,
     sender: altrun_probe::library_updates::LibraryWriter,
+    launch_enabled: bool,
 ) -> Result<(), String> {
     if !path
         .extension()
@@ -941,6 +944,7 @@ fn run(
         let selection = CreateSolidBrush(theme::selection());
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
+                launch_enabled,
                 layout: Vec::new(),
                 client_size: (scaled(760, dpi), scaled(420, dpi)),
                 workdir,
@@ -1383,7 +1387,12 @@ fn tool(hwnd: HWND, id: usize) {
         let s = s.as_ref().unwrap();
         (s.file.path.clone(), s.draft.clone())
     });
-    let base = path.parent().unwrap_or(std::path::Path::new("."));
+    let context = TEST_CONTEXT.lock().map(|c| c.clone()).unwrap_or_default();
+    let base = if context.base_directory.is_empty() {
+        path.parent().unwrap_or(std::path::Path::new("."))
+    } else {
+        std::path::Path::new(&context.base_directory)
+    };
     match id {
         UNDO => {
             EDITOR.with(|c| {
@@ -1628,6 +1637,10 @@ fn publish_geometry(hwnd: HWND) {
 }
 
 fn test_selected(hwnd: HWND) {
+    if !EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled) {
+        status("预览模式：未执行测试命令。", false);
+        return;
+    }
     let (entry, base) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();

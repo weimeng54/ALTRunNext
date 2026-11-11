@@ -10,7 +10,31 @@ struct Input {
     done: bool,
     value: Option<String>,
     edit: HWND,
+    old_edit: isize,
+    composing: bool,
 }
+
+unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    let state = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Input;
+    unsafe {
+        match msg {
+            WM_IME_STARTCOMPOSITION => (*state).composing = true,
+            WM_IME_ENDCOMPOSITION => (*state).composing = false,
+            _ => {}
+        }
+        CallWindowProcW(
+            Some(std::mem::transmute::<
+                isize,
+                unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
+            >((*state).old_edit)),
+            hwnd,
+            msg,
+            w,
+            l,
+        )
+    }
+}
+
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     if msg == WM_NCCREATE {
         let create = unsafe { &*(l as *const CREATESTRUCTW) };
@@ -51,6 +75,8 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
             done: false,
             value: None,
             edit: null_mut(),
+            old_edit: 0,
+            composing: false,
         }));
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
@@ -87,6 +113,16 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
             instance,
             std::ptr::null(),
         );
+        if (*state).edit.is_null() {
+            DestroyWindow(hwnd);
+            DeleteObject(font);
+            UnregisterClassW(class.as_ptr(), instance);
+            drop(Box::from_raw(state));
+            return None;
+        }
+        SetWindowLongPtrW((*state).edit, GWLP_USERDATA, state as isize);
+        (*state).old_edit =
+            SetWindowLongPtrW((*state).edit, GWLP_WNDPROC, edit_procedure as *const () as isize);
         SendMessageW((*state).edit, WM_SETFONT, font as usize, 0);
         for (text, id, x) in [("确定", 1, 224), ("取消", 2, 320)] {
             let button = CreateWindowExW(
@@ -124,6 +160,10 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
                 && (msg.hwnd == hwnd || IsChild(hwnd, msg.hwnd) != 0)
                 && matches!(msg.wParam as u16, VK_RETURN | VK_ESCAPE)
             {
+                if (*state).composing {
+                    DispatchMessageW(&msg);
+                    continue;
+                }
                 SendMessageW(
                     hwnd,
                     WM_COMMAND,
