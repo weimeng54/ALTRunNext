@@ -43,6 +43,8 @@ const MORE_COLORS: usize = 2343;
 const IMAGE_THUMB: usize = 2344;
 const APPEARANCE_NOTE: usize = 2345;
 const STRENGTH_VALUE: usize = 2346;
+const STRENGTH_LABEL: usize = 2347;
+const CROP_LABEL: usize = 2348;
 const STATIC_NOTIFY: u32 = 0x0100;
 // Trackbar messages start at WM_USER. windows-sys omits TBM_GETPOS.
 const TBM_GETPOS: u32 = WM_USER;
@@ -539,13 +541,8 @@ fn update_preview() {
         for (spec, field) in SPECS.iter().zip(fields()) {
             if matches!(spec.key, "BGStrength" | "BGCrop") {
                 EnableWindow(field.value, i32::from(skin));
-                EnableWindow(field.label, i32::from(skin));
             }
         }
-        EnableWindow(
-            GetDlgItem(GetParent(controls[1]), STRENGTH_VALUE as i32),
-            i32::from(skin),
-        );
         InvalidateRect(controls[1], std::ptr::null(), 0);
     }
 }
@@ -1377,6 +1374,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     return unsafe { GetSysColorBrush(COLOR_WINDOW) } as isize;
                 };
                 let control_id = unsafe { GetDlgCtrlID(l as HWND) } as usize;
+                let muted_image_label = matches!(control_id, STRENGTH_LABEL | CROP_LABEL)
+                    && unsafe { SendMessageW(field("ShowSkin").value, BM_GETCHECK, 0, 0) == 0 };
                 let reading = control_id
                     .checked_sub(FIELD)
                     .and_then(|i| SPECS.get(i))
@@ -1396,6 +1395,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         if l as HWND == s.hint
                             || l as HWND == s.status
                             || filename
+                            || muted_image_label
                             || matches!(control_id, APPEARANCE_NOTE | STRENGTH_VALUE)
                             || IsWindowEnabled(l as HWND) == 0
                         {
@@ -1611,7 +1611,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                     fields()[skin].value,
                                     BM_SETCHECK,
                                     BST_CHECKED as usize,
-                                    0,
+                                    match *key {
+                                        "BGStrength" => STRENGTH_LABEL,
+                                        "BGCrop" => CROP_LABEL,
+                                        _ => 0,
+                                    },
                                 );
                             }
                         }

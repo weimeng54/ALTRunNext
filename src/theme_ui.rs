@@ -273,7 +273,7 @@ unsafe extern "system" fn edit_proc(
     mode: usize,
 ) -> LRESULT {
     let dpi = (mode & 0xffff) as i32;
-    let inset_x = scaled(9, dpi);
+    let inset_x = scaled(if mode & 0x20000 != 0 { 4 } else { 9 }, dpi);
     let inset_y = scaled(7, dpi);
     unsafe {
         if mode & 0x20000 != 0 && matches!(msg, WM_PAINT | WM_PRINTCLIENT) {
@@ -416,8 +416,10 @@ unsafe extern "system" fn slider_proc(
             );
             let ink = if enabled {
                 theme::accent()
-            } else {
+            } else if theme::high_contrast() {
                 theme::muted()
+            } else {
+                theme::rgb(89, 94, 101)
             };
             if x > left {
                 rounded(dc, RECT { right: x, ..track }, width, ink, ink);
