@@ -72,6 +72,9 @@ pub fn install_chrome(prefs: &altrun_probe::preferences::Preferences) {
 pub fn high_contrast() -> bool {
     CONTRAST.with(std::cell::Cell::get)
 }
+pub fn is_dark() -> bool {
+    DARK.with(std::cell::Cell::get)
+}
 pub fn error() -> u32 {
     if high_contrast() {
         text()

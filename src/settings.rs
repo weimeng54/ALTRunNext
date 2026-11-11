@@ -25,6 +25,7 @@ use windows_sys::Win32::{
     UI::{
         Controls::{Dialogs::*, *},
         Input::KeyboardAndMouse::*,
+        Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
@@ -45,12 +46,18 @@ const APPEARANCE_NOTE: usize = 2345;
 const STRENGTH_VALUE: usize = 2346;
 const STRENGTH_LABEL: usize = 2347;
 const CROP_LABEL: usize = 2348;
+const SOLID_LABEL: usize = 2349;
+const SOLID_DEFAULT: usize = 2350;
+const SOLID_PICK: usize = 2354;
 const STATIC_NOTIFY: u32 = 0x0100;
 // Trackbar messages start at WM_USER. windows-sys omits TBM_GETPOS.
 const TBM_GETPOS: u32 = WM_USER;
 const FIELD: usize = 2400;
 const PICK: usize = 2500;
 const CLEAR: usize = 2600;
+const FONT_UP: usize = 2700;
+const FONT_DOWN: usize = 2800;
+const OWNER_STATIC: u32 = 0x0d;
 
 pub enum Change {
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
@@ -81,7 +88,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "快捷键",
-        hint: "点击“录制”后按下组合键。按 Esc 取消录制。",
+        hint: "将鼠标移到快捷键框上，直接按下新的组合键。",
         keys: &["HotKey1", "HotKey2", "LastItemHotKey"],
     },
     Page {
@@ -188,7 +195,6 @@ struct Editor {
     small_font: HFONT,
     caption_font: HFONT,
     glyph_font: HFONT,
-    close_font: HFONT,
     filename_font: HFONT,
     hotkey_font: HFONT,
     footer_controls: [HWND; 5],
@@ -204,6 +210,11 @@ struct Editor {
     preview: Preview,
     preview_controls: [HWND; 3],
     preview_font: HFONT,
+    preview_paper: HBRUSH,
+    preview_font_key: String,
+    preview_position: Option<(i32, i32, i32, i32, i32, i32)>,
+    loading_form: bool,
+    chrome_colors: [u32; 5],
     saved: Preferences,
     draft: Preferences,
     fields: Vec<Field>,
@@ -236,7 +247,11 @@ fn text(hwnd: HWND) -> String {
 fn status(message: &str) {
     let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().status);
     unsafe {
-        SetWindowTextW(hwnd, ui(message).as_ptr());
+        let message = crate::localization::tr(message);
+        if text(hwnd) != message {
+            SetWindowTextW(hwnd, wide(&message).as_ptr());
+            InvalidateRect(hwnd, std::ptr::null(), 0);
+        }
     }
 }
 
@@ -259,8 +274,11 @@ fn fields() -> Vec<Field> {
 }
 
 fn field(key: &str) -> Field {
-    let index = SPECS.iter().position(|spec| spec.key == key).unwrap();
-    EDITOR.with(|c| c.borrow().as_ref().unwrap().fields[index])
+    EDITOR.with(|c| c.borrow().as_ref().unwrap().fields[spec_index(key)])
+}
+
+fn spec_index(key: &str) -> usize {
+    SPECS.iter().position(|spec| spec.key == key).unwrap()
 }
 
 pub(crate) fn switch_description(hwnd: HWND) -> Option<(&'static str, HFONT)> {
@@ -269,6 +287,15 @@ pub(crate) fn switch_description(hwnd: HWND) -> Option<(&'static str, HFONT)> {
     let description = layout::field(spec.key).description;
     let font = EDITOR.with(|c| c.borrow().as_ref().map(|e| e.small_font))?;
     Some((description, font))
+}
+
+pub(crate) fn preview_edit_colours() -> (u32, u32) {
+    EDITOR.with(|c| {
+        c.borrow().as_ref().map_or_else(
+            || (theme::surface(), theme::paper()),
+            |s| (s.preview.input_colours.0, s.preview.input_colours.1),
+        )
+    })
 }
 
 fn hidden_field(key: &str) -> bool {
@@ -280,6 +307,176 @@ fn extra_color(key: &str) -> bool {
         key,
         "TitleColor" | "KeywordColor" | "ListColor" | "SelectionColor"
     )
+}
+
+fn image_control(id: usize) -> bool {
+    matches!(
+        id,
+        IMAGE_THUMB | STRENGTH_LABEL | STRENGTH_VALUE | CROP_LABEL
+    ) || [FIELD, PICK].iter().any(|start| {
+        id.checked_sub(*start)
+            .and_then(|i| SPECS.get(i))
+            .is_some_and(|spec| matches!(spec.key, "BGFileName" | "BGStrength" | "BGCrop"))
+    })
+}
+
+fn solid_control(id: usize) -> bool {
+    (SOLID_LABEL..=SOLID_PICK).contains(&id)
+}
+
+fn background_image() -> bool {
+    unsafe { SendMessageW(field("ShowSkin").value, BM_GETCHECK, 0, 0) != 0 }
+}
+
+fn shows_in_background_mode(id: usize, image: bool) -> bool {
+    (!image_control(id) || image) && (!solid_control(id) || !image)
+}
+
+const PRESETS: [(&str, &str, &str); 3] = [
+    ("雾蓝", "#DCE7F4", "#263B53"),
+    ("青灰", "#E0EBE7", "#253B37"),
+    ("紫灰", "#E9E4F1", "#383149"),
+];
+
+fn preset(index: usize) -> String {
+    if index == 0 {
+        return SPECS[spec_index("TitleColor")].default.into();
+    }
+    let (_, light, dark) = PRESETS[index - 1];
+    if theme::is_dark() { dark } else { light }.into()
+}
+
+fn swatch_colour(key: &str, value: &str) -> u32 {
+    if theme::high_contrast() {
+        return theme::paper();
+    }
+    if value == SPECS[spec_index(key)].default {
+        match key {
+            "TitleColor" => theme::surface(),
+            "SelectionColor" => theme::selection(),
+            "KeywordColor" | "ListColor" => theme::paper(),
+            _ => altrun_probe::preferences::parse_colour(value).unwrap_or_else(|_| theme::text()),
+        }
+    } else {
+        altrun_probe::preferences::parse_colour(value).unwrap_or_else(|_| theme::text())
+    }
+}
+
+fn set_colour(key: &str, value: &str) {
+    let colour = field(key);
+    unsafe {
+        SetWindowTextW(colour.value, wide(value).as_ptr());
+        InvalidateRect(colour.pick, std::ptr::null(), 0);
+        if key == "TextColor" {
+            SendMessageW(field("UseCustomTextColor").value, BM_SETCHECK, 1, 0);
+        }
+        if key == "TitleColor" {
+            let window = GetParent(colour.value);
+            for id in SOLID_DEFAULT..=SOLID_PICK {
+                InvalidateRect(GetDlgItem(window, id as i32), std::ptr::null(), 0);
+            }
+        }
+    }
+    update_preview();
+}
+
+fn choose_colour(hwnd: HWND, key: &str) {
+    let current = text(field(key).value);
+    let rgb = swatch_colour(key, &current);
+    let initial = format!(
+        "#{:02X}{:02X}{:02X}",
+        rgb & 255,
+        (rgb >> 8) & 255,
+        (rgb >> 16) & 255
+    );
+    if let Some(chosen) = crate::settings_pickers::choose(hwnd, key, &initial) {
+        set_colour(key, &chosen);
+    }
+}
+
+fn update_background_mode() {
+    let (window, page, dpi, scroll, height, children) = EDITOR.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (
+            s.hwnd,
+            s.page,
+            s.dpi,
+            s.scroll,
+            s.height,
+            s.appearance_children.clone(),
+        )
+    });
+    if page != 3 {
+        return;
+    }
+    let image = background_image();
+    let footer = height - scaled(layout::FOOTER, dpi);
+    unsafe {
+        for (child, base, _) in children {
+            let id = GetDlgCtrlID(child) as usize;
+            if image_control(id) || solid_control(id) {
+                position_appearance_child(
+                    child,
+                    base,
+                    scroll,
+                    dpi,
+                    footer,
+                    shows_in_background_mode(id, image),
+                );
+            }
+        }
+        let mut rect = BoxRect::new(214, 284, 290, 227).pixels(dpi);
+        OffsetRect(&mut rect, 0, -scroll);
+        rect.top = rect.top.max(scaled(150, dpi));
+        rect.bottom = rect.bottom.min(footer);
+        if rect.top < rect.bottom {
+            RedrawWindow(
+                window,
+                &rect,
+                null_mut(),
+                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+            );
+        }
+    }
+}
+
+fn position_appearance_child(
+    child: HWND,
+    base: RECT,
+    scroll: i32,
+    dpi: i32,
+    footer: i32,
+    enabled: bool,
+) {
+    let y = base.top - scroll;
+    let h = base.bottom - base.top;
+    let w = base.right - base.left;
+    let top = (scaled(150, dpi) - y).max(0);
+    let bottom = h.min(footer - y);
+    let visible = enabled && top < bottom;
+    unsafe {
+        if visible {
+            SetWindowPos(
+                child,
+                null_mut(),
+                base.left,
+                y,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            let clipping = if top != 0 || bottom != h {
+                CreateRectRgn(0, top, w, bottom)
+            } else {
+                null_mut()
+            };
+            if SetWindowRgn(child, clipping, 0) == 0 && !clipping.is_null() {
+                DeleteObject(clipping);
+            }
+        }
+        ShowWindow(child, if visible { SW_SHOWNA } else { SW_HIDE });
+    }
 }
 
 fn show_page(page: usize) {
@@ -323,7 +520,7 @@ fn show_page(page: usize) {
                 if !hwnd.is_null() {
                     ShowWindow(
                         hwnd,
-                        if spec.key == "TextColor" && hwnd == field.value {
+                        if spec.key.ends_with("Color") && hwnd == field.value {
                             SW_HIDE
                         } else {
                             visibility
@@ -382,6 +579,7 @@ fn layout_page() {
             )
         });
     let px = |value| scaled(value, dpi);
+    let image = page == 3 && background_image();
     unsafe {
         let mut rect: RECT = std::mem::zeroed();
         GetWindowRect(hwnd, &mut rect);
@@ -439,32 +637,15 @@ fn layout_page() {
         MoveWindow(status, px(267), foot + px(17), px(650), px(25), 0);
         if page == 3 {
             for (child, base, needs_expansion) in children {
-                let y = base.top - scroll;
-                let h = base.bottom - base.top;
-                let w = base.right - base.left;
-                let top_clip = (px(150) - y).max(0);
-                let bottom_clip = h.min(foot - y);
-                let visible = (!needs_expansion || expanded) && top_clip < bottom_clip;
-                if visible {
-                    SetWindowPos(
-                        child,
-                        null_mut(),
-                        base.left,
-                        y,
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                    );
-                    let clipping = if top_clip != 0 || bottom_clip != h {
-                        CreateRectRgn(0, top_clip, w, bottom_clip)
-                    } else {
-                        null_mut()
-                    };
-                    if SetWindowRgn(child, clipping, 0) == 0 && !clipping.is_null() {
-                        DeleteObject(clipping);
-                    }
-                }
-                ShowWindow(child, if visible { SW_SHOWNA } else { SW_HIDE });
+                let id = GetDlgCtrlID(child) as usize;
+                position_appearance_child(
+                    child,
+                    base,
+                    scroll,
+                    dpi,
+                    foot,
+                    (!needs_expansion || expanded) && shows_in_background_mode(id, image),
+                );
             }
         }
         RedrawWindow(
@@ -504,6 +685,14 @@ fn align_preview() {
     let width = px(panel.w - 18);
     let top = (px(150) - y).max(0);
     let bottom = height.min(footer - y);
+    let position = (x, y, width, height, top, bottom);
+    if !EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        s.preview_position.replace(position) != Some(position)
+    }) {
+        return;
+    }
     unsafe {
         let visible = top < bottom;
         if visible {
@@ -541,40 +730,69 @@ fn update_preview() {
     let Ok(prefs) = read_form() else {
         return;
     };
-    EDITOR.with(|c| {
+    if EDITOR.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        s.preview.prefs == prefs && !s.preview_font.is_null()
+    }) {
+        return;
+    }
+    let input_changed = EDITOR.with(|c| {
         let mut editor = c.borrow_mut();
         let editor = editor.as_mut().unwrap();
+        let previous = editor.preview.input_colours;
         editor
             .preview
             .update(prefs.clone(), &editor.data, editor.hwnd);
+        if editor.preview_paper.is_null() || previous.1 != editor.preview.input_colours.1 {
+            unsafe {
+                if !editor.preview_paper.is_null() {
+                    DeleteObject(editor.preview_paper);
+                }
+                editor.preview_paper = CreateSolidBrush(editor.preview.input_colours.1);
+            }
+        }
+        previous != editor.preview.input_colours
     });
     refresh_style(&prefs);
     align_preview();
     unsafe {
-        if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("KeywordFont")) {
+        let key = prefs.get("KeywordFont");
+        let changed = EDITOR.with(|c| c.borrow().as_ref().unwrap().preview_font_key != key);
+        if changed && let Ok(font) = altrun_probe::preferences::Font::parse(&key) {
             let font = make_font(font.size_dip(), font.weight, &font.name, dpi);
             if !font.is_null() {
                 SendMessageW(controls[2], WM_SETFONT, font as usize, 1);
                 let old = EDITOR.with(|c| {
-                    std::mem::replace(&mut c.borrow_mut().as_mut().unwrap().preview_font, font)
+                    let mut state = c.borrow_mut();
+                    let s = state.as_mut().unwrap();
+                    s.preview_font_key = key;
+                    std::mem::replace(&mut s.preview_font, font)
                 });
                 if !old.is_null() {
                     DeleteObject(old);
                 }
             }
         }
-        let skin = prefs.flag("ShowSkin");
-        for (spec, field) in SPECS.iter().zip(fields()) {
-            if matches!(spec.key, "BGStrength" | "BGCrop") {
-                EnableWindow(field.value, i32::from(skin));
-            }
-        }
         InvalidateRect(controls[1], std::ptr::null(), 0);
+        if input_changed {
+            RedrawWindow(
+                controls[2],
+                std::ptr::null(),
+                null_mut(),
+                RDW_INVALIDATE | RDW_FRAME,
+            );
+        }
     }
 }
 
 fn load_form(prefs: &Preferences) {
-    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().draft = prefs.clone());
+    EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        s.draft = prefs.clone();
+        s.loading_form = true;
+    });
     for (spec, field) in SPECS.iter().zip(fields()) {
         let value = prefs.get(spec.key);
         unsafe {
@@ -602,11 +820,22 @@ fn load_form(prefs: &Preferences) {
                 SendMessageW(field.value, CB_SETCURSEL, index, 0);
             } else {
                 SetWindowTextW(field.value, wide(&value).as_ptr());
+                if spec.key.ends_with("Color") {
+                    InvalidateRect(field.pick, std::ptr::null(), 0);
+                }
             }
         }
     }
     refresh_font_family(prefs);
     sync_sound_picker(prefs.flag("PlayPopupNotify"));
+    let window = EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd);
+    unsafe {
+        for id in SEGMENT..SEGMENT + 3 {
+            InvalidateRect(GetDlgItem(window, id as i32), std::ptr::null(), 0);
+        }
+    }
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading_form = false);
+    update_background_mode();
 }
 
 fn sync_sound_picker(enabled: bool) {
@@ -677,6 +906,7 @@ fn strength_label(field: Field, strength: i32) {
     unsafe {
         let value = GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32);
         SetWindowTextW(value, wide(&format!("{strength}%")).as_ptr());
+        InvalidateRect(value, std::ptr::null(), 0);
     }
 }
 
@@ -715,20 +945,19 @@ fn choose_panel_font(hwnd: HWND) {
 }
 
 fn stop_capture() {
-    if let Some(recording) = CAPTURE.take()
-        && !recording.hook.is_null()
-    {
+    if let Some(recording) = CAPTURE.take() {
         unsafe {
-            UnhookWindowsHookEx(recording.hook);
+            if !recording.hook.is_null() {
+                UnhookWindowsHookEx(recording.hook);
+            }
+            let control = GetDlgItem(recording.window, (FIELD + recording.index) as i32);
+            InvalidateRect(control, std::ptr::null(), 0);
         }
     }
 }
 
 fn cancel_capture() {
-    if CAPTURE.get().is_some() {
-        stop_capture();
-        status("已取消录制。");
-    }
+    stop_capture();
 }
 
 fn key_name(vk: u32) -> Option<String> {
@@ -768,9 +997,12 @@ fn record_key(vk: u32, modifiers: usize) -> bool {
     if is_modifier(vk) {
         return false;
     }
+    if vk == VK_TAB as u32 && modifiers & !4 == 0 {
+        stop_capture();
+        return false;
+    }
     if vk == VK_ESCAPE as u32 && modifiers == 0 {
         stop_capture();
-        status("已取消录制。");
         return true;
     }
     let Some(key) = key_name(vk) else {
@@ -784,12 +1016,18 @@ fn record_key(vk: u32, modifiers: usize) -> bool {
         }
     }
     value.push_str(&key);
-    stop_capture();
-    let field = fields()[recording.index];
-    unsafe {
-        SetWindowTextW(field.value, wide(&value).as_ptr());
+    if altrun_probe::preferences::parse_hotkey(&value).is_err() {
+        status("请按字母、数字、功能键或 Pause 等受支持的按键。");
+        return true;
     }
-    status("已录制。点击“保存并应用”生效。");
+    let field = fields()[recording.index];
+    if text(field.value) != value {
+        unsafe {
+            SetWindowTextW(field.value, wide(&value).as_ptr());
+            InvalidateRect(field.value, std::ptr::null(), 0);
+        }
+        status("快捷键已更改，保存后生效。");
+    }
     true
 }
 
@@ -802,8 +1040,16 @@ unsafe extern "system" fn capture_hook(code: i32, w: WPARAM, l: LPARAM) -> LRESU
         let vk = unsafe { (*(l as *const KBDLLHOOKSTRUCT)).vkCode };
         if !is_modifier(vk) {
             let modifiers = modifier_bits(|key| unsafe { GetAsyncKeyState(key) });
+            if vk == VK_TAB as u32 && modifiers & !4 == 0 {
+                return unsafe { CallNextHookEx(null_mut(), code, w, l) };
+            }
             unsafe {
-                PostMessageW(recording.window, RECORDED, vk as usize, modifiers as isize);
+                PostMessageW(
+                    recording.window,
+                    RECORDED,
+                    vk as usize,
+                    (recording.index << 8 | modifiers) as isize,
+                );
             }
             return 1;
         }
@@ -812,6 +1058,9 @@ unsafe extern "system" fn capture_hook(code: i32, w: WPARAM, l: LPARAM) -> LRESU
 }
 
 fn start_capture(hwnd: HWND, index: usize) {
+    if CAPTURE.get().is_some_and(|capture| capture.index == index) {
+        return;
+    }
     stop_capture();
     let hook = unsafe {
         SetWindowsHookExW(
@@ -826,7 +1075,66 @@ fn start_capture(hwnd: HWND, index: usize) {
         index,
         hook,
     }));
-    status("正在录制，按下快捷键。Esc 取消。");
+    unsafe {
+        InvalidateRect(
+            GetDlgItem(hwnd, (FIELD + index) as i32),
+            std::ptr::null(),
+            0,
+        );
+    }
+}
+
+unsafe extern "system" fn hotkey_proc(
+    control: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    index: usize,
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_MOUSEMOVE => {
+                let window = GetParent(control);
+                if GetForegroundWindow() == window {
+                    let mut track = TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: control,
+                        dwHoverTime: 0,
+                    };
+                    TrackMouseEvent(&mut track);
+                    start_capture(window, index);
+                }
+            }
+            WM_SETFOCUS => start_capture(GetParent(control), index),
+            WM_MOUSELEAVE | WM_KILLFOCUS | WM_NCDESTROY => {
+                if CAPTURE.get().is_some_and(|capture| capture.index == index) {
+                    stop_capture();
+                }
+            }
+            _ => {}
+        }
+        DefSubclassProc(control, msg, w, l)
+    }
+}
+
+fn adjust_font(index: usize, delta: i32) {
+    let field = fields()[index];
+    let fallback = EDITOR.with(|c| {
+        let s = c.borrow();
+        altrun_probe::preferences::Font::parse(&s.as_ref().unwrap().draft.get(SPECS[index].key))
+            .map_or(13, |font| font.size_dip())
+    });
+    let size = (text(field.value)
+        .parse::<i32>()
+        .unwrap_or(fallback)
+        .clamp(6, 128)
+        + delta)
+        .clamp(6, 128);
+    unsafe {
+        SetWindowTextW(field.value, wide(&size.to_string()).as_ptr());
+    }
 }
 fn apply() {
     let Some(prefs) = validated_form() else {
@@ -938,13 +1246,20 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 },
                 DT_CENTER,
             );
-        } else if id
-            .checked_sub(PICK)
-            .and_then(|i| SPECS.get(i))
-            .is_some_and(|spec| spec.key == "TextColor")
-        {
-            let color = altrun_probe::preferences::parse_colour(&text(field("TextColor").value))
-                .unwrap_or_else(|_| theme::text());
+        } else if let Some((key, preset_index)) = if (SOLID_DEFAULT..=SOLID_PICK).contains(&id) {
+            Some((
+                "TitleColor",
+                (id < SOLID_PICK).then_some(id - SOLID_DEFAULT),
+            ))
+        } else {
+            id.checked_sub(PICK)
+                .and_then(|i| SPECS.get(i))
+                .filter(|spec| spec.key.ends_with("Color"))
+                .map(|spec| (spec.key, None))
+        } {
+            let current = text(field(key).value);
+            let value = preset_index.map_or_else(|| current.clone(), preset);
+            let color = swatch_colour(key, &value);
             let rect = item.rcItem;
             theme_ui::fill(item.hDC, &rect, theme::control_surface());
             let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
@@ -953,7 +1268,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 rect,
                 scaled(10, dpi),
                 theme::paper(),
-                if item.itemState & ODS_FOCUS != 0 {
+                if item.itemState & ODS_FOCUS != 0 || (preset_index.is_some() && current == value) {
                     theme::accent()
                 } else {
                     theme::border()
@@ -963,7 +1278,88 @@ fn draw(item: &DRAWITEMSTRUCT) {
             unsafe {
                 InflateRect(&mut swatch, -scaled(5, dpi), -scaled(5, dpi));
             }
+            if id == SOLID_PICK {
+                swatch.right = swatch.left + scaled(16, dpi);
+                draw_button_text(
+                    item,
+                    RECT {
+                        left: swatch.right + scaled(4, dpi),
+                        ..rect
+                    },
+                    theme::text(),
+                    DT_CENTER,
+                );
+            }
             theme_ui::rounded(item.hDC, swatch, scaled(4, dpi), color, color);
+        } else if let Some(index) = id.checked_sub(FIELD).filter(|index| {
+            SPECS
+                .get(*index)
+                .is_some_and(|spec| matches!(spec.kind, Kind::Hotkey))
+        }) {
+            let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+            let rect = item.rcItem;
+            let active = CAPTURE.get().is_some_and(|capture| capture.index == index);
+            theme_ui::fill(item.hDC, &rect, theme::control_surface());
+            theme_ui::rounded(
+                item.hDC,
+                rect,
+                scaled(12, dpi),
+                if active {
+                    theme::selection()
+                } else {
+                    theme::paper()
+                },
+                if active || item.itemState & ODS_FOCUS != 0 {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
+            );
+            let value = text(item.hwndItem);
+            let label = if value.is_empty() {
+                crate::localization::tr("未设置")
+            } else {
+                value
+            };
+            unsafe {
+                let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
+                let old = SelectObject(item.hDC, font);
+                theme_ui::line_text(item.hDC, rect, &label, theme::text(), DT_CENTER);
+                SelectObject(item.hDC, old);
+            }
+        } else if (FONT_UP..FONT_DOWN + SPECS.len()).contains(&id) {
+            let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+            let rect = item.rcItem;
+            let pressed = item.itemState & ODS_SELECTED != 0;
+            theme_ui::fill(item.hDC, &rect, theme::control_surface());
+            theme_ui::rounded(
+                item.hDC,
+                rect,
+                scaled(6, dpi),
+                if pressed {
+                    theme::selection()
+                } else {
+                    theme::paper()
+                },
+                if item.itemState & ODS_FOCUS != 0 {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
+            );
+            let direction = if id < FONT_DOWN { -1 } else { 1 };
+            let x = (rect.left + rect.right) / 2;
+            let y = (rect.top + rect.bottom) / 2;
+            let r = scaled(3, dpi).max(2);
+            draw_lines(
+                item.hDC,
+                dpi,
+                theme::text(),
+                &[
+                    [(x - r, y), (x, y + direction * r)],
+                    [(x, y + direction * r), (x + r, y)],
+                ],
+            );
         } else if id == FONT_FAMILY {
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |e| e.dpi));
             let rect = item.rcItem;
@@ -994,7 +1390,6 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 0,
             );
         } else if matches!(id, TITLE_CLOSE | MORE_PANEL | MORE_COLORS) {
-            let background = theme::control_surface();
             let state = EDITOR.with(|c| {
                 c.borrow()
                     .as_ref()
@@ -1008,12 +1403,26 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 &item.rcItem,
                 if item.itemState & ODS_SELECTED != 0 {
                     theme::selection()
+                } else if id == TITLE_CLOSE {
+                    theme::chrome()
                 } else {
-                    background
+                    theme::control_surface()
                 },
             );
             if id == TITLE_CLOSE {
-                draw_button_text(item, item.rcItem, theme::text(), DT_CENTER);
+                let rect = item.rcItem;
+                let x = (rect.left + rect.right) / 2;
+                let y = (rect.top + rect.bottom) / 2;
+                let r = scaled(4, dpi).max(3);
+                draw_lines(
+                    item.hDC,
+                    dpi,
+                    theme::text(),
+                    &[
+                        [(x - r, y - r), (x + r, y + r)],
+                        [(x + r, y - r), (x - r, y + r)],
+                    ],
+                );
             } else {
                 let mut label = item.rcItem;
                 label.left += scaled(31, dpi);
@@ -1092,6 +1501,39 @@ fn draw(item: &DRAWITEMSTRUCT) {
                     RestoreDC(item.hDC, clip);
                 }
             }
+        } else if matches!(item.CtlID as usize, STATUS | STRENGTH_VALUE)
+            || item.CtlID as usize == FIELD + spec_index("BGFileName")
+        {
+            let id = item.CtlID as usize;
+            let face = if id == STATUS {
+                theme::chrome()
+            } else {
+                theme::control_surface()
+            };
+            theme_ui::fill(item.hDC, &item.rcItem, face);
+            let value = text(item.hwndItem);
+            let value = if id == FIELD + spec_index("BGFileName") {
+                if value.is_empty() {
+                    crate::localization::tr("未选择图片")
+                } else {
+                    std::path::Path::new(&value)
+                        .file_name()
+                        .map_or(value.clone(), |name| name.to_string_lossy().into_owned())
+                }
+            } else {
+                value
+            };
+            unsafe {
+                let old = SelectObject(item.hDC, s.small_font);
+                theme_ui::line_text(
+                    item.hDC,
+                    item.rcItem,
+                    &value,
+                    theme::muted(),
+                    if id == STRENGTH_VALUE { DT_RIGHT } else { 0 },
+                );
+                SelectObject(item.hDC, old);
+            }
         } else if item.CtlID as usize == IMAGE_THUMB {
             s.preview.paint_thumb(item, s.dpi);
         } else if item.CtlID as usize == TAB
@@ -1137,6 +1579,20 @@ fn draw(item: &DRAWITEMSTRUCT) {
             }
         }
     });
+}
+
+fn draw_lines(dc: HDC, dpi: i32, color: u32, segments: &[[(i32, i32); 2]]) {
+    unsafe {
+        let pen = CreatePen(PS_SOLID, scaled(1, dpi).max(1), color);
+        let old = SelectObject(dc, pen);
+        for &[(x, y), (end_x, end_y)] in segments {
+            MoveToEx(dc, x, y, null_mut());
+            LineTo(dc, end_x, end_y);
+            SetPixelV(dc, end_x, end_y, color);
+        }
+        SelectObject(dc, old);
+        DeleteObject(pen);
+    }
 }
 
 fn draw_button_text(item: &DRAWITEMSTRUCT, rect: RECT, color: u32, flags: u32) {
@@ -1239,6 +1695,9 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
         }
         for card in layout::CARDS.iter().filter(|card| card.page == page) {
             let mut bounds = card.bounds;
+            if page == 3 && bounds.y == 284 && !background_image() {
+                bounds.h = 120;
+            }
             if page == 3 && more_panel && bounds.x == layout::RIGHT {
                 bounds.h += 215;
             }
@@ -1408,28 +1867,27 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     return unsafe { GetSysColorBrush(COLOR_WINDOW) } as isize;
                 };
                 let control_id = unsafe { GetDlgCtrlID(l as HWND) } as usize;
-                let muted_image_label = matches!(control_id, STRENGTH_LABEL | CROP_LABEL)
-                    && unsafe { SendMessageW(field("ShowSkin").value, BM_GETCHECK, 0, 0) == 0 };
-                let reading = control_id
-                    .checked_sub(FIELD)
-                    .and_then(|i| SPECS.get(i))
-                    .is_some_and(|spec| matches!(spec.kind, Kind::Hotkey));
+                if control_id == PREVIEW_QUERY && !s.preview_paper.is_null() {
+                    unsafe {
+                        SetBkColor(w as HDC, s.preview.input_colours.1);
+                        SetTextColor(w as HDC, s.preview.input_colours.2);
+                    }
+                    return s.preview_paper as isize;
+                }
                 let filename = ["PopupFileName", "BGFileName"].iter().any(|key| {
                     control_id
                         .checked_sub(FIELD)
                         .and_then(|i| SPECS.get(i))
                         .is_some_and(|spec| spec.key == *key)
                 });
-                let paper = msg == WM_CTLCOLOREDIT
-                    || reading
-                    || (msg == WM_CTLCOLORLISTBOX && l as HWND != s.tabs);
+                let paper =
+                    msg == WM_CTLCOLOREDIT || (msg == WM_CTLCOLORLISTBOX && l as HWND != s.tabs);
                 unsafe {
                     SetTextColor(
                         w as HDC,
                         if l as HWND == s.hint
                             || l as HWND == s.status
                             || filename
-                            || muted_image_label
                             || matches!(control_id, APPEARANCE_NOTE | STRENGTH_VALUE)
                             || IsWindowEnabled(l as HWND) == 0
                         {
@@ -1461,7 +1919,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             })
         }
         RECORDED => {
-            record_key(w as u32, l as usize);
+            if CAPTURE
+                .get()
+                .is_some_and(|capture| capture.index == (l as usize >> 8))
+            {
+                record_key(w as u32, l as usize & 255);
+            }
             0
         }
         crate::settings_preview::READY => {
@@ -1510,17 +1973,44 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             [2, 0, 1][id - SEGMENT],
                             0,
                         );
+                        for segment in SEGMENT..SEGMENT + 3 {
+                            InvalidateRect(GetDlgItem(hwnd, segment as i32), std::ptr::null(), 0);
+                        }
                     } else {
+                        if background_image() == (id == SEGMENT + 4) {
+                            return 0;
+                        }
                         SendMessageW(
                             field("ShowSkin").value,
                             BM_SETCHECK,
                             usize::from(id == SEGMENT + 4),
                             0,
                         );
+                        update_background_mode();
                     }
                 }
                 update_preview();
                 return 0;
+            }
+            if (SOLID_DEFAULT..=SOLID_PICK).contains(&id) && code == BN_CLICKED {
+                if id == SOLID_PICK {
+                    choose_colour(hwnd, "TitleColor");
+                } else {
+                    set_colour("TitleColor", &preset(id - SOLID_DEFAULT));
+                }
+                return 0;
+            }
+            if code == BN_CLICKED {
+                for (base, delta) in [(FONT_UP, 1), (FONT_DOWN, -1)] {
+                    if let Some(index) = id.checked_sub(base).filter(|&i| {
+                        SPECS
+                            .get(i)
+                            .is_some_and(|spec| matches!(spec.kind, Kind::Font))
+                    }) {
+                        adjust_font(index, delta);
+                        return 0;
+                    }
+                }
             }
             if matches!(id, MORE_PANEL | MORE_COLORS) && code == BN_CLICKED {
                 let page = EDITOR.with(|c| {
@@ -1543,7 +2033,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             if id == TAB && code == LBN_SELCHANGE {
                 let page = unsafe { SendMessageW(l as HWND, LB_GETCURSEL, 0, 0) };
-                show_page(page as usize);
+                if EDITOR.with(|c| c.borrow().as_ref().unwrap().page) != page as usize {
+                    show_page(page as usize);
+                }
                 return 0;
             }
             if id == PREVIEW_QUERY && code == EN_CHANGE {
@@ -1605,10 +2097,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     code == BN_CLICKED
                 } else if !choices(spec.key).is_empty() {
                     code == CBN_SELCHANGE
+                } else if matches!(spec.kind, Kind::Font) {
+                    code == EN_CHANGE
                 } else {
                     code == EN_KILLFOCUS
                 };
-                if changed && EDITOR.with(|c| c.borrow().is_some()) {
+                if changed && EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form))
+                {
                     if spec.key == "PlayPopupNotify" {
                         let checked = unsafe { SendMessageW(l as HWND, BM_GETCHECK, 0, 0) != 0 };
                         sync_sound_picker(checked);
@@ -1619,21 +2114,16 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             if let Some(index) = id.checked_sub(PICK).filter(|index| *index < SPECS.len()) {
                 let spec = &SPECS[index];
-                if matches!(spec.kind, Kind::Hotkey) {
-                    start_capture(hwnd, index);
+                stop_capture();
+                if spec.key.ends_with("Color") {
+                    choose_colour(hwnd, spec.key);
                 } else {
-                    stop_capture();
                     let value = fields()[index].value;
                     if let Some(chosen) =
                         crate::settings_pickers::choose(hwnd, spec.key, &text(value))
                     {
                         unsafe {
                             SetWindowTextW(value, wide(&chosen).as_ptr());
-                        }
-                        if spec.key == "TextColor" {
-                            unsafe {
-                                SendMessageW(field("UseCustomTextColor").value, BM_SETCHECK, 1, 0);
-                            }
                         }
                         if spec.key == "BGFileName" {
                             let skin = SPECS
@@ -1648,6 +2138,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                     0,
                                 );
                             }
+                            update_background_mode();
                         }
                         update_preview();
                     }
@@ -1818,7 +2309,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let small_font = make_font(13, 400, "Microsoft YaHei UI", dpi);
                 let caption_font = make_font(13, 600, "Microsoft YaHei UI", dpi);
                 let glyph_font = make_font(11, 600, "Consolas", dpi);
-                let close_font = make_font(19, 400, "Segoe UI", dpi);
                 let filename_font = make_font(12, 400, "Consolas", dpi);
                 let hotkey_font = make_font(14, 600, "Consolas", dpi);
                 let common = INITCOMMONCONTROLSEX {
@@ -1869,10 +2359,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 SendMessageW(title, WM_SETFONT, heading_font as usize, 0);
                 let hint = control("STATIC", "", 0, 214, 110, 859, 26, 0);
                 SendMessageW(hint, WM_SETFONT, small_font as usize, 0);
-                let status = control("STATIC", "", 0, 267, 610, 650, 24, STATUS);
+                let status = control("STATIC", "", OWNER_STATIC, 267, 610, 650, 24, STATUS);
                 SendMessageW(status, WM_SETFONT, small_font as usize, 0);
-                let close = control("BUTTON", "×", WS_TABSTOP, 1055, 1, 46, 41, TITLE_CLOSE);
-                SendMessageW(close, WM_SETFONT, close_font as usize, 0);
+                control("BUTTON", "关闭", WS_TABSTOP, 1055, 1, 46, 41, TITLE_CLOSE);
                 let preview = layout::PREVIEW;
                 let preview_controls = [
                     control("STATIC", "启动面板预览", 0, layout::RIGHT, 152, 220, 23, 0),
@@ -1929,13 +2418,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         BoxRect::new(666, 513, 392, 24),
                     ),
                     (3, "可试输快捷字，例如 db", BoxRect::new(866, 152, 207, 21)),
-                    (
-                        3,
-                        "图片等比裁切。输入框、结果与命令行使用主题实底。",
-                        BoxRect::new(524, 435, 549, 22),
-                    ),
+                    (3, "保存后应用到启动面板。", BoxRect::new(524, 435, 549, 22)),
                     (4, "可试输快捷字，例如 db", BoxRect::new(866, 152, 207, 21)),
-                    (4, "面板字体", BoxRect::new(228, 189, 51, 41)),
+                    (4, "面板字体", BoxRect::new(228, 196, 72, 26)),
                 ] {
                     let style = if bounds.x == 866 { 2 } else { 0 };
                     let control = control(
@@ -1960,7 +2445,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     (SEGMENT + 3, "纯色", 230, 299, 128, 30, 3),
                     (SEGMENT + 4, "图片", 361, 299, 127, 30, 3),
                     (MORE_PANEL, "其他面板选项", 528, 587, 541, 42, 3),
-                    (FONT_FAMILY, "", 301, 191, 189, 34, 4),
+                    (FONT_FAMILY, "", 310, 191, 180, 34, 4),
                     (MORE_COLORS, "其他颜色", 215, 517, 288, 40, 4),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
@@ -1971,9 +2456,36 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 }
                 let thumbnail = control("STATIC", "", 0x0d, 227, 347, 29, 26, IMAGE_THUMB);
                 extra_controls.push((3, thumbnail));
-                let strength = control("STATIC", "", 2, 449, 389, 43, 20, STRENGTH_VALUE);
+                let strength =
+                    control("STATIC", "", OWNER_STATIC, 449, 389, 43, 20, STRENGTH_VALUE);
                 SendMessageW(strength, WM_SETFONT, small_font as usize, 0);
                 extra_controls.push((3, strength));
+                extra_controls.push((
+                    3,
+                    control("STATIC", "面板底色", 0, 227, 340, 140, 22, SOLID_LABEL),
+                ));
+                for (index, caption) in [
+                    "主题默认色",
+                    PRESETS[0].0,
+                    PRESETS[1].0,
+                    PRESETS[2].0,
+                    "自定义…",
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let chip = control(
+                        "BUTTON",
+                        caption,
+                        WS_TABSTOP,
+                        227 + index as i32 * 40,
+                        367,
+                        if index == 4 { 104 } else { 34 },
+                        27,
+                        SOLID_DEFAULT + index,
+                    );
+                    extra_controls.push((3, chip));
+                }
                 let mut fields = vec![None; SPECS.len()];
                 for (page, design) in PAGES.iter().enumerate() {
                     for key in design.keys {
@@ -2019,7 +2531,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
-                            let picker = key.ends_with("Color")
+                            let font_size = matches!(spec.kind, Kind::Font);
+                            let color = key.ends_with("Color");
+                            let picker = color
                                 || matches!(
                                     *key,
                                     "BGFileName" | "PopupFileName" | "WorkingDirectory"
@@ -2053,7 +2567,23 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     },
                                 );
                             }
-                            field.value = if *key == "BGStrength" {
+                            field.value = if hotkey {
+                                let handle = control(
+                                    "BUTTON",
+                                    "",
+                                    WS_TABSTOP,
+                                    right - 258,
+                                    input_y,
+                                    194,
+                                    input_height,
+                                    FIELD + index,
+                                );
+                                SendMessageW(handle, WM_SETFONT, hotkey_font as usize, 0);
+                                SetWindowSubclass(handle, Some(hotkey_proc), 1, index);
+                                handle
+                            } else if color {
+                                control("STATIC", "", 0, 0, 0, 1, 1, FIELD + index)
+                            } else if *key == "BGStrength" {
                                 let handle = control(
                                     "msctls_trackbar32",
                                     "",
@@ -2106,7 +2636,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 let handle = control(
                                     "STATIC",
                                     "",
-                                    0x8000,
+                                    if *key == "BGFileName" {
+                                        OWNER_STATIC
+                                    } else {
+                                        0x8000
+                                    },
                                     left,
                                     y + (h - 18) / 2,
                                     (right - left - 83).max(1),
@@ -2116,20 +2650,14 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 SendMessageW(handle, WM_SETFONT, filename_font as usize, 0);
                                 handle
                             } else {
-                                let buttons = if hotkey {
-                                    128
+                                let buttons = if font_size {
+                                    26
                                 } else if picker {
                                     84
                                 } else {
                                     0
                                 };
-                                let style = ES_AUTOHSCROLL as u32
-                                    | WS_TABSTOP
-                                    | if hotkey {
-                                        (ES_READONLY | ES_CENTER) as u32
-                                    } else {
-                                        0
-                                    };
+                                let style = ES_AUTOHSCROLL as u32 | WS_TABSTOP;
                                 let handle = control(
                                     "EDIT",
                                     "",
@@ -2140,25 +2668,10 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     input_height,
                                     FIELD + index,
                                 );
-                                if hotkey {
-                                    SendMessageW(handle, WM_SETFONT, hotkey_font as usize, 0);
-                                    theme_ui::style_hotkey_value(handle, dpi);
-                                } else {
-                                    theme_ui::style_edit(handle, dpi, true);
-                                }
+                                theme_ui::style_edit(handle, dpi, true);
                                 handle
                             };
                             if hotkey {
-                                field.pick = control(
-                                    "BUTTON",
-                                    "录制",
-                                    WS_TABSTOP,
-                                    right - 120,
-                                    input_y,
-                                    56,
-                                    34,
-                                    PICK + index,
-                                );
                                 field.clear = control(
                                     "BUTTON",
                                     "清除",
@@ -2169,23 +2682,37 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     34,
                                     CLEAR + index,
                                 );
+                            } else if font_size {
+                                for (base, caption, offset) in
+                                    [(FONT_UP, "增大字号", 0), (FONT_DOWN, "减小字号", 18)]
+                                {
+                                    let arrow = control(
+                                        "BUTTON",
+                                        caption,
+                                        WS_TABSTOP,
+                                        right - 23,
+                                        input_y + offset,
+                                        23,
+                                        16,
+                                        base + index,
+                                    );
+                                    extra_controls.push((page, arrow));
+                                }
                             } else if picker {
                                 field.pick = control(
                                     "BUTTON",
                                     if *key == "BGFileName" {
                                         "换图…"
+                                    } else if color {
+                                        label
                                     } else {
                                         "选择…"
                                     },
                                     WS_TABSTOP,
-                                    if *key == "TextColor" {
-                                        right - 50
-                                    } else {
-                                        right - 73
-                                    },
-                                    if *key == "TextColor" { y + 8 } else { input_y },
-                                    if *key == "TextColor" { 50 } else { 73 },
-                                    if *key == "TextColor" { 27 } else { 34 },
+                                    if color { right - 50 } else { right - 73 },
+                                    if color { y + (h - 27) / 2 } else { input_y },
+                                    if color { 50 } else { 73 },
+                                    if color { 27 } else { 34 },
                                     PICK + index,
                                 );
                             }
@@ -2235,7 +2762,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 {
                     appearance_children.push((*child, client_rect(*child), false));
                 }
-                for child in preview_controls {
+                for child in [preview_controls[0], preview_controls[1]] {
                     appearance_children.push((child, client_rect(child), false));
                 }
                 EDITOR.with(|c| {
@@ -2254,7 +2781,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         small_font,
                         caption_font,
                         glyph_font,
-                        close_font,
                         filename_font,
                         hotkey_font,
                         footer_controls,
@@ -2270,6 +2796,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         preview: Preview::new(prefs.clone()),
                         preview_controls,
                         preview_font: null_mut(),
+                        preview_paper: null_mut(),
+                        preview_font_key: String::new(),
+                        preview_position: None,
+                        loading_form: false,
+                        chrome_colors: chrome_colors(),
                         saved: prefs.clone(),
                         draft: prefs.clone(),
                         fields,
@@ -2288,6 +2819,16 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     if matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
                         && record_key(msg.wParam as u32, modifier_bits(|key| GetKeyState(key)))
                     {
+                        continue;
+                    }
+                    if msg.message == WM_KEYDOWN
+                        && matches!(msg.wParam as u16, VK_UP | VK_DOWN)
+                        && let Some(index) = (GetDlgCtrlID(msg.hwnd) as usize).checked_sub(FIELD)
+                        && SPECS
+                            .get(index)
+                            .is_some_and(|spec| matches!(spec.kind, Kind::Font))
+                    {
+                        adjust_font(index, if msg.wParam as u16 == VK_UP { 1 } else { -1 });
                         continue;
                     }
                     if msg.hwnd == preview_controls[2]
@@ -2321,12 +2862,14 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         DeleteObject(e.small_font);
                         DeleteObject(e.caption_font);
                         DeleteObject(e.glyph_font);
-                        DeleteObject(e.close_font);
                         DeleteObject(e.filename_font);
                         DeleteObject(e.hotkey_font);
                         DeleteObject(e.rail);
                         if !e.preview_font.is_null() {
                             DeleteObject(e.preview_font);
+                        }
+                        if !e.preview_paper.is_null() {
+                            DeleteObject(e.preview_paper);
                         }
                         DeleteObject(e.background);
                         DeleteObject(e.paper);
@@ -2347,8 +2890,18 @@ pub fn is_open() -> bool {
 }
 
 fn refresh_style(prefs: &Preferences) {
-    let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd);
     theme::install_chrome(prefs);
+    let colours = chrome_colors();
+    let hwnd = EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        if s.chrome_colors == colours {
+            return None;
+        }
+        s.chrome_colors = colours;
+        Some(s.hwnd)
+    });
+    let Some(hwnd) = hwnd else { return };
     theme::frame(hwnd);
     unsafe {
         let background = CreateSolidBrush(crate::theme::surface());
@@ -2370,4 +2923,14 @@ fn refresh_style(prefs: &Preferences) {
             RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
         );
     }
+}
+
+fn chrome_colors() -> [u32; 5] {
+    [
+        theme::surface(),
+        theme::paper(),
+        theme::chrome(),
+        theme::text(),
+        theme::accent(),
+    ]
 }

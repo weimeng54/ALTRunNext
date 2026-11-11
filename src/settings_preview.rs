@@ -21,6 +21,7 @@ pub struct Preview {
     results: mpsc::Receiver<ResultImage>,
     pub prefs: Preferences,
     pub selected: usize,
+    pub input_colours: (u32, u32, u32),
 }
 
 impl Preview {
@@ -33,11 +34,17 @@ impl Preview {
             results,
             prefs,
             selected: 0,
+            input_colours: (theme::surface(), theme::paper(), theme::text()),
         }
     }
 
     pub fn update(&mut self, prefs: Preferences, data: &Path, hwnd: HWND) {
         theme::install(&prefs);
+        self.input_colours = (
+            theme::surface(),
+            theme::keyword(),
+            theme::font_colour(&prefs.get("KeywordFont")),
+        );
         let request = skin::Request::for_settings(&prefs, data, theme::surface());
         theme::install_chrome(&prefs);
         self.prefs = prefs;

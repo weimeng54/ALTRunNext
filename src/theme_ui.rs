@@ -367,10 +367,6 @@ pub fn style_edit(hwnd: HWND, dpi: i32, card: bool) {
     set_edit_style(hwnd, dpi, mode);
 }
 
-pub fn style_hotkey_value(hwnd: HWND, dpi: i32) {
-    set_edit_style(hwnd, dpi, 0x30000);
-}
-
 fn set_edit_style(hwnd: HWND, dpi: i32, mode: usize) {
     unsafe {
         SetWindowSubclass(hwnd, Some(edit_proc), 1, mode | dpi as usize);
@@ -395,33 +391,9 @@ unsafe extern "system" fn edit_proc(
     mode: usize,
 ) -> LRESULT {
     let dpi = (mode & 0xffff) as i32;
-    let inset_x = scaled(if mode & 0x20000 != 0 { 4 } else { 9 }, dpi);
+    let inset_x = scaled(9, dpi);
     let inset_y = scaled(7, dpi);
     unsafe {
-        if mode & 0x20000 != 0 && matches!(msg, WM_PAINT | WM_PRINTCLIENT) {
-            let mut paint: PAINTSTRUCT = std::mem::zeroed();
-            let dc = if msg == WM_PAINT {
-                BeginPaint(hwnd, &mut paint)
-            } else {
-                w as HDC
-            };
-            let mut rect = RECT::default();
-            GetClientRect(hwnd, &mut rect);
-            fill(dc, &rect, theme::paper());
-            let text = window_text(hwnd);
-            let old = SelectObject(dc, DefSubclassProc(hwnd, WM_GETFONT, 0, 0) as HFONT);
-            let label = if text.is_empty() {
-                crate::localization::tr("未设置")
-            } else {
-                text
-            };
-            line_text(dc, rect, &label, theme::text(), DT_CENTER);
-            SelectObject(dc, old);
-            if msg == WM_PAINT {
-                EndPaint(hwnd, &paint);
-            }
-            return 0;
-        }
         if msg == WM_NCCALCSIZE && l != 0 {
             let rect = &mut *(l as *mut RECT);
             let x = inset_x.min((rect.right - rect.left - 1).max(0) / 2);
@@ -442,20 +414,17 @@ unsafe extern "system" fn edit_proc(
                     rect.right - inset_x,
                     rect.bottom - inset_y,
                 );
-                fill(
-                    dc,
-                    &rect,
-                    if mode & 0x10000 != 0 {
-                        theme::control_surface()
-                    } else {
-                        theme::surface()
-                    },
-                );
+                let (backdrop, paper) = if mode & 0x10000 != 0 {
+                    (theme::control_surface(), theme::paper())
+                } else {
+                    crate::settings::preview_edit_colours()
+                };
+                fill(dc, &rect, backdrop);
                 rounded(
                     dc,
                     rect,
                     scaled(12, dpi),
-                    theme::paper(),
+                    paper,
                     if GetFocus() == hwnd {
                         theme::accent()
                     } else {
@@ -467,9 +436,7 @@ unsafe extern "system" fn edit_proc(
             return 0;
         }
         let result = DefSubclassProc(hwnd, msg, w, l);
-        if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE)
-            || (mode & 0x20000 != 0 && msg == WM_SETTEXT)
-        {
+        if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE) {
             RedrawWindow(
                 hwnd,
                 std::ptr::null(),

@@ -193,6 +193,46 @@ fn settings_design(hwnd: HWND) {
     for (theme, segment) in [("light", 2331), ("dark", 2332)] {
         select_page(hwnd, 3);
         command(hwnd, segment);
+        unsafe {
+            command(hwnd, 2333);
+            assert_ne!(IsWindowVisible(GetDlgItem(hwnd, 2351)), 0);
+            assert_eq!(IsWindowVisible(setting(hwnd, "BGStrength")), 0);
+            assert_eq!(IsWindowVisible(setting(hwnd, "BGCrop")), 0);
+            command(hwnd, 2351);
+            assert_eq!(
+                text(setting(hwnd, "TitleColor")),
+                if theme == "dark" {
+                    "#263B53"
+                } else {
+                    "#DCE7F4"
+                },
+            );
+            command(hwnd, 2350);
+            command(hwnd, 2334);
+            assert_eq!(IsWindowVisible(GetDlgItem(hwnd, 2351)), 0);
+            assert_ne!(IsWindowVisible(setting(hwnd, "BGStrength")), 0);
+            assert_ne!(IsWindowVisible(setting(hwnd, "BGCrop")), 0);
+            native_snapshot::save(hwnd, &format!("settings-image-{theme}"));
+            command(hwnd, 2333);
+            select_page(hwnd, 4);
+            let title = setting(hwnd, "TitleFont");
+            let size = text(title).parse::<i32>().unwrap();
+            command(hwnd, 2700 + setting_index("TitleFont"));
+            assert_eq!(text(title), (size + 1).to_string());
+            command(hwnd, 2800 + setting_index("TitleFont"));
+            assert_eq!(text(title), size.to_string());
+            command(hwnd, 2343);
+            assert_eq!(IsWindowVisible(setting(hwnd, "TitleColor")), 0);
+            assert_ne!(
+                IsWindowVisible(GetDlgItem(
+                    hwnd,
+                    (2500 + setting_index("TitleColor")) as i32
+                )),
+                0
+            );
+            native_snapshot::save(hwnd, &format!("settings-colors-{theme}"));
+            command(hwnd, 2343);
+        }
         for (page, name) in pages.iter().enumerate() {
             select_page(hwnd, page);
             native_snapshot::save(hwnd, &format!("settings-design-{theme}-{name}"));
@@ -373,8 +413,16 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 .contains("Ctrl+Alt+F12")
         );
         UnregisterHotKey(null_mut(), 22222);
-        command(dialog, 2500 + setting_index("HotKey1"));
+        assert!(GetDlgItem(dialog, (2500 + setting_index("HotKey1")) as i32).is_null());
+        let previous = text(main_key);
+        SendMessageW(main_key, WM_SETFOCUS, 0, 0);
+        assert_eq!(text(main_key), previous);
+        SendMessageW(dialog, WM_KEYDOWN, 0x10, 0);
+        assert_eq!(text(main_key), previous);
         SendMessageW(dialog, WM_KEYDOWN, 0x77, 0);
+        assert_eq!(text(main_key), "F8");
+        SendMessageW(main_key, 0x02a3, 0, 0);
+        SendMessageW(dialog, WM_KEYDOWN, 0x76, 0);
         assert_eq!(text(main_key), "F8");
         command(dialog, 2310);
         assert!(
