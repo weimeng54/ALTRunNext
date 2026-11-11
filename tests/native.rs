@@ -79,10 +79,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             if !hwnd.is_null() {
                 let edit = unsafe { GetDlgItem(hwnd, 1001) };
                 let list = unsafe { GetDlgItem(hwnd, 1002) };
-                if !edit.is_null()
-                    && !list.is_null()
-                    && unsafe { IsWindowVisible(hwnd) } != 0
-                {
+                if !edit.is_null() && !list.is_null() && unsafe { IsWindowVisible(hwnd) } != 0 {
                     break (hwnd, edit, list);
                 }
             }

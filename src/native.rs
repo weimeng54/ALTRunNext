@@ -494,16 +494,14 @@ fn cancel_parameter() -> bool {
     let restore = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        s.parameter_entry
-            .take()
-            .map(|_| {
-                (
-                    s.edit,
-                    s.list,
-                    std::mem::take(&mut s.saved_query),
-                    s.preferences.flag("ShowOperationHint"),
-                )
-            })
+        s.parameter_entry.take().map(|_| {
+            (
+                s.edit,
+                s.list,
+                std::mem::take(&mut s.saved_query),
+                s.preferences.flag("ShowOperationHint"),
+            )
+        })
     });
     if let Some((edit, list, query, show_operations)) = restore {
         unsafe {
