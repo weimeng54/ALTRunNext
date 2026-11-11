@@ -142,7 +142,11 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     // Reserve the secondary action before launch to reproduce the user's
     // unrelated occupied hotkey while changing appearance and primary hotkey.
     assert_ne!(unsafe { RegisterHotKey(null_mut(), 22221, 3, 0x78) }, 0);
-    std::fs::write(&settings, "[Config]\nLastItemHotKey=Ctrl+Alt+F9\n").unwrap();
+    std::fs::write(
+        &settings,
+        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\n[Legacy]\nExtraSetting=keep\n",
+    )
+    .unwrap();
     let shell = altrun_probe::safe_notepad_path()
         .unwrap()
         .with_file_name("cmd.exe");
@@ -250,6 +254,11 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             std::fs::read_to_string(&settings)
                 .unwrap()
                 .contains("LastItemHotKey=Ctrl+Alt+F9")
+        );
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("ExtraSetting=keep")
         );
         select_page(dialog, 0);
         let integration = altrun_probe::integration::Integration::for_data(&data).unwrap();

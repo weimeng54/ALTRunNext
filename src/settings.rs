@@ -159,6 +159,7 @@ struct Editor {
     paper: HBRUSH,
     font: HFONT,
     saved: Preferences,
+    draft: Preferences,
     fields: Vec<Field>,
     file: TextFile,
     data: PathBuf,
@@ -213,7 +214,7 @@ fn show_page(page: usize) {
     let Some(design) = PAGES.get(page) else {
         return;
     };
-    stop_capture();
+    cancel_capture();
     let (tabs, hint) = EDITOR.with(|c| {
         let editor = c.borrow();
         let editor = editor.as_ref().unwrap();
@@ -238,6 +239,7 @@ fn show_page(page: usize) {
 }
 
 fn load_form(prefs: &Preferences) {
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().draft = prefs.clone());
     for (spec, field) in SPECS.iter().zip(fields()) {
         let value = prefs.get(spec.key);
         unsafe {
@@ -254,7 +256,7 @@ fn load_form(prefs: &Preferences) {
 }
 
 fn read_form() -> Result<Preferences, (usize, String)> {
-    let mut prefs = Preferences::default();
+    let mut prefs = EDITOR.with(|c| c.borrow().as_ref().unwrap().draft.clone());
     for (index, (spec, field)) in SPECS.iter().zip(fields()).enumerate() {
         let value = if matches!(spec.kind, Kind::Bool) {
             let checked = unsafe { SendMessageW(field.value, BM_GETCHECK, 0, 0) != 0 };
@@ -297,6 +299,13 @@ fn stop_capture() {
         unsafe {
             UnhookWindowsHookEx(recording.hook);
         }
+    }
+}
+
+fn cancel_capture() {
+    if CAPTURE.get().is_some() {
+        stop_capture();
+        status("已取消录制。");
     }
 }
 
@@ -538,7 +547,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             0
         }
         WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
-            stop_capture();
+            cancel_capture();
             0
         }
         WM_NOTIFY if w == TAB && l != 0 => {
@@ -910,6 +919,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         paper,
                         font,
                         saved: prefs.clone(),
+                        draft: prefs.clone(),
                         fields: fields
                             .into_iter()
                             .map(|field| field.expect("missing settings field"))

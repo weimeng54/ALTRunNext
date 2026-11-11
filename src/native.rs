@@ -36,8 +36,16 @@ const STATIC_CENTER: u32 = 0x00000000;
 type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
+enum PopupSound {
+    System,
+    File {
+        path: std::path::PathBuf,
+        legacy_path: Option<std::path::PathBuf>,
+    },
+}
+
 struct State {
-    sound_sender: std::sync::mpsc::SyncSender<String>,
+    sound_sender: std::sync::mpsc::SyncSender<PopupSound>,
     last_user_generation: Option<u64>,
     match_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     input_paper: HBRUSH,
@@ -1685,27 +1693,25 @@ pub fn run() -> Result<(), String> {
     let match_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let worker_generation = match_generation.clone();
     let (skin_sender, skin_results) = std::sync::mpsc::channel();
-    let (sound_sender, sound_tasks) = std::sync::mpsc::sync_channel::<String>(1);
+    let (sound_sender, sound_tasks) = std::sync::mpsc::sync_channel::<PopupSound>(1);
     std::thread::spawn(move || {
         use windows_sys::Win32::Media::Audio::*;
-        while let Ok(mut file) = sound_tasks.recv() {
+        while let Ok(mut sound) = sound_tasks.recv() {
             while let Ok(newer) = sound_tasks.try_recv() {
-                file = newer;
+                sound = newer;
             }
-            unsafe {
-                if file.is_empty() {
-                    PlaySoundW(
-                        wide("SystemAsterisk").as_ptr(),
-                        null_mut(),
-                        SND_ALIAS | SND_ASYNC,
-                    );
-                } else {
-                    PlaySoundW(
-                        wide(&file).as_ptr(),
-                        null_mut(),
-                        SND_FILENAME | SND_ASYNC | SND_NODEFAULT,
-                    );
+            let (source, flags) = match sound {
+                PopupSound::System => ("SystemAsterisk".to_owned(), SND_ALIAS),
+                PopupSound::File { path, legacy_path } => {
+                    let path = match legacy_path {
+                        Some(legacy) if !path.is_file() => legacy,
+                        _ => path,
+                    };
+                    (path.to_string_lossy().into_owned(), SND_FILENAME | SND_NODEFAULT)
                 }
+            };
+            unsafe {
+                PlaySoundW(wide(&source).as_ptr(), null_mut(), flags | SND_ASYNC);
             }
         }
     });
@@ -2855,15 +2861,21 @@ fn popup_sound() {
         }
         let file = s.preferences.get("PopupFileName");
         let path = std::path::Path::new(&file);
-        let file = if file.is_empty() || path.is_absolute() {
-            file
+        let sound = if file.is_empty() {
+            PopupSound::System
+        } else if path.is_absolute() {
+            PopupSound::File {
+                path: path.into(),
+                legacy_path: None,
+            }
         } else {
-            std::path::Path::new(&s.context.base_directory)
-                .join(path)
-                .to_string_lossy()
-                .into_owned()
+            let data_directory = s.data_path.parent().unwrap_or(std::path::Path::new("."));
+            PopupSound::File {
+                path: data_directory.join(path),
+                legacy_path: Some(std::path::Path::new(&s.context.base_directory).join(path)),
+            }
         };
-        let _ = s.sound_sender.try_send(file);
+        let _ = s.sound_sender.try_send(sound);
     });
 }
 
