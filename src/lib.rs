@@ -156,7 +156,8 @@ impl SearchIndex {
                 if !active {
                     return None;
                 }
-                let (priority, start, skipped) = self.literal_match(i, &needle, length, anywhere)?;
+                let (priority, start, skipped) =
+                    self.literal_match(i, &needle, length, anywhere)?;
                 let score = self
                     .position_score(i, start, length as i64)
                     .saturating_sub((skipped as i64).saturating_mul(64));
@@ -167,13 +168,22 @@ impl SearchIndex {
         Ok(hits.into_iter().map(|hit| hit.0).collect())
     }
 
-    pub fn same_match_priority(&self, input: &str, regex: bool, first: usize, other: usize) -> bool {
+    pub fn same_match_priority(
+        &self,
+        input: &str,
+        regex: bool,
+        first: usize,
+        other: usize,
+    ) -> bool {
         if regex_query(input, regex) {
             return true;
         }
         let needle = input.to_lowercase();
         let length = needle.chars().count();
-        let priority = |index| self.literal_match(index, &needle, length, true).map(|hit| hit.0);
+        let priority = |index| {
+            self.literal_match(index, &needle, length, true)
+                .map(|hit| hit.0)
+        };
         priority(first).is_some_and(|best| priority(other) == Some(best))
     }
 

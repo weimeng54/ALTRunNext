@@ -117,7 +117,8 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             );
             native_snapshot::save(hwnd, &format!("normal-{scale}"));
             SendMessageW(edit, WM_SETTEXT, 0, wide("np").as_ptr() as isize);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
+            // "np" is exact and the long alias also contains n before p.
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 2);
             SendMessageW(edit, WM_IME_STARTCOMPOSITION, 0, 0);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_ne!(IsWindowVisible(hwnd), 0, "IME Enter must not launch");
