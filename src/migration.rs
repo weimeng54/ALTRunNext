@@ -174,7 +174,7 @@ impl Migration {
             .filter(|e| e.kind == EntryKind::Command)
             .count();
         let report = format!(
-            "ALTRun 迁移结果\n来源：{}\n启动项：{commands}\n分隔 / 备注：{}\n\n原文件只读，副本保存在 originals。\n快捷键保留共存默认 Ctrl+Alt+R；开机启动和发送到默认关闭。\n旧版 HandleID 不复用；旧窗口句柄没有迁移意义。\n{}\n旧程序内存中尚未写回磁盘的修改不在本次迁移中。\n{}\n",
+            "ALTRun 迁移结果\n来源：{}\n启动项：{commands}\n分隔 / 备注：{}\n\n原文件只读，副本保存在 originals。\n默认呼出键为 Alt+R；开机启动和发送到默认关闭。\n旧版 HandleID 不复用；旧窗口句柄没有迁移意义。\n{}\n旧程序内存中尚未写回磁盘的修改不在本次迁移中。\n{}\n",
             directory.display(),
             entries.len() - commands,
             if legacy_appearance {

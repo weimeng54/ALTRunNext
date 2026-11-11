@@ -8,13 +8,20 @@ use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
     ptr::null_mut,
-    sync::{atomic::{AtomicUsize, Ordering}, mpsc},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
 };
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{Controls::{Dialogs::*, *}, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+    UI::{
+        Controls::{Dialogs::*, *},
+        Input::KeyboardAndMouse::*,
+        WindowsAndMessaging::*,
+    },
 };
 
 pub const UPDATED: u32 = WM_APP + 12;
@@ -41,8 +48,16 @@ const PAGES: &[Page] = &[
     Page {
         name: "常规",
         hint: "管理启动方式、系统托盘和资源管理器菜单。",
-        keys: &["ShowMeWhenStart", "ShowTrayIcon", "AutoRun", "AddToSendTo",
-                "ShowStartNotification", "PlayPopupNotify", "PopupFileName", "Lang"],
+        keys: &[
+            "ShowMeWhenStart",
+            "ShowTrayIcon",
+            "AutoRun",
+            "AddToSendTo",
+            "ShowStartNotification",
+            "PlayPopupNotify",
+            "PopupFileName",
+            "Lang",
+        ],
     },
     Page {
         name: "快捷键",
@@ -52,33 +67,76 @@ const PAGES: &[Page] = &[
     Page {
         name: "搜索与执行",
         hint: "调整匹配方式、结果编号和执行后的行为。",
-        keys: &["Regex", "MatchAnywhere", "RememberFavouratMatch", "NumberKey",
-                "IndexFrom0to9", "ExecuteIfOnlyOne", "ExitWhenExecute", "ParamHistoryLimit"],
+        keys: &[
+            "Regex",
+            "MatchAnywhere",
+            "RememberFavouratMatch",
+            "NumberKey",
+            "IndexFrom0to9",
+            "ExecuteIfOnlyOne",
+            "ExitWhenExecute",
+            "ParamHistoryLimit",
+        ],
     },
     Page {
         name: "外观",
         hint: "调整面板和结果列表。更改会在保存后生效。",
-        keys: &["Theme", "FormWidth", "RowHeight", "MaxRows", "ShowTopTen",
-                "ShowOperationHint", "ShowCommandLine", "ShowShortCutButton",
-                "ShowConfigButton", "ShowCloseButton", "ShowSkin", "BGFileName"],
+        keys: &[
+            "Theme",
+            "FormWidth",
+            "RowHeight",
+            "MaxRows",
+            "ShowTopTen",
+            "ShowOperationHint",
+            "ShowCommandLine",
+            "ShowShortCutButton",
+            "ShowConfigButton",
+            "ShowCloseButton",
+            "ShowSkin",
+            "BGFileName",
+        ],
     },
     Page {
         name: "字体与颜色",
         hint: "选择字体或颜色，也可以直接编辑已有值。",
-        keys: &["TitleFont", "KeywordFont", "ListFont", "TitleColor", "KeywordColor",
-                "ListColor", "TextColor", "SelectionColor", "Alpha", "RoundBorderRadius"],
+        keys: &[
+            "TitleFont",
+            "KeywordFont",
+            "ListFont",
+            "TitleColor",
+            "KeywordColor",
+            "ListColor",
+            "TextColor",
+            "SelectionColor",
+            "Alpha",
+            "RoundBorderRadius",
+        ],
     },
     Page {
         name: "窗口位置",
         hint: "设置呼出位置、自动隐藏时间和管理窗口大小。",
-        keys: &["PositionMode", "HideDelay", "WinLeft", "WinTop", "ManWinLeft",
-                "ManWinTop", "ManWinWidth", "ManWinHeight"],
+        keys: &[
+            "PositionMode",
+            "HideDelay",
+            "WinLeft",
+            "WinTop",
+            "ManWinLeft",
+            "ManWinTop",
+            "ManWinWidth",
+            "ManWinHeight",
+        ],
     },
     Page {
         name: "高级",
         hint: "兼容旧版格式、正则语法和诊断选项。",
-        keys: &["StandardRegex", "ListFormat", "WorkingDirectory", "AllowDynamicTarget",
-                "TraceEnable", "AlphaColor"],
+        keys: &[
+            "StandardRegex",
+            "ListFormat",
+            "WorkingDirectory",
+            "AllowDynamicTarget",
+            "TraceEnable",
+            "AlphaColor",
+        ],
     },
 ];
 
@@ -130,13 +188,19 @@ fn text(hwnd: HWND) -> String {
 
 fn status(message: &str) {
     let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().status);
-    unsafe { SetWindowTextW(hwnd, ui(message).as_ptr()); }
+    unsafe {
+        SetWindowTextW(hwnd, ui(message).as_ptr());
+    }
 }
 
 fn choices(key: &str) -> &'static [(&'static str, &'static str)] {
     match key {
         "Theme" => &[("light", "浅色"), ("dark", "深色"), ("system", "跟随系统")],
-        "PositionMode" => &[("remember", "记住位置"), ("mouse", "鼠标附近"), ("center", "屏幕居中")],
+        "PositionMode" => &[
+            ("remember", "记住位置"),
+            ("mouse", "鼠标附近"),
+            ("center", "屏幕居中"),
+        ],
         _ => &[],
     }
 }
@@ -146,7 +210,9 @@ fn fields() -> Vec<Field> {
 }
 
 fn show_page(page: usize) {
-    let Some(design) = PAGES.get(page) else { return; };
+    let Some(design) = PAGES.get(page) else {
+        return;
+    };
     stop_capture();
     let (tabs, hint) = EDITOR.with(|c| {
         let editor = c.borrow();
@@ -157,7 +223,11 @@ fn show_page(page: usize) {
         SendMessageW(tabs, TCM_SETCURSEL, page, 0);
         SetWindowTextW(hint, ui(design.hint).as_ptr());
         for field in fields() {
-            let visibility = if field.page == page { SW_SHOWNA } else { SW_HIDE };
+            let visibility = if field.page == page {
+                SW_SHOWNA
+            } else {
+                SW_HIDE
+            };
             for hwnd in [field.label, field.value, field.pick, field.clear] {
                 if !hwnd.is_null() {
                     ShowWindow(hwnd, visibility);
@@ -173,7 +243,8 @@ fn load_form(prefs: &Preferences) {
         unsafe {
             if matches!(spec.kind, Kind::Bool) {
                 SendMessageW(field.value, BM_SETCHECK, usize::from(value == "1"), 0);
-            } else if let Some(index) = choices(spec.key).iter().position(|(key, _)| *key == value) {
+            } else if let Some(index) = choices(spec.key).iter().position(|(key, _)| *key == value)
+            {
                 SendMessageW(field.value, CB_SETCURSEL, index, 0);
             } else {
                 SetWindowTextW(field.value, wide(&value).as_ptr());
@@ -190,13 +261,16 @@ fn read_form() -> Result<Preferences, (usize, String)> {
             if checked { "1" } else { "0" }.to_owned()
         } else if !choices(spec.key).is_empty() {
             let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
-            choices(spec.key).get(selected as usize)
+            choices(spec.key)
+                .get(selected as usize)
                 .map(|(value, _)| (*value).to_owned())
                 .ok_or_else(|| (index, "请选择一个值".into()))?
         } else {
             text(field.value)
         };
-        prefs.set(spec.key, &value).map_err(|error| (index, error))?;
+        prefs
+            .set(spec.key, &value)
+            .map_err(|error| (index, error))?;
     }
     Ok(prefs)
 }
@@ -207,7 +281,9 @@ fn validated_form() -> Option<Preferences> {
         Err((index, error)) => {
             let field = fields()[index];
             show_page(field.page);
-            unsafe { SetFocus(field.value); }
+            unsafe {
+                SetFocus(field.value);
+            }
             status(&error);
             None
         }
@@ -218,7 +294,9 @@ fn stop_capture() {
     if let Some(recording) = CAPTURE.take()
         && !recording.hook.is_null()
     {
-        unsafe { UnhookWindowsHookEx(recording.hook); }
+        unsafe {
+            UnhookWindowsHookEx(recording.hook);
+        }
     }
 }
 
@@ -253,7 +331,9 @@ fn is_modifier(vk: u32) -> bool {
 }
 
 fn record_key(vk: u32, modifiers: usize) -> bool {
-    let Some(recording) = CAPTURE.get() else { return false; };
+    let Some(recording) = CAPTURE.get() else {
+        return false;
+    };
     if is_modifier(vk) {
         return false;
     }
@@ -275,7 +355,9 @@ fn record_key(vk: u32, modifiers: usize) -> bool {
     value.push_str(&key);
     stop_capture();
     let field = fields()[recording.index];
-    unsafe { SetWindowTextW(field.value, wide(&value).as_ptr()); }
+    unsafe {
+        SetWindowTextW(field.value, wide(&value).as_ptr());
+    }
     status("已录制。点击“保存并应用”生效。");
     true
 }
@@ -289,7 +371,9 @@ unsafe extern "system" fn capture_hook(code: i32, w: WPARAM, l: LPARAM) -> LRESU
         let vk = unsafe { (*(l as *const KBDLLHOOKSTRUCT)).vkCode };
         if !is_modifier(vk) {
             let modifiers = modifier_bits(|key| unsafe { GetAsyncKeyState(key) });
-            unsafe { PostMessageW(recording.window, RECORDED, vk as usize, modifiers as isize); }
+            unsafe {
+                PostMessageW(recording.window, RECORDED, vk as usize, modifiers as isize);
+            }
             return 1;
         }
     }
@@ -299,13 +383,24 @@ unsafe extern "system" fn capture_hook(code: i32, w: WPARAM, l: LPARAM) -> LRESU
 fn start_capture(hwnd: HWND, index: usize) {
     stop_capture();
     let hook = unsafe {
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(capture_hook), GetModuleHandleW(std::ptr::null()), 0)
+        SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(capture_hook),
+            GetModuleHandleW(std::ptr::null()),
+            0,
+        )
     };
-    CAPTURE.set(Some(Capture { window: hwnd, index, hook }));
+    CAPTURE.set(Some(Capture {
+        window: hwnd,
+        index,
+        hook,
+    }));
     status("正在录制，按下快捷键。Esc 取消。");
 }
 fn apply() {
-    let Some(prefs) = validated_form() else { return; };
+    let Some(prefs) = validated_form() else {
+        return;
+    };
     let (sender, owner, data) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -437,7 +532,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             record_key(w as u32, l as usize);
             0
         }
-        WM_KEYDOWN | WM_SYSKEYDOWN if record_key(w as u32, modifier_bits(|key| unsafe { GetKeyState(key) })) => 0,
+        WM_KEYDOWN | WM_SYSKEYDOWN
+            if record_key(w as u32, modifier_bits(|key| unsafe { GetKeyState(key) })) =>
+        {
+            0
+        }
         WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
             stop_capture();
             0
@@ -459,15 +558,21 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 } else {
                     stop_capture();
                     let value = fields()[index].value;
-                    if let Some(chosen) = crate::settings_pickers::choose(hwnd, spec.key, &text(value)) {
-                        unsafe { SetWindowTextW(value, wide(&chosen).as_ptr()); }
+                    if let Some(chosen) =
+                        crate::settings_pickers::choose(hwnd, spec.key, &text(value))
+                    {
+                        unsafe {
+                            SetWindowTextW(value, wide(&chosen).as_ptr());
+                        }
                     }
                 }
                 return 0;
             }
             if let Some(index) = id.checked_sub(CLEAR).filter(|index| *index < SPECS.len()) {
                 stop_capture();
-                unsafe { SetWindowTextW(fields()[index].value, wide("").as_ptr()); }
+                unsafe {
+                    SetWindowTextW(fields()[index].value, wide("").as_ptr());
+                }
                 status("已清除。点击“保存并应用”生效。");
                 return 0;
             }
@@ -485,7 +590,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             ui("恢复默认").as_ptr(),
                             MB_OKCANCEL | MB_DEFBUTTON2,
                         )
-                    } == IDOK {
+                    } == IDOK
+                    {
                         load_form(&Preferences::default());
                         status("已载入默认设置，保存后生效。");
                     }
@@ -513,21 +619,27 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     if let Some(prefs) = validated_form()
                         && let Some(path) = choose_file(true)
                     {
-                        let source = EDITOR.with(|c| c.borrow().as_ref().unwrap().file.path.clone());
+                        let source =
+                            EDITOR.with(|c| c.borrow().as_ref().unwrap().file.path.clone());
                         if path == source
-                            || std::fs::canonicalize(&path).ok()
+                            || std::fs::canonicalize(&path)
+                                .ok()
                                 .is_some_and(|p| Some(p) == std::fs::canonicalize(&source).ok())
                         {
                             status("请选择另一个文件用于导出。");
                             return 0;
                         }
-                        match TextFile::open(&path).and_then(|(mut file, _)| file.save(&prefs.text())) {
+                        match TextFile::open(&path)
+                            .and_then(|(mut file, _)| file.save(&prefs.text()))
+                        {
                             Ok(()) => status("设置已导出。"),
                             Err(e) => status(&e),
                         }
                     }
                 }
-                2314 => unsafe { SendMessageW(hwnd, WM_CLOSE, 0, 0); },
+                2314 => unsafe {
+                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                },
                 _ => {}
             }
             0
@@ -537,17 +649,21 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             let dirty = read_form().map_or(true, |prefs| {
                 EDITOR.with(|c| c.borrow().as_ref().unwrap().saved != prefs)
             });
-            if dirty && unsafe {
-                MessageBoxW(
-                    hwnd,
-                    ui("放弃尚未保存的设置？").as_ptr(),
-                    ui("关闭设置").as_ptr(),
-                    MB_OKCANCEL | MB_DEFBUTTON2,
-                )
-            } != IDOK {
+            if dirty
+                && unsafe {
+                    MessageBoxW(
+                        hwnd,
+                        ui("放弃尚未保存的设置？").as_ptr(),
+                        ui("关闭设置").as_ptr(),
+                        MB_OKCANCEL | MB_DEFBUTTON2,
+                    )
+                } != IDOK
+            {
                 return 0;
             }
-            unsafe { DestroyWindow(hwnd); }
+            unsafe {
+                DestroyWindow(hwnd);
+            }
             0
         }
         WM_DESTROY => {
@@ -620,7 +736,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     return Err("无法创建设置窗口".into());
                 }
                 WINDOW.store(hwnd as usize, Ordering::Release);
-                let dpi = crate::window_geometry::fit(hwnd, 760, 560, None);
+                let dpi = crate::window_geometry::fit(hwnd, 760, 500, None);
                 let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
                 let control = |class: &str, label: &str, style: u32, x, y, width, height, id| {
                     let h = CreateWindowExW(
@@ -628,10 +744,10 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         wide(class).as_ptr(),
                         wide(&crate::localization::tr(label)).as_ptr(),
                         WS_CHILD | WS_VISIBLE | style,
-                        crate::native::scaled(x, dpi),
-                        crate::native::scaled(y, dpi),
-                        crate::native::scaled(width, dpi),
-                        crate::native::scaled(height, dpi),
+                        scaled(x, dpi),
+                        scaled(y, dpi),
+                        scaled(width, dpi),
+                        scaled(height, dpi),
                         hwnd,
                         id as HMENU,
                         instance,
@@ -653,21 +769,33 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     SendMessageW(tabs, TCM_INSERTITEMW, index, &item as *const _ as isize);
                 }
                 let hint = control("STATIC", "", 0, 24, 54, 712, 25, 0);
-                let status = control("STATIC", "", 0, 24, 466, 712, 42, STATUS);
+                let status = control("STATIC", "", 0, 24, 416, 712, 36, STATUS);
                 let mut fields = vec![None; SPECS.len()];
                 for (page, layout) in PAGES.iter().enumerate() {
                     for (row, key) in layout.keys.iter().enumerate() {
-                        let index = SPECS.iter().position(|spec| spec.key == *key)
+                        let index = SPECS
+                            .iter()
+                            .position(|spec| spec.key == *key)
                             .expect("every settings field must have a specification");
                         let spec = &SPECS[index];
-                        let y = 80 + row as i32 * 31;
+                        let y = 78 + row as i32 * 28;
                         let mut field = Field {
-                            page, label: null_mut(), value: null_mut(), pick: null_mut(), clear: null_mut(),
+                            page,
+                            label: null_mut(),
+                            value: null_mut(),
+                            pick: null_mut(),
+                            clear: null_mut(),
                         };
                         if matches!(spec.kind, Kind::Bool) {
                             field.value = control(
-                                "BUTTON", spec.label, BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-                                24, y, 710, 26, FIELD + index,
+                                "BUTTON",
+                                spec.label,
+                                BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+                                24,
+                                y,
+                                710,
+                                26,
+                                FIELD + index,
                             );
                         } else {
                             let label = match *key {
@@ -678,33 +806,89 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                             field.label = control("STATIC", label, 0, 24, y + 3, 330, 26, 0);
                             let options = choices(key);
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
-                            let picker = matches!(spec.kind, Kind::Font) || key.ends_with("Color")
-                                || ["BGFileName", "PopupFileName", "Lang", "WorkingDirectory"].contains(key);
+                            let picker = matches!(spec.kind, Kind::Font)
+                                || key.ends_with("Color")
+                                || ["BGFileName", "PopupFileName", "Lang", "WorkingDirectory"]
+                                    .contains(key);
                             field.value = if options.is_empty() {
                                 control(
-                                    "EDIT", "", ES_AUTOHSCROLL as u32 | WS_BORDER | WS_TABSTOP
+                                    "EDIT",
+                                    "",
+                                    ES_AUTOHSCROLL as u32
+                                        | WS_BORDER
+                                        | WS_TABSTOP
                                         | if hotkey { ES_READONLY as u32 } else { 0 },
-                                    360, y, if hotkey { 216 } else if picker { 280 } else { 376 },
-                                    26, FIELD + index,
+                                    360,
+                                    y,
+                                    if hotkey {
+                                        216
+                                    } else if picker {
+                                        280
+                                    } else {
+                                        376
+                                    },
+                                    26,
+                                    FIELD + index,
                                 )
                             } else {
                                 let combo = control(
-                                    "COMBOBOX", "", CBS_DROPDOWNLIST as u32 | WS_VSCROLL | WS_TABSTOP,
-                                    360, y, 376, 140, FIELD + index,
+                                    "COMBOBOX",
+                                    "",
+                                    CBS_DROPDOWNLIST as u32 | WS_VSCROLL | WS_TABSTOP,
+                                    360,
+                                    y,
+                                    376,
+                                    140,
+                                    FIELD + index,
                                 );
                                 for (_, name) in options {
-                                    SendMessageW(combo, CB_ADDSTRING, 0, ui(name).as_ptr() as isize);
+                                    SendMessageW(
+                                        combo,
+                                        CB_ADDSTRING,
+                                        0,
+                                        ui(name).as_ptr() as isize,
+                                    );
                                 }
                                 combo
                             };
                             if hotkey {
-                                field.pick = control("BUTTON", "录制", WS_TABSTOP, 584, y, 72, 26, PICK + index);
-                                field.clear = control("BUTTON", "清除", WS_TABSTOP, 664, y, 72, 26, CLEAR + index);
+                                field.pick = control(
+                                    "BUTTON",
+                                    "录制",
+                                    WS_TABSTOP,
+                                    584,
+                                    y,
+                                    72,
+                                    26,
+                                    PICK + index,
+                                );
+                                field.clear = control(
+                                    "BUTTON",
+                                    "清除",
+                                    WS_TABSTOP,
+                                    664,
+                                    y,
+                                    72,
+                                    26,
+                                    CLEAR + index,
+                                );
                             } else if picker {
-                                field.pick = control("BUTTON", "选择…", WS_TABSTOP, 648, y, 88, 26, PICK + index);
+                                field.pick = control(
+                                    "BUTTON",
+                                    "选择…",
+                                    WS_TABSTOP,
+                                    648,
+                                    y,
+                                    88,
+                                    26,
+                                    PICK + index,
+                                );
                             }
                         }
-                        assert!(fields[index].replace(field).is_none(), "duplicate settings field");
+                        assert!(
+                            fields[index].replace(field).is_none(),
+                            "duplicate settings field"
+                        );
                     }
                 }
                 for (label, id, x, width) in [
@@ -714,13 +898,26 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     ("保存并应用", 2310, 508, 120),
                     ("关闭", 2314, 636, 100),
                 ] {
-                    control("BUTTON", label, WS_TABSTOP, x, 515, width, 30, id);
+                    control("BUTTON", label, WS_TABSTOP, x, 456, width, 30, id);
                 }
                 EDITOR.with(|c| {
                     *c.borrow_mut() = Some(Editor {
-                        hwnd, tabs, hint, status, background, paper, font, saved: prefs.clone(),
-                        fields: fields.into_iter().map(|field| field.expect("missing settings field")).collect(),
-                        file, data: path, sender, owner,
+                        hwnd,
+                        tabs,
+                        hint,
+                        status,
+                        background,
+                        paper,
+                        font,
+                        saved: prefs.clone(),
+                        fields: fields
+                            .into_iter()
+                            .map(|field| field.expect("missing settings field"))
+                            .collect(),
+                        file,
+                        data: path,
+                        sender,
+                        owner,
                     });
                 });
                 load_form(&prefs);

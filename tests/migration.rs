@@ -14,7 +14,7 @@ fn migration_preserves_originals_preferences_and_history_without_enabling_integr
     let import = Migration::read(&root, false).unwrap();
     assert_eq!(import.entries.len(), 4);
     assert_eq!(import.entries[1].kind, EntryKind::Separator);
-    assert_eq!(import.preferences.get("HotKey1"), "Ctrl+Alt+R");
+    assert_eq!(import.preferences.get("HotKey1"), "Alt+R");
     assert!(!import.preferences.flag("AutoRun"));
     assert_eq!(import.preferences.number("FormWidth"), 420);
     assert_eq!(import.usage.parameters["*"][0], "hello world");

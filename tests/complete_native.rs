@@ -241,25 +241,33 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         SendMessageW(dialog, WM_KEYDOWN, 0x77, 0);
         assert_eq!(text(main_key), "F8");
         command(dialog, 2310);
-        assert!(std::fs::read_to_string(&settings).unwrap().contains("HotKey1=F8"));
-        assert!(std::fs::read_to_string(&settings).unwrap().contains("LastItemHotKey=Ctrl+Alt+F9"));
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("HotKey1=F8")
+        );
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("LastItemHotKey=Ctrl+Alt+F9")
+        );
         select_page(dialog, 0);
         let integration = altrun_probe::integration::Integration::for_data(&data).unwrap();
         assert!(!integration.send_to.exists());
         SendMessageW(setting(dialog, "AddToSendTo"), BM_CLICK, 0, 0);
         command(dialog, 2310);
-        assert!(integration.send_to.exists());
+        assert!(
+            integration.send_to.exists(),
+            "Send to was not added: {}",
+            text(GetDlgItem(dialog, 2303))
+        );
         SendMessageW(setting(dialog, "AddToSendTo"), BM_CLICK, 0, 0);
         command(dialog, 2310);
         assert!(!integration.send_to.exists());
         command(dialog, 2314);
         wait(|| IsWindow(dialog) == 0);
         UnregisterHotKey(null_mut(), 22221);
-        let mut second = Command::new(&exe)
-            .arg("--data")
-            .arg(&data)
-            .spawn()
-            .unwrap();
+        let mut second = Command::new(&exe).arg("--data").arg(&data).spawn().unwrap();
         wait(|| second.try_wait().unwrap().is_some());
         assert!(second.wait().unwrap().success());
         wait(|| IsWindowVisible(launcher) != 0);

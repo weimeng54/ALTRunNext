@@ -79,6 +79,7 @@ const MOVE_UP: usize = 2135;
 const MOVE_DOWN: usize = 2136;
 const TEST: usize = 2137;
 const MIGRATE: usize = 2138;
+const RELOAD: usize = 2139;
 static TEST_CONTEXT: std::sync::Mutex<altrun_probe::launch::LaunchContext> =
     std::sync::Mutex::new(altrun_probe::launch::LaunchContext {
         clipboard: None,
@@ -581,7 +582,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     },
                     ADD_FILE | ADD_FOLDER | SEPARATOR | REMARK | VALIDATE | CLEAN_MISSING
                     | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO | SORT_ALIAS
-                    | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | MIGRATE => {
+                    | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | MIGRATE | RELOAD => {
                         tool(hwnd, id)
                     }
                     _ => {}
@@ -1000,6 +1001,7 @@ fn run(
             ("导出 / 备份…", EXPORT),
             ("从备份恢复草稿…", RESTORE),
             ("用文本编辑器打开数据", EDIT_TEXT),
+            ("重新读取快捷项文件", RELOAD),
             ("撤销上一次批量操作", UNDO),
             ("完整迁移旧版配置到新目录…", MIGRATE),
             ("按快捷字排序", SORT_ALIAS),
@@ -1539,9 +1541,35 @@ fn tool(hwnd: HWND, id: usize) {
                 status("请先保存或关闭草稿，再用文本编辑器修改文件。", true);
             } else if let Ok(notepad) = altrun_probe::safe_notepad_path() {
                 match std::process::Command::new(notepad).arg(&path).spawn() {
-                    Ok(_) => status("文本修改后请重新打开管理窗口；外部冲突会阻止覆盖。", false),
+                    Ok(_) => status("保存文本后，在工具菜单中选择“重新读取快捷项文件”。", false),
                     Err(e) => status(&e.to_string(), true),
                 }
+            }
+        }
+        RELOAD => {
+            if EDITOR.with(|c| c.borrow().as_ref().unwrap().dirty) {
+                status("请先保存或关闭草稿，再重新读取文件。", true);
+                return;
+            }
+            match Snapshot::open(&path) {
+                Ok(file) => {
+                    let parent = EDITOR.with(|c| {
+                        let mut state = c.borrow_mut();
+                        let s = state.as_mut().unwrap();
+                        s.draft = file.entries.clone();
+                        s.file = file;
+                        s.undo.clear();
+                        s.selected = s.selected.min(s.draft.len().saturating_sub(1));
+                        s.sender.saved(s.draft.clone());
+                        s.parent
+                    });
+                    refresh_list();
+                    unsafe {
+                        PostMessageW(parent as HWND, UPDATED, 0, 0);
+                    }
+                    status("已重新读取快捷项。", false);
+                }
+                Err(error) => status(&error, true),
             }
         }
         _ => {}

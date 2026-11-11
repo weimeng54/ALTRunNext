@@ -16,6 +16,7 @@ pub struct Integration {
 }
 impl Integration {
     pub fn for_data(data: &Path) -> Result<Self, String> {
+        let data = std::path::absolute(data).map_err(|e| e.to_string())?;
         unsafe {
             let mut b = vec![0u16; 32768];
             if SHGetFolderPathW(null_mut(), 9, null_mut(), 0, b.as_mut_ptr()) < 0 {
@@ -34,7 +35,7 @@ impl Integration {
                 send_to: folder.join(format!("{name}.lnk")),
                 name,
                 executable: std::env::current_exe().map_err(|e| e.to_string())?,
-                data: data.into(),
+                data,
             })
         }
     }
@@ -130,6 +131,9 @@ impl Integration {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(e) => Err(e.to_string()),
             };
+        }
+        if let Some(directory) = self.send_to.parent() {
+            std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
         }
         let quote = |s: &str| format!("'{}'", s.replace('\'', "''"));
         let script = format!(

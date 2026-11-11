@@ -26,7 +26,7 @@ macro_rules! spec {
 }
 pub const SPECS: &[Spec] = &[
     spec!("AutoRun", "开机启动", Bool, "0"),
-    spec!("AddToSendTo", "添加到“发送到”", Bool, "0"),
+    spec!("AddToSendTo", "添加 ALTRun 到“发送到”菜单", Bool, "0"),
     spec!("Regex", "使用正则匹配", Bool, "1"),
     spec!("MatchAnywhere", "允许中间匹配", Bool, "1"),
     spec!("NumberKey", "数字快捷执行", Bool, "1"),
@@ -162,7 +162,7 @@ pub const SPECS: &[Spec] = &[
         Font,
         "Microsoft YaHei UI|[]|10|3812384|0"
     ),
-    spec!("HotKey1", "主呼出快捷键", Hotkey, "Ctrl+Alt+R"),
+    spec!("HotKey1", "主呼出快捷键", Hotkey, "Alt+R"),
     spec!("HotKey2", "第二呼出快捷键", Hotkey, ""),
     spec!("LastItemHotKey", "最近项目快捷键", Hotkey, "Ctrl+Alt+L"),
 ];

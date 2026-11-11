@@ -19,7 +19,6 @@ const TRAY: u32 = WM_APP + 4;
 const ID_HIDE: usize = 18001;
 const ID_EXIT: usize = 18002;
 const ID_MANAGE: usize = 18003;
-const ID_RELOAD: usize = 18004;
 const ID_SETTINGS: usize = 18005;
 const ID_RECENT: usize = 18006;
 const ID_ABOUT: usize = 18007;
@@ -27,6 +26,7 @@ const ID_RESTART: usize = 18008;
 const ID_CLEAN: usize = 18009;
 const ID_COPY: usize = 18010;
 const ID_OPEN_FOLDER: usize = 18011;
+const ID_SHOW: usize = 18012;
 const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
@@ -711,35 +711,44 @@ fn paint_panel(hwnd: HWND) {
         EndPaint(hwnd, &ps);
     }
 }
-fn show_menu(hwnd: HWND) {
+fn show_menu(hwnd: HWND, tray: bool) {
     unsafe {
         let menu = CreatePopupMenu();
         if menu.is_null() {
             return;
         }
-        AppendMenuW(menu, MF_STRING, ID_MANAGE, ui("管理快捷项\tAlt+S").as_ptr());
-        AppendMenuW(menu, MF_STRING, ID_RELOAD, ui("重新载入快捷项").as_ptr());
-        AppendMenuW(menu, MF_STRING, ID_SETTINGS, ui("设置…").as_ptr());
-        AppendMenuW(menu, MF_STRING, ID_RECENT, ui("最近启动\tCtrl+L").as_ptr());
-        AppendMenuW(menu, MF_STRING, ID_ABOUT, ui("帮助和关于\tF1").as_ptr());
-        AppendMenuW(menu, MF_STRING, ID_RESTART, ui("重启启动器").as_ptr());
-        AppendMenuW(menu, MF_STRING, ID_CLEAN, ui("移除新版系统集成…").as_ptr());
-        AppendMenuW(
-            menu,
-            MF_STRING,
-            ID_COPY,
-            ui("复制所选命令\tCtrl+C").as_ptr(),
-        );
-        AppendMenuW(
-            menu,
-            MF_STRING,
-            ID_OPEN_FOLDER,
-            ui("打开所选目录\tCtrl+D").as_ptr(),
-        );
-        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        AppendMenuW(menu, MF_STRING, ID_HIDE, ui("隐藏").as_ptr());
-        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        AppendMenuW(menu, MF_STRING, ID_EXIT, ui("退出 ALTRun").as_ptr());
+        let items: &[(usize, &str)] = if tray {
+            &[
+                (ID_SHOW, "打开启动面板"),
+                (ID_MANAGE, "管理快捷项"),
+                (ID_SETTINGS, "设置…"),
+                (0, ""),
+                (ID_EXIT, "退出 ALTRun"),
+            ]
+        } else {
+            &[
+                (ID_COPY, "复制命令\tCtrl+C"),
+                (ID_OPEN_FOLDER, "打开所在文件夹\tCtrl+D"),
+                (ID_RECENT, "最近启动\tCtrl+L"),
+                (0, ""),
+                (ID_ABOUT, "帮助和关于\tF1"),
+                (ID_HIDE, "隐藏"),
+            ]
+        };
+        let has_selection = STATE.with(|c| {
+            let state = c.borrow();
+            let s = state.as_ref().unwrap();
+            s.hits.get(s.selected).is_some() && s.parameter_entry.is_none()
+        });
+        for &(id, label) in items {
+            if id == 0 {
+                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            } else {
+                let unavailable = matches!(id, ID_COPY | ID_OPEN_FOLDER) && !has_selection;
+                let flags = MF_STRING | if unavailable { MF_GRAYED } else { 0 };
+                AppendMenuW(menu, flags, id, ui(label).as_ptr());
+            }
+        }
         let mut point: POINT = zeroed();
         GetCursorPos(&mut point);
         SetForegroundWindow(hwnd);
@@ -765,9 +774,21 @@ fn tray_icon(hwnd: HWND, operation: u32) {
         icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         icon.uCallbackMessage = TRAY;
         icon.hIcon = LoadIconW(GetModuleHandleW(std::ptr::null()), 1usize as _);
-        let tip = wide("ALTRun · Ctrl+Alt+R");
-        icon.szTip[..tip.len()].copy_from_slice(&tip);
-        Shell_NotifyIconW(operation, &icon);
+        let binding = STATE.with(|c| {
+            let state = c.borrow();
+            let state = state.as_ref()?;
+            ["HotKey1", "HotKey2"]
+                .into_iter()
+                .zip(&state.hotkeys)
+                .find(|(_, (_, key))| key.is_some())
+                .map(|(name, _)| state.preferences.get(name))
+        });
+        let tip = wide(&binding.map_or_else(|| "ALTRun".into(), |key| format!("ALTRun · {key}")));
+        let len = tip.len().min(icon.szTip.len() - 1);
+        icon.szTip[..len].copy_from_slice(&tip[..len]);
+        if Shell_NotifyIconW(operation, &icon) == 0 && operation == NIM_ADD {
+            Shell_NotifyIconW(NIM_MODIFY, &icon);
+        }
     }
 }
 
@@ -1023,12 +1044,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         WM_CONTEXTMENU => {
-            show_menu(hwnd);
+            show_menu(hwnd, false);
             0
         }
         TRAY => {
             if l as u32 == WM_RBUTTONUP {
-                show_menu(hwnd);
+                show_menu(hwnd, true);
             } else if l as u32 == WM_LBUTTONUP {
                 unsafe {
                     SendMessageW(hwnd, SHOW, 0, 0);
@@ -1318,8 +1339,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 lifecycle(w & 0xffff == ID_CLEAN);
                 return 0;
             }
-            if w & 0xffff == ID_RELOAD {
-                reload_library();
+            if w & 0xffff == ID_SHOW {
+                unsafe {
+                    SendMessageW(hwnd, SHOW, 0, 0);
+                }
                 return 0;
             }
             if w & 0xffff == ID_EXIT {
@@ -1946,7 +1969,12 @@ pub fn run() -> Result<(), String> {
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
         let mut startup_warnings = Vec::new();
-        match register_bindings(hwnd, &prefs, &[], BindingUpdate::Startup(&mut startup_warnings)) {
+        match register_bindings(
+            hwnd,
+            &prefs,
+            &[],
+            BindingUpdate::Startup(&mut startup_warnings),
+        ) {
             Ok(keys) => STATE.with(|c| c.borrow_mut().as_mut().unwrap().hotkeys = keys),
             Err(error) => startup_warnings.push(error),
         }
@@ -2079,28 +2107,6 @@ fn open_manager() {
         ShowWindow(hwnd, SW_HIDE);
     }
 }
-fn reload_library() {
-    let (path, sender, hwnd) = STATE.with(|c| {
-        let state = c.borrow();
-        let s = state.as_ref().unwrap();
-        (
-            s.data_path.clone(),
-            s.library_sender.clone(),
-            s.hwnd as usize,
-        )
-    });
-    let revision = sender.begin_read();
-    std::thread::spawn(move || match altrun_probe::library::Snapshot::open(&path) {
-        Ok(snapshot) => {
-            sender.read_complete(revision, snapshot.entries);
-            unsafe {
-                PostMessageW(hwnd as HWND, crate::manager::UPDATED, 0, 0);
-            }
-        }
-        Err(error) => show_error(&error),
-    });
-}
-
 fn visible_count(s: &State) -> usize {
     if s.preferences.flag("ShowTopTen") {
         s.hits.len().min(10)
@@ -2238,7 +2244,7 @@ fn recent() {
 }
 fn about() {
     unsafe {
-        MessageBoxW(null_mut(),ui("ALTRun Modern 0.2\n原生 Windows 快速启动器\n\nCtrl+Alt+R：呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
+        MessageBoxW(null_mut(),ui("ALTRun Modern 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
     }
 }
 fn open_settings() {
@@ -2295,15 +2301,12 @@ fn register_bindings(
         let id = (HOTKEY..HOTKEY + 20)
             .find(|id| !old.iter().any(|v| v.0 == *id) && !next.iter().any(|v| v.0 == *id))
             .ok_or("没有可用热键编号")?;
-        // A binding that already failed at startup must not veto unrelated
-        // edits. New or changed bindings are still checked before saving.
-        if let BindingUpdate::Settings(previous) = &update
-            && old.get(i).is_none_or(|entry| entry.1.is_none())
-            && altrun_probe::preferences::parse_hotkey(&previous.get(key))? == value
-        {
-            next.push((id, None));
-            continue;
-        }
+        let previously_unavailable = if let BindingUpdate::Settings(previous) = &update {
+            old.get(i).is_none_or(|entry| entry.1.is_none())
+                && altrun_probe::preferences::parse_hotkey(&previous.get(key))? == value
+        } else {
+            false
+        };
         if let Some(value) = value {
             if unsafe { RegisterHotKey(hwnd, id, value.modifiers | MOD_NOREPEAT, value.key) } == 0 {
                 let error = unsafe { GetLastError() };
@@ -2311,6 +2314,12 @@ fn register_bindings(
                 if let BindingUpdate::Startup(warnings) = &mut update {
                     eprintln!("RegisterHotKey({binding}) failed: Win32 {error}");
                     warnings.push(format!("热键 {binding} 不可用"));
+                    next.push((id, None));
+                    continue;
+                }
+                // Retry unchanged bindings in case the conflict has gone away,
+                // but keep unrelated edits saveable while it persists.
+                if previously_unavailable {
                     next.push((id, None));
                     continue;
                 }

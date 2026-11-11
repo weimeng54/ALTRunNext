@@ -14,7 +14,7 @@ Palette: surface #F5F7FA; input/list #FFFFFF; main text #202C3A; secondary text 
 
 ## Behavior
 
-No debounce or animation. Native input handles caret, selection, Unicode and IME. IME Enter must commit composition without launching. Up/down and Tab choose a result; Esc clears then hides. Empty results show a short visible message. Errors retain the window and query for recovery. Single click selects and keeps typing focus, double click launches. Ctrl+Alt+R remains separate from the original hotkeys during coexistence. A context menu provides hide and exit.
+No debounce or animation. Native input handles caret, selection, Unicode and IME. IME Enter must commit composition without launching. Up/down and Tab choose a result; Esc clears then hides. Empty results show a short visible message. Errors retain the window and query for recovery. Single click selects and keeps typing focus, double click launches. Alt+R opens the panel by default. A context menu provides hide and exit.
 
 Launch is explicitly enabled for the user trial; existing measurement/self-test modes remain non-executing. Parameter commands request a value in the same input field, Esc returns to search. Context and window templates resolve on the execution worker; unsupported forms fail visibly. Full capability routing and explicit compatibility differences are recorded in docs/compatibility.md. Release builds launch selected entries by default; --safe-mode and Debug defaults retain non-executing fixtures.
 

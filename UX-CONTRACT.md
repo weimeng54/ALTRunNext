@@ -19,7 +19,7 @@ Main launcher uses only its resident snapshot. Management opens on a separate UI
 
 List changes remain a draft until Save. Duplicate aliases are supported. Delete confirms the named entry; importing replaces only the draft after confirmation. Closing a dirty manager asks before discarding. A main-program exit with a manager open directs the user to save/close it first. Empty libraries are valid and keep Add/Import available. Parameter input Enter only launches after composition is committed; manager form Enter does not implicitly save while typing.
 
-Keyboard: Ctrl+Alt+R launcher hotkey; Alt+S manager; Up/Down/Tab result selection. Manager controls use native Tab/Shift+Tab navigation and Space for focused buttons. Search is immediate, with no debounce. Queries are private; selected-query preferences and execution/parameter history remain only in the local sidecar. No URL state, telemetry or network lookup.
+Keyboard: Alt+R launcher hotkey; Alt+S manager; Up/Down/Tab result selection. Manager controls use native Tab/Shift+Tab navigation and Space for focused buttons. Search is immediate, with no debounce. Queries are private; selected-query preferences and execution/parameter history remain only in the local sidecar. No URL state, telemetry or network lookup.
 
 Theme values live in theme.rs and are documented in DESIGN.md. Native controls own input, IME, selection and dropdown geometry. Light/dark/system and high contrast are supported; main fonts and layout update on DPI changes. Real multi-monitor behavior is also subject to user day-to-day acceptance.
 
