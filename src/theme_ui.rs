@@ -242,6 +242,14 @@ pub fn style_combo(hwnd: HWND, dpi: i32) {
 
 pub fn style_edit(hwnd: HWND, dpi: i32, card: bool) {
     let mode = if card { 0x10000 } else { 0 };
+    set_edit_style(hwnd, dpi, mode);
+}
+
+pub fn style_hotkey_value(hwnd: HWND, dpi: i32) {
+    set_edit_style(hwnd, dpi, 0x30000);
+}
+
+fn set_edit_style(hwnd: HWND, dpi: i32, mode: usize) {
     unsafe {
         SetWindowSubclass(hwnd, Some(edit_proc), 1, mode | dpi as usize);
         SetWindowPos(
@@ -268,6 +276,30 @@ unsafe extern "system" fn edit_proc(
     let inset_x = scaled(9, dpi);
     let inset_y = scaled(7, dpi);
     unsafe {
+        if mode & 0x20000 != 0 && matches!(msg, WM_PAINT | WM_PRINTCLIENT) {
+            let mut paint: PAINTSTRUCT = std::mem::zeroed();
+            let dc = if msg == WM_PAINT {
+                BeginPaint(hwnd, &mut paint)
+            } else {
+                w as HDC
+            };
+            let mut rect = RECT::default();
+            GetClientRect(hwnd, &mut rect);
+            fill(dc, &rect, theme::paper());
+            let text = window_text(hwnd);
+            let old = SelectObject(dc, DefSubclassProc(hwnd, WM_GETFONT, 0, 0) as HFONT);
+            let label = if text.is_empty() {
+                crate::localization::tr("未设置")
+            } else {
+                text
+            };
+            line_text(dc, rect, &label, theme::text(), DT_CENTER);
+            SelectObject(dc, old);
+            if msg == WM_PAINT {
+                EndPaint(hwnd, &paint);
+            }
+            return 0;
+        }
         if msg == WM_NCCALCSIZE && l != 0 {
             let rect = &mut *(l as *mut RECT);
             let x = inset_x.min((rect.right - rect.left - 1).max(0) / 2);
@@ -313,7 +345,9 @@ unsafe extern "system" fn edit_proc(
             return 0;
         }
         let result = DefSubclassProc(hwnd, msg, w, l);
-        if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE) {
+        if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE)
+            || (mode & 0x20000 != 0 && msg == WM_SETTEXT)
+        {
             RedrawWindow(
                 hwnd,
                 std::ptr::null(),
@@ -360,25 +394,35 @@ unsafe extern "system" fn slider_proc(
                 (rect.right - scaled(6, dpi)).max(scaled(6, dpi)),
             );
             let y = rect.bottom / 2;
-            let left = scaled(5, dpi);
+            let left = scaled(1, dpi);
             let right = (rect.right - left).max(left + 1);
-            let width = scaled(4, dpi).max(2);
+            let width = scaled(8, dpi).max(2);
             let track = RECT {
                 left,
                 top: y - width / 2,
                 right,
                 bottom: y + width / 2,
             };
-            rounded(dc, track, width, theme::paper(), theme::border());
+            rounded(
+                dc,
+                track,
+                width,
+                theme::paper(),
+                if enabled {
+                    theme::border()
+                } else {
+                    theme::divider()
+                },
+            );
             let ink = if enabled {
                 theme::accent()
             } else {
-                theme::border()
+                theme::muted()
             };
             if x > left {
                 rounded(dc, RECT { right: x, ..track }, width, ink, ink);
             }
-            let radius = scaled(6, dpi);
+            let radius = scaled(7, dpi);
             rounded(
                 dc,
                 RECT {
@@ -594,6 +638,22 @@ unsafe extern "system" fn switch_proc(
                 bottom: top + h,
             };
             fill(dc, &bounds, theme::control_surface());
+            if settings
+                && focused
+                && DefSubclassProc(hwnd, WM_QUERYUISTATE, 0, 0) as u32 & UISF_HIDEFOCUS == 0
+            {
+                let mut outline = track;
+                InflateRect(&mut outline, px(5), px(5));
+                rounded(dc, outline, px(30), theme::accent(), theme::accent());
+                InflateRect(&mut outline, -px(2), -px(2));
+                rounded(
+                    dc,
+                    outline,
+                    px(26),
+                    theme::control_surface(),
+                    theme::control_surface(),
+                );
+            }
             rounded(
                 dc,
                 track,

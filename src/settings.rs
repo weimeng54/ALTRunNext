@@ -42,6 +42,8 @@ const FONT_FAMILY: usize = 2341;
 const MORE_COLORS: usize = 2343;
 const IMAGE_THUMB: usize = 2344;
 const APPEARANCE_NOTE: usize = 2345;
+const STRENGTH_VALUE: usize = 2346;
+const STATIC_NOTIFY: u32 = 0x0100;
 // Trackbar messages start at WM_USER. windows-sys omits TBM_GETPOS.
 const TBM_GETPOS: u32 = WM_USER;
 const FIELD: usize = 2400;
@@ -186,6 +188,7 @@ struct Editor {
     glyph_font: HFONT,
     close_font: HFONT,
     filename_font: HFONT,
+    hotkey_font: HFONT,
     footer_controls: [HWND; 5],
     sections: Vec<(usize, HWND)>,
     extra_controls: Vec<(usize, HWND)>,
@@ -408,7 +411,7 @@ fn layout_page() {
         }
         for (i, h) in footer.into_iter().enumerate() {
             let (x, w) = [(17, 86), (111, 68), (187, 68), (920, 56), (984, 101)][i];
-            MoveWindow(h, px(x), foot + px(13), px(w), px(34), 0);
+            MoveWindow(h, px(x), foot + px(13), px(w), px(37), 0);
         }
         MoveWindow(status, px(267), foot + px(17), px(650), px(25), 0);
         if page == 3 {
@@ -536,8 +539,13 @@ fn update_preview() {
         for (spec, field) in SPECS.iter().zip(fields()) {
             if matches!(spec.key, "BGStrength" | "BGCrop") {
                 EnableWindow(field.value, i32::from(skin));
+                EnableWindow(field.label, i32::from(skin));
             }
         }
+        EnableWindow(
+            GetDlgItem(GetParent(controls[1]), STRENGTH_VALUE as i32),
+            i32::from(skin),
+        );
         InvalidateRect(controls[1], std::ptr::null(), 0);
     }
 }
@@ -643,9 +651,9 @@ fn validated_form() -> Option<Preferences> {
 }
 
 fn strength_label(field: Field, strength: i32) {
-    let name = crate::localization::tr("底纹强度");
     unsafe {
-        SetWindowTextW(field.label, wide(&format!("{name}  {strength}%")).as_ptr());
+        let value = GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32);
+        SetWindowTextW(value, wide(&format!("{strength}%")).as_ptr());
     }
 }
 
@@ -933,6 +941,35 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 InflateRect(&mut swatch, -scaled(5, dpi), -scaled(5, dpi));
             }
             theme_ui::rounded(item.hDC, swatch, scaled(4, dpi), color, color);
+        } else if id == FONT_FAMILY {
+            let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |e| e.dpi));
+            let rect = item.rcItem;
+            theme_ui::fill(item.hDC, &rect, theme::control_surface());
+            theme_ui::rounded(
+                item.hDC,
+                rect,
+                scaled(12, dpi),
+                if item.itemState & ODS_SELECTED != 0 {
+                    theme::selection()
+                } else {
+                    theme::paper()
+                },
+                if item.itemState & ODS_FOCUS != 0 {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
+            );
+            draw_button_text(
+                item,
+                RECT {
+                    left: rect.left + scaled(9, dpi),
+                    right: rect.right - scaled(9, dpi),
+                    ..rect
+                },
+                theme::text(),
+                0,
+            );
         } else if matches!(id, TITLE_CLOSE | MORE_PANEL | MORE_COLORS) {
             let background = theme::control_surface();
             let state = EDITOR.with(|c| {
@@ -1359,7 +1396,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         if l as HWND == s.hint
                             || l as HWND == s.status
                             || filename
-                            || control_id == APPEARANCE_NOTE
+                            || matches!(control_id, APPEARANCE_NOTE | STRENGTH_VALUE)
+                            || IsWindowEnabled(l as HWND) == 0
                         {
                             theme::muted()
                         } else {
@@ -1485,6 +1523,44 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     align_preview();
                     unsafe {
                         InvalidateRect(preview, std::ptr::null(), 0);
+                    }
+                }
+                return 0;
+            }
+            if id == PREVIEW && code == STN_CLICKED {
+                let canvas = l as HWND;
+                let input = unsafe { GetDlgItem(hwnd, PREVIEW_QUERY as i32) };
+                let query = text(input);
+                let mut cursor = POINT::default();
+                if unsafe {
+                    GetCursorPos(&mut cursor) != 0 && ScreenToClient(canvas, &mut cursor) != 0
+                } {
+                    let selected = EDITOR.with(|c| {
+                        let mut state = c.borrow_mut();
+                        let Some(s) = state.as_mut() else {
+                            return false;
+                        };
+                        let count = s.preview.matches(&query).len();
+                        let (panel, input_height, row_height) = s.preview.geometry(count);
+                        let px = |n| scaled(n, s.dpi);
+                        let top = panel.y + input_height + 39;
+                        if cursor.x < px(panel.x + 9) || cursor.x >= px(panel.x + panel.w - 9) {
+                            return false;
+                        }
+                        if let Some(index) = (0..count).find(|i| {
+                            let y = top + *i as i32 * row_height;
+                            cursor.y >= px(y) && cursor.y < px(y + row_height)
+                        }) {
+                            s.preview.selected = index;
+                            return true;
+                        }
+                        false
+                    });
+                    if selected {
+                        unsafe {
+                            SetFocus(input);
+                            InvalidateRect(canvas, std::ptr::null(), 0);
+                        }
                     }
                 }
                 return 0;
@@ -1710,6 +1786,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let glyph_font = make_font(11, 600, "Consolas", dpi);
                 let close_font = make_font(19, 400, "Segoe UI", dpi);
                 let filename_font = make_font(12, 400, "Consolas", dpi);
+                let hotkey_font = make_font(14, 600, "Consolas", dpi);
                 let common = INITCOMMONCONTROLSEX {
                     dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
                     dwICC: ICC_BAR_CLASSES,
@@ -1768,7 +1845,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     control(
                         "STATIC",
                         "",
-                        0x0d | WS_CLIPSIBLINGS,
+                        0x0d | STATIC_NOTIFY | WS_CLIPSIBLINGS,
                         preview.x,
                         preview.y,
                         preview.w,
@@ -1824,7 +1901,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         BoxRect::new(524, 435, 549, 22),
                     ),
                     (4, "可试输快捷字，例如 db", BoxRect::new(866, 152, 207, 21)),
-                    (4, "面板字体", BoxRect::new(228, 189, 59, 41)),
+                    (4, "面板字体", BoxRect::new(228, 189, 51, 41)),
                 ] {
                     let style = if bounds.x == 866 { 2 } else { 0 };
                     let control = control(
@@ -1860,6 +1937,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 }
                 let thumbnail = control("STATIC", "", 0x0d, 227, 347, 29, 26, IMAGE_THUMB);
                 extra_controls.push((3, thumbnail));
+                let strength = control("STATIC", "", 2, 449, 389, 43, 20, STRENGTH_VALUE);
+                SendMessageW(strength, WM_SETFONT, small_font as usize, 0);
+                extra_controls.push((3, strength));
                 let mut fields = vec![None; SPECS.len()];
                 for (page, design) in PAGES.iter().enumerate() {
                     for key in design.keys {
@@ -1884,7 +1964,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         };
                         let input_height = 34;
                         let input_y = y + (h - input_height) / 2;
-                        let right = x + w - 13;
+                        let right = if *key == "BGCrop" { x + w } else { x + w - 13 };
                         let value_x = right - placement.value_width;
                         if matches!(spec.kind, Kind::Bool) {
                             field.value = control(
@@ -1941,7 +2021,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     "",
                                     WS_TABSTOP | TBS_NOTICKS,
                                     x,
-                                    y + 24,
+                                    y + 29,
                                     w,
                                     20,
                                     FIELD + index,
@@ -1966,7 +2046,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     handle,
                                     CB_SETITEMHEIGHT,
                                     usize::MAX,
-                                    scaled(32, dpi) as isize,
+                                    scaled(if *key == "BGCrop" { 24 } else { 28 }, dpi) as isize,
                                 );
                                 SendMessageW(handle, CB_SETITEMHEIGHT, 0, scaled(34, dpi) as isize);
                                 theme_ui::style_combo(handle, dpi);
@@ -1999,7 +2079,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 handle
                             } else {
                                 let buttons = if hotkey {
-                                    150
+                                    128
                                 } else if picker {
                                     84
                                 } else {
@@ -2022,15 +2102,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     input_height,
                                     FIELD + index,
                                 );
-                                theme_ui::style_edit(handle, dpi, true);
                                 if hotkey {
-                                    SendMessageW(handle, WM_SETFONT, filename_font as usize, 0);
-                                    SendMessageW(
-                                        handle,
-                                        EM_SETCUEBANNER,
-                                        0,
-                                        ui("未设置").as_ptr() as isize,
-                                    );
+                                    SendMessageW(handle, WM_SETFONT, hotkey_font as usize, 0);
+                                    theme_ui::style_hotkey_value(handle, dpi);
+                                } else {
+                                    theme_ui::style_edit(handle, dpi, true);
                                 }
                                 handle
                             };
@@ -2039,9 +2115,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     "BUTTON",
                                     "录制",
                                     WS_TABSTOP,
-                                    right - 138,
+                                    right - 120,
                                     input_y,
-                                    65,
+                                    56,
                                     34,
                                     PICK + index,
                                 );
@@ -2049,9 +2125,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     "BUTTON",
                                     "清除",
                                     WS_TABSTOP,
-                                    right - 65,
+                                    right - 56,
                                     input_y,
-                                    65,
+                                    56,
                                     34,
                                     CLEAR + index,
                                 );
@@ -2064,10 +2140,14 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                         "选择…"
                                     },
                                     WS_TABSTOP,
-                                    right - 73,
-                                    input_y,
-                                    73,
-                                    34,
+                                    if *key == "TextColor" {
+                                        right - 50
+                                    } else {
+                                        right - 73
+                                    },
+                                    if *key == "TextColor" { y + 8 } else { input_y },
+                                    if *key == "TextColor" { 50 } else { 73 },
+                                    if *key == "TextColor" { 27 } else { 34 },
                                     PICK + index,
                                 );
                             }
@@ -2138,6 +2218,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         glyph_font,
                         close_font,
                         filename_font,
+                        hotkey_font,
                         footer_controls,
                         sections,
                         extra_controls,
@@ -2204,6 +2285,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         DeleteObject(e.glyph_font);
                         DeleteObject(e.close_font);
                         DeleteObject(e.filename_font);
+                        DeleteObject(e.hotkey_font);
                         DeleteObject(e.rail);
                         if !e.preview_font.is_null() {
                             DeleteObject(e.preview_font);
