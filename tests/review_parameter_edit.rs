@@ -37,6 +37,7 @@ fn parameter_edit_keeps_apostrophes_semicolons_delete_and_frozen_target() {
         assert!(window("ALTRun.Native.ShortcutManager", process.0.id()).is_null());
         SendMessageW(edit, WM_KEYDOWN, VK_RETURN as usize, 0);
     }
-    wait(|| marker.exists());
+    // The child shell creates the redirection target before writing the line.
+    wait(|| std::fs::read_to_string(&marker).is_ok_and(|text| text.ends_with('\n')));
     assert_eq!(std::fs::read_to_string(marker).unwrap().trim(), "'Brien;a");
 }
