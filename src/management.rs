@@ -56,7 +56,8 @@ pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bo
     if launch::is_network_path(&directory.to_string_lossy()) {
         return Ok(false);
     }
-    let request = launch::resolve_typed_in(&entry.command, None, ParamType::None, Some(&directory))?;
+    let request =
+        launch::resolve_typed_in(&entry.command, None, ParamType::None, Some(&directory))?;
     let path = Path::new(&request.file);
     if !launch::explicit_path(&request.file) || launch::is_network_path(&request.file) {
         return Ok(false);

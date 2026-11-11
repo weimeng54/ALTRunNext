@@ -121,8 +121,11 @@ pub fn ask(owner: HWND, title: &str) -> Option<String> {
             return None;
         }
         SetWindowLongPtrW((*state).edit, GWLP_USERDATA, state as isize);
-        (*state).old_edit =
-            SetWindowLongPtrW((*state).edit, GWLP_WNDPROC, edit_procedure as *const () as isize);
+        (*state).old_edit = SetWindowLongPtrW(
+            (*state).edit,
+            GWLP_WNDPROC,
+            edit_procedure as *const () as isize,
+        );
         SendMessageW((*state).edit, WM_SETFONT, font as usize, 0);
         for (text, id, x) in [("确定", 1, 224), ("取消", 2, 320)] {
             let button = CreateWindowExW(
