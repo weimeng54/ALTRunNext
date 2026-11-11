@@ -5,7 +5,7 @@ use crate::{
 };
 use windows_sys::Win32::{
     Foundation::*,
-    Graphics::{Gdi::*, GdiPlus::*},
+    Graphics::Gdi::*,
     UI::{
         Controls::*,
         HiDpi::GetDpiForWindow,
@@ -70,75 +70,197 @@ pub fn rounded(dc: HDC, rect: RECT, radius: i32, colour: u32, border: u32) {
     }
 }
 
-struct GdiPlus(usize);
-impl Drop for GdiPlus {
+// Only the four corners need compositing. The body is filled directly with
+// GDI, so rounded cards never allocate or rasterize a window-sized surface.
+const CORNER_TILE: i32 = 64;
+
+struct Corners {
+    dc: HDC,
+    bitmap: HBITMAP,
+    pixels: *mut u32,
+    key: (i32, u32, u32),
+}
+
+impl Corners {
+    fn new() -> Option<Self> {
+        unsafe {
+            let dc = CreateCompatibleDC(std::ptr::null_mut());
+            if dc.is_null() {
+                return None;
+            }
+            let mut info = BITMAPINFO::default();
+            info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            info.bmiHeader.biWidth = CORNER_TILE;
+            info.bmiHeader.biHeight = -CORNER_TILE;
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            let mut pixels = std::ptr::null_mut();
+            let bitmap = CreateDIBSection(
+                dc,
+                &info,
+                DIB_RGB_COLORS,
+                &mut pixels,
+                std::ptr::null_mut(),
+                0,
+            );
+            if bitmap.is_null() {
+                DeleteDC(dc);
+                return None;
+            }
+            SelectObject(dc, bitmap);
+            Some(Self {
+                dc,
+                bitmap,
+                pixels: pixels.cast(),
+                key: (0, 0, 0),
+            })
+        }
+    }
+
+    fn prepare(&mut self, radius: i32, colour: u32, border: u32) {
+        let key = (radius, colour, border);
+        if self.key == key {
+            return;
+        }
+        self.key = key;
+        let outer = radius * 8;
+        let inner = outer - 8;
+        let channel = |shift, fill_samples, stroke_samples| {
+            (((colour >> shift) & 255u32) * fill_samples
+                + ((border >> shift) & 255u32) * stroke_samples
+                + 8)
+                / 16
+        };
+        unsafe {
+            // Flush reads of this DIB before replacing its pixels.
+            GdiFlush();
+            for y in 0..radius {
+                for x in 0..radius {
+                    let mut coverage = 0;
+                    let mut inside = 0;
+                    for dy in [1, 3, 5, 7] {
+                        for dx in [1, 3, 5, 7] {
+                            let vx = outer - (x * 8 + dx);
+                            let vy = outer - (y * 8 + dy);
+                            let distance = vx * vx + vy * vy;
+                            coverage += u32::from(distance <= outer * outer);
+                            inside += u32::from(distance <= inner * inner);
+                        }
+                    }
+                    let stroke = coverage - inside;
+                    let pixel = ((coverage * 255 + 8) / 16) << 24
+                        | channel(0, inside, stroke) << 16
+                        | channel(8, inside, stroke) << 8
+                        | channel(16, inside, stroke);
+                    for (tx, ty) in [
+                        (x, y),
+                        (2 * radius - 1 - x, y),
+                        (x, 2 * radius - 1 - y),
+                        (2 * radius - 1 - x, 2 * radius - 1 - y),
+                    ] {
+                        *self.pixels.add((ty * CORNER_TILE + tx) as usize) = pixel;
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Corners {
     fn drop(&mut self) {
-        if self.0 != 0 {
-            unsafe { GdiplusShutdown(self.0) };
+        unsafe {
+            DeleteDC(self.dc);
+            DeleteObject(self.bitmap);
         }
     }
 }
 
 thread_local! {
-    static GDIPLUS: GdiPlus = {
-        let mut token = 0;
-        let input = GdiplusStartupInput { GdiplusVersion: 1, ..Default::default() };
-        unsafe { GdiplusStartup(&mut token,&input,std::ptr::null_mut()); }
-        GdiPlus(token)
-    };
+    static CORNERS: std::cell::RefCell<Option<Corners>> = std::cell::RefCell::new(Corners::new());
 }
 
 fn smooth_round(dc: HDC, rect: RECT, diameter: i32, colour: u32, border: u32) -> bool {
-    if GDIPLUS.with(|token| token.0 == 0) {
+    let radius = ((diameter + 1) / 2)
+        .min((rect.right - rect.left) / 2)
+        .min((rect.bottom - rect.top) / 2);
+    if radius <= 1 || radius > CORNER_TILE / 2 {
         return false;
     }
-    let mut graphics = std::ptr::null_mut();
-    let mut path = std::ptr::null_mut();
-    let mut brush = std::ptr::null_mut();
-    let mut pen = std::ptr::null_mut();
-    let argb = |c: u32| 0xff000000 | ((c & 255) << 16) | (c & 0xff00) | ((c >> 16) & 255);
-    unsafe {
-        let outline = colour != border;
-        let ready = GdipCreateFromHDC(dc, &mut graphics) == 0
-            && GdipCreatePath(FillModeAlternate, &mut path) == 0
-            && GdipCreateSolidFill(argb(colour), &mut brush) == 0
-            && (!outline || GdipCreatePen1(argb(border), 1.0, UnitPixel, &mut pen) == 0);
-        if ready {
-            GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias8x8);
-            let edge = if outline { 0.5 } else { 0.0 };
-            let x = rect.left as f32 + edge;
-            let y = rect.top as f32 + edge;
-            let right = rect.right as f32 - edge;
-            let bottom = rect.bottom as f32 - edge;
-            let d = (diameter as f32).min(right - x).min(bottom - y).max(1.0);
-            for (left, top, angle) in [
-                (x, y, 180.0),
-                (right - d, y, 270.0),
-                (right - d, bottom - d, 0.0),
-                (x, bottom - d, 90.0),
+    CORNERS.with(|buffer| {
+        let mut buffer = buffer.borrow_mut();
+        let Some(tile) = buffer.as_mut() else {
+            return false;
+        };
+        tile.prepare(radius, colour, border);
+        let edge = i32::from(colour != border);
+        let RECT {
+            left,
+            top,
+            right,
+            bottom,
+        } = rect;
+        if left + radius < right - radius {
+            fill(
+                dc,
+                &RECT {
+                    left: left + radius,
+                    right: right - radius,
+                    ..rect
+                },
+                border,
+            );
+            fill(
+                dc,
+                &RECT {
+                    left: left + radius,
+                    right: right - radius,
+                    top: top + edge,
+                    bottom: bottom - edge,
+                },
+                colour,
+            );
+        }
+        if top + radius < bottom - radius {
+            fill(
+                dc,
+                &RECT {
+                    top: top + radius,
+                    bottom: bottom - radius,
+                    ..rect
+                },
+                border,
+            );
+            fill(
+                dc,
+                &RECT {
+                    top: top + radius,
+                    bottom: bottom - radius,
+                    left: left + edge,
+                    right: right - edge,
+                },
+                colour,
+            );
+        }
+        unsafe {
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            for (x, y, tx, ty) in [
+                (left, top, 0, 0),
+                (right - radius, top, radius, 0),
+                (left, bottom - radius, 0, radius),
+                (right - radius, bottom - radius, radius, radius),
             ] {
-                GdipAddPathArc(path, left, top, d, d, angle, 90.0);
-            }
-            GdipClosePathFigure(path);
-            GdipFillPath(graphics, brush as _, path);
-            if outline {
-                GdipDrawPath(graphics, pen, path);
+                GdiAlphaBlend(
+                    dc, x, y, radius, radius, tile.dc, tx, ty, radius, radius, blend,
+                );
             }
         }
-        if !pen.is_null() {
-            GdipDeletePen(pen);
-        }
-        if !brush.is_null() {
-            GdipDeleteBrush(brush as _);
-        }
-        if !path.is_null() {
-            GdipDeletePath(path);
-        }
-        if !graphics.is_null() {
-            GdipDeleteGraphics(graphics);
-        }
-        ready
-    }
+        true
+    })
 }
 
 pub fn button(item: &DRAWITEMSTRUCT, primary: bool) {

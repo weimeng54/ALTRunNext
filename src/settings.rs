@@ -287,11 +287,12 @@ fn show_page(page: usize) {
         return;
     };
     cancel_capture();
-    let (tabs, title, hint, sections, extras, preview, more_colors) = EDITOR.with(|c| {
+    let (window, tabs, title, hint, sections, extras, preview, more_colors) = EDITOR.with(|c| {
         let mut editor = c.borrow_mut();
         let editor = editor.as_mut().unwrap();
         editor.page = page;
         (
+            editor.hwnd,
             editor.tabs,
             editor.title,
             editor.hint,
@@ -301,7 +302,11 @@ fn show_page(page: usize) {
             editor.more_colors,
         )
     });
+    let shown = unsafe { IsWindowVisible(window) != 0 };
     unsafe {
+        if shown {
+            SendMessageW(window, WM_SETREDRAW, 0, 0);
+        }
         SendMessageW(tabs, LB_SETCURSEL, page, 0);
         SetWindowTextW(title, ui(design.name).as_ptr());
         SetWindowTextW(hint, ui(design.hint).as_ptr());
@@ -346,6 +351,17 @@ fn show_page(page: usize) {
     }
     layout_page();
     update_preview();
+    unsafe {
+        if shown {
+            SendMessageW(window, WM_SETREDRAW, 1, 0);
+        }
+        RedrawWindow(
+            window,
+            std::ptr::null(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+        );
+    }
 }
 
 fn layout_page() {
@@ -407,9 +423,17 @@ fn layout_page() {
             height,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        let region = CreateRoundRectRgn(0, 0, px(layout::WIDTH) + 1, height + 1, px(22), px(22));
-        if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
-            DeleteObject(region);
+        let old_width = rect.right - rect.left;
+        let old_height = rect.bottom - rect.top;
+        if old_width != px(layout::WIDTH)
+            || old_height != height
+            || GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE == 0
+        {
+            let region =
+                CreateRoundRectRgn(0, 0, px(layout::WIDTH) + 1, height + 1, px(22), px(22));
+            if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
+                DeleteObject(region);
+            }
         }
         for (i, h) in footer.into_iter().enumerate() {
             let (x, w) = [(17, 86), (111, 68), (187, 68), (920, 56), (984, 101)][i];
@@ -446,7 +470,12 @@ fn layout_page() {
                 ShowWindow(child, if visible { SW_SHOWNA } else { SW_HIDE });
             }
         }
-        InvalidateRect(hwnd, std::ptr::null(), 1);
+        RedrawWindow(
+            hwnd,
+            std::ptr::null(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+        );
     }
     if matches!(page, 3 | 4) {
         align_preview();
@@ -1309,7 +1338,15 @@ fn choose_file(save: bool) -> Option<PathBuf> {
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
-        WM_ERASEBKGND => {
+        WM_ERASEBKGND => 1,
+        WM_PAINT => unsafe {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = BeginPaint(hwnd, &mut paint);
+            paint_settings(hwnd, dc);
+            EndPaint(hwnd, &paint);
+            0
+        },
+        WM_PRINTCLIENT => {
             paint_settings(hwnd, w as HDC);
             1
         }
@@ -2333,7 +2370,7 @@ fn refresh_style(prefs: &Preferences) {
             hwnd,
             std::ptr::null(),
             null_mut(),
-            0x0001 | 0x0004 | 0x0080 | 0x0100,
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
         );
     }
 }

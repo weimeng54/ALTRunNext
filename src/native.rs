@@ -1636,6 +1636,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 paint_title(hwnd, d);
                 return 1;
             }
+            if d.CtlType == ODT_BUTTON {
+                crate::theme_ui::button_on(d, false, theme::surface());
+                return 1;
+            }
             if d.itemID == u32::MAX {
                 return 1;
             }
@@ -2007,12 +2011,13 @@ pub fn run() -> Result<(), String> {
             1003,
         );
         let buttons = [
-            control("BUTTON", BS_FLAT as u32, 0, 0, 22, 22, ID_MANAGE),
-            control("BUTTON", BS_FLAT as u32, 0, 0, 22, 22, ID_SETTINGS),
-            control("BUTTON", BS_FLAT as u32, 0, 0, 22, 22, ID_HIDE),
+            control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_MANAGE),
+            control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_SETTINGS),
+            control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_HIDE),
         ];
         for (button, text) in buttons.iter().zip(["≡", "⚙", "×"]) {
             SetWindowTextW(*button, wide(text).as_ptr());
+            SendMessageW(*button, WM_SETFONT, font as usize, 0);
         }
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);
         SetWindowTextW(empty, ui("没有匹配项，换个快捷字试试").as_ptr());
@@ -2941,7 +2946,7 @@ unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return 0;
     }
     let old = STATE.with(|c| c.borrow().as_ref().unwrap().old_list);
-    unsafe {
+    let result = unsafe {
         CallWindowProcW(
             Some(std::mem::transmute::<
                 isize,
@@ -2952,6 +2957,49 @@ unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             w,
             l,
         )
+    };
+    if matches!(
+        msg,
+        WM_NCPAINT | WM_PAINT | WM_VSCROLL | WM_NCMOUSEMOVE | WM_NCLBUTTONDOWN
+    ) {
+        paint_scrollbar(hwnd);
+    }
+    result
+}
+
+fn paint_scrollbar(hwnd: HWND) {
+    let mut bar = SCROLLBARINFO {
+        cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        if GetScrollBarInfo(hwnd, OBJID_VSCROLL, &mut bar) == 0
+            || bar.rgstate[0] & STATE_SYSTEM_INVISIBLE != 0
+        {
+            return;
+        }
+        let mut window = RECT::default();
+        GetWindowRect(hwnd, &mut window);
+        let mut track = bar.rcScrollBar;
+        OffsetRect(&mut track, -window.left, -window.top);
+        let dc = GetWindowDC(hwnd);
+        if dc.is_null() {
+            return;
+        }
+        crate::theme_ui::fill(dc, &track, theme::paper());
+        let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+        let center = (track.left + track.right) / 2;
+        let width = scaled(4, dpi).max(3);
+        if bar.xyThumbBottom > bar.xyThumbTop {
+            let thumb = RECT {
+                left: center - width / 2,
+                right: center - width / 2 + width,
+                top: track.top + bar.xyThumbTop,
+                bottom: track.top + bar.xyThumbBottom,
+            };
+            crate::theme_ui::rounded(dc, thumb, width, theme::muted(), theme::muted());
+        }
+        ReleaseDC(hwnd, dc);
     }
 }
 fn parameter_menu() {

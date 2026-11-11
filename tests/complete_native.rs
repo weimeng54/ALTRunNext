@@ -8,7 +8,7 @@ use std::{
 };
 use windows_sys::Win32::System::{DataExchange::*, Memory::*};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
-use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
 #[repr(C)]
 #[derive(Default)]
 struct Memory {
@@ -134,6 +134,52 @@ fn bounds(hwnd: HWND) -> RECT {
     rect
 }
 
+fn pixel(hwnd: HWND, x: i32, y: i32) -> u32 {
+    unsafe {
+        let dc = GetWindowDC(hwnd);
+        let result = GetPixel(dc, x, y);
+        ReleaseDC(hwnd, dc);
+        result
+    }
+}
+
+fn click_tab_and_wait_for_pixels(hwnd: HWND, page: usize, field: &str, screenshot: &str) {
+    unsafe {
+        let tabs = GetDlgItem(hwnd, 2301);
+        let mut row = RECT::default();
+        assert_ne!(
+            SendMessageW(tabs, LB_GETITEMRECT, page, &mut row as *mut RECT as isize),
+            -1
+        );
+        let point = ((row.top + row.bottom) / 2) << 16 | 20;
+        let start = Instant::now();
+        assert_ne!(PostMessageW(tabs, WM_LBUTTONDOWN, 1, point as isize), 0);
+        assert_ne!(PostMessageW(tabs, WM_LBUTTONUP, 0, point as isize), 0);
+        let control = setting(hwnd, field);
+        let dark_accent = 0x00ffc79a;
+        loop {
+            let window = bounds(hwnd);
+            let rect = bounds(control);
+            let inset = (window.right - window.left) * 33 / 1102;
+            if IsWindowVisible(control) != 0
+                && pixel(
+                    hwnd,
+                    rect.right - window.left - inset,
+                    (rect.top + rect.bottom) / 2 - window.top,
+                ) == dark_accent
+            {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_millis(1200),
+                "{field} did not paint after clicking sidebar"
+            );
+            thread::sleep(Duration::from_millis(12));
+        }
+        native_snapshot::save_painted(hwnd, screenshot);
+    }
+}
+
 fn settings_design(hwnd: HWND) {
     let pages = [
         "general",
@@ -193,7 +239,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     assert_ne!(unsafe { RegisterHotKey(null_mut(), 22221, 3, 0x78) }, 0);
     std::fs::write(
         &settings,
-        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\n[Legacy]\nExtraSetting=keep\n",
+        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\nTheme=dark\nMaxRows=2\nShowShortCutButton=1\nShowCloseButton=1\n[Legacy]\nExtraSetting=keep\n",
     )
     .unwrap();
     let shell = altrun_probe::safe_notepad_path()
@@ -218,6 +264,26 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     unsafe {
         let edit = GetDlgItem(launcher, 1001);
         let list = GetDlgItem(launcher, 1002);
+        let button = GetDlgItem(launcher, 18001);
+        assert_eq!(
+            GetWindowLongW(button, GWL_STYLE) as u32 & 15,
+            BS_OWNERDRAW as u32
+        );
+        let mut bar = SCROLLBARINFO {
+            cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
+            ..Default::default()
+        };
+        assert_ne!(GetScrollBarInfo(list, OBJID_VSCROLL, &mut bar), 0);
+        let list_bounds = bounds(list);
+        let x = (bar.rcScrollBar.left + bar.rcScrollBar.right) / 2 - list_bounds.left;
+        let y = bar.rcScrollBar.top + 2 - list_bounds.top;
+        wait(|| {
+            let colour = pixel(list, x, y);
+            matches!(colour, 0x00241d17 | 0x00251e19)
+        });
+        SendMessageW(list, WM_VSCROLL, SB_LINEDOWN as usize, 0);
+        assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 1);
+        native_snapshot::save_painted(launcher, "launcher-dark-scrollbar");
         set(edit, "^(ab)\\1$");
         wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 1);
         set(edit, "^(a+)\\1$");
@@ -255,6 +321,8 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_ne!(IsWindowVisible(setting(dialog, "AddToSendTo")), 0);
         assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
         assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
+        click_tab_and_wait_for_pixels(dialog, 2, "NumberKey", "settings-live-search");
+        click_tab_and_wait_for_pixels(dialog, 3, "ShowCommandLine", "settings-live-appearance");
         settings_design(dialog);
         native_snapshot::save(dialog, "settings-general");
         select_page(dialog, 3);

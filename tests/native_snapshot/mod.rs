@@ -9,6 +9,12 @@ pub fn save(hwnd: HWND, name: &str) {
             std::ptr::null_mut(),
             RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW,
         );
+    }
+    save_painted(hwnd, name);
+}
+
+pub fn save_painted(hwnd: HWND, name: &str) {
+    unsafe {
         let mut rect: RECT = zeroed();
         GetWindowRect(hwnd, &mut rect);
         let width = rect.right - rect.left;
