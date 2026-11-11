@@ -441,9 +441,17 @@ impl Font {
                 font.charset.to_string()
             });
         }
-        parts.truncate(5);
         parts[2] = ((size * 3 + 2) / 4).clamp(5, 96).to_string();
-        parts.push(size.to_string());
+        let logical_size = format!("dip={size}");
+        if let Some(value) = parts
+            .iter_mut()
+            .skip(5)
+            .find(|part| part.starts_with("dip="))
+        {
+            *value = logical_size;
+        } else {
+            parts.push(logical_size);
+        }
         Ok(parts.join("|"))
     }
 
@@ -458,8 +466,9 @@ impl Font {
         }
         let colour = parse_colour(p.get(3).copied().unwrap_or("3812384"))?;
         let dip = p
-            .get(5)
-            .filter(|s| !s.is_empty())
+            .iter()
+            .skip(5)
+            .find_map(|part| part.strip_prefix("dip="))
             .map(|value| {
                 value
                     .parse::<i32>()

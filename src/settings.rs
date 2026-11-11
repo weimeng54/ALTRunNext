@@ -77,7 +77,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "快捷键",
-        hint: "点击“录制”，直接按下想用的快捷键。Esc 取消，“清除”停用该键。",
+        hint: "点击“录制”后按下组合键。按 Esc 取消录制。",
         keys: &["HotKey1", "HotKey2", "LastItemHotKey"],
     },
     Page {
@@ -1139,13 +1139,15 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
             let mut r = bounds.pixels(dpi);
             OffsetRect(&mut r, 0, -scroll);
             theme_ui::rounded(dc, r, px(16), theme::control_surface(), divider);
-            for y in card.rules.iter().copied().chain(
-                if page == 3 && bounds.x == layout::RIGHT && more_panel {
-                    &[134, 177, 220, 263, 306][..]
-                } else {
-                    &[]
-                },
-            ) {
+            for &y in
+                card.rules
+                    .iter()
+                    .chain(if page == 3 && bounds.x == layout::RIGHT && more_panel {
+                        &[134, 177, 220, 263, 306][..]
+                    } else {
+                        &[]
+                    })
+            {
                 let top = r.top + px(y);
                 theme_ui::fill(
                     dc,
@@ -1866,7 +1868,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
-                            let numeric = matches!(spec.kind, Kind::Number(..) | Kind::Font);
                             let picker = key.ends_with("Color")
                                 || matches!(
                                     *key,
@@ -1970,8 +1971,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 let style = ES_AUTOHSCROLL as u32
                                     | WS_BORDER
                                     | WS_TABSTOP
-                                    | if hotkey { ES_READONLY as u32 } else { 0 }
-                                    | if numeric { ES_RIGHT as u32 } else { 0 };
+                                    | if hotkey {
+                                        (ES_READONLY | ES_CENTER) as u32
+                                    } else {
+                                        0
+                                    };
                                 let handle = control(
                                     "EDIT",
                                     "",
@@ -1985,6 +1989,12 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 theme_ui::style_edit(handle, dpi, true);
                                 if hotkey {
                                     SendMessageW(handle, WM_SETFONT, filename_font as usize, 0);
+                                    SendMessageW(
+                                        handle,
+                                        EM_SETCUEBANNER,
+                                        0,
+                                        ui("未设置").as_ptr() as isize,
+                                    );
                                 }
                                 handle
                             };

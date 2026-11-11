@@ -578,7 +578,7 @@ unsafe extern "system" fn switch_proc(
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(hwnd) != 0;
             let focused = GetFocus() == hwnd;
             let h = scaled(if settings { 20 } else { 18 }, dpi);
-            let right = bounds.right - scaled(if settings { 13 } else { 8 }, dpi);
+            let right = bounds.right - scaled(if settings { 9 } else { 8 }, dpi);
             let top = (bounds.bottom - h) / 2;
             let track = RECT {
                 left: right - scaled(if settings { 35 } else { 34 }, dpi),
@@ -596,7 +596,7 @@ unsafe extern "system" fn switch_proc(
                 } else {
                     theme::paper()
                 },
-                if focused {
+                if focused || (settings && checked && enabled) {
                     theme::accent()
                 } else {
                     theme::border()
@@ -608,10 +608,11 @@ unsafe extern "system" fn switch_proc(
                 h - scaled(6, dpi)
             };
             let inset = (h - diameter) / 2;
+            let side = if settings { scaled(3, dpi) } else { inset };
             let left = if checked {
-                track.right - inset - diameter
+                track.right - side - diameter
             } else {
-                track.left + inset
+                track.left + side
             };
             let knob = RECT {
                 left,
@@ -627,7 +628,7 @@ unsafe extern "system" fn switch_proc(
             rounded(dc, knob, diameter, ink, ink);
             let font = DefSubclassProc(hwnd, WM_GETFONT, 0, 0) as HFONT;
             let old = SelectObject(dc, font);
-            bounds.left += scaled(if settings { 13 } else { 10 }, dpi);
+            bounds.left += scaled(if settings { 9 } else { 10 }, dpi);
             bounds.right = track.left - scaled(7, dpi);
             if description {
                 bounds.bottom = scaled(30, dpi);
