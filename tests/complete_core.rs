@@ -218,6 +218,31 @@ fn search_preferences_keep_literal_and_regex_semantics_separate() {
 }
 
 #[test]
+fn literal_search_ranks_exact_prefix_contiguous_then_fuzzy() {
+    let rows = altrun_probe::parse_entries(concat!(
+        "doubao\t豆包\tn.exe\t5000\n",
+        "mydb\tMiddle\tn.exe\t4000\n",
+        "db-tools\tPrefix\tn.exe\t1000\n",
+        "db\tExact\tn.exe\t0\n",
+        "bad\tWrong order\tn.exe\t9999\n",
+    ))
+    .unwrap();
+    let index = altrun_probe::SearchIndex::new(&rows);
+    assert_eq!(
+        index.query_options("DB", true, true, false).unwrap(),
+        vec![3, 2, 1, 0]
+    );
+    assert_eq!(
+        index.query_options("db", true, false, false).unwrap(),
+        vec![3, 2]
+    );
+    assert_eq!(
+        index.query_options("^db$", true, true, true).unwrap(),
+        vec![3]
+    );
+}
+
+#[test]
 fn context_markers_do_not_capture_environment_prefixes_and_dynamic_target_is_explicit() {
     use altrun_probe::{
         launch::{self, LaunchContext},
