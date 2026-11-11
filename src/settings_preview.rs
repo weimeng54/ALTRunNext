@@ -221,6 +221,10 @@ impl Preview {
         };
         let title_font = draw_font("TitleFont", 14);
         let row_font = draw_font("ListFont", 14);
+        let alias_font = Font::parse(&self.prefs.get("ListFont")).ok().map_or_else(
+            || make_font(14, 600, "Microsoft YaHei UI", dpi),
+            |font| make_font(font.size_dip(), font.weight.max(600), &font.name, dpi),
+        );
         let command_font = make_font(12, 400, "Consolas", dpi);
         unsafe {
             let old = SelectObject(dc, title_font);
@@ -254,6 +258,7 @@ impl Preview {
                     theme::muted(),
                     0,
                 );
+                SelectObject(dc, alias_font);
                 theme_ui::line_text(
                     dc,
                     area(43, y, (bounds.w - 68) * 3 / 7, row_height),
@@ -261,6 +266,7 @@ impl Preview {
                     theme::font_colour(&self.prefs.get("ListFont")),
                     0,
                 );
+                SelectObject(dc, row_font);
                 theme_ui::line_text(
                     dc,
                     area(
@@ -306,6 +312,7 @@ impl Preview {
             SelectObject(dc, old);
             DeleteObject(title_font);
             DeleteObject(row_font);
+            DeleteObject(alias_font);
             DeleteObject(command_font);
         }
         theme::install_chrome(&self.prefs);

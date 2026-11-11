@@ -573,15 +573,22 @@ unsafe extern "system" fn switch_proc(
             let settings = dpi & 0x10000 != 0;
             let description = dpi & 0x20000 != 0;
             let dpi = (dpi & 0xffff) as i32;
+            let px = |n| {
+                if settings {
+                    crate::settings_layout::scale(n, dpi)
+                } else {
+                    scaled(n, dpi)
+                }
+            };
             let checked = DefSubclassProc(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
             let enabled =
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(hwnd) != 0;
             let focused = GetFocus() == hwnd;
-            let h = scaled(if settings { 20 } else { 18 }, dpi);
-            let right = bounds.right - scaled(if settings { 9 } else { 8 }, dpi);
+            let h = px(if settings { 20 } else { 18 });
+            let right = bounds.right - px(if settings { 9 } else { 8 });
             let top = (bounds.bottom - h) / 2;
             let track = RECT {
-                left: right - scaled(if settings { 35 } else { 34 }, dpi),
+                left: right - px(if settings { 35 } else { 34 }),
                 top,
                 right,
                 bottom: top + h,
@@ -602,13 +609,9 @@ unsafe extern "system" fn switch_proc(
                     theme::border()
                 },
             );
-            let diameter = if settings {
-                scaled(12, dpi)
-            } else {
-                h - scaled(6, dpi)
-            };
+            let diameter = if settings { px(12) } else { h - scaled(6, dpi) };
             let inset = (h - diameter) / 2;
-            let side = if settings { scaled(3, dpi) } else { inset };
+            let side = if settings { px(3) } else { inset };
             let left = if checked {
                 track.right - side - diameter
             } else {
@@ -628,10 +631,10 @@ unsafe extern "system" fn switch_proc(
             rounded(dc, knob, diameter, ink, ink);
             let font = DefSubclassProc(hwnd, WM_GETFONT, 0, 0) as HFONT;
             let old = SelectObject(dc, font);
-            bounds.left += scaled(if settings { 9 } else { 10 }, dpi);
-            bounds.right = track.left - scaled(7, dpi);
+            bounds.left += px(if settings { 9 } else { 10 });
+            bounds.right = track.left - px(7);
             if description {
-                bounds.bottom = scaled(30, dpi);
+                bounds.bottom = px(30);
             }
             line_text(
                 dc,
@@ -644,6 +647,22 @@ unsafe extern "system" fn switch_proc(
                 },
                 0,
             );
+            if description && let Some((caption, font)) = crate::settings::switch_description(hwnd)
+            {
+                SelectObject(dc, font);
+                let detail = RECT {
+                    top: px(27),
+                    bottom: px(48),
+                    ..bounds
+                };
+                line_text(
+                    dc,
+                    detail,
+                    &crate::localization::tr(caption),
+                    theme::muted(),
+                    0,
+                );
+            }
             SelectObject(dc, old);
             if focused && !settings {
                 DrawFocusRect(dc, &bounds);

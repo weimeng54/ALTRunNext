@@ -1,7 +1,7 @@
 //! Native settings pages, created only while the settings window is open.
 use crate::{
-    native::{make_font, scaled, ui, wide},
-    settings_layout::{self as layout, BoxRect},
+    native::{make_font, ui, wide},
+    settings_layout::{self as layout, BoxRect, scale as scaled},
     settings_preview::Preview,
     theme, theme_ui,
 };
@@ -258,6 +258,14 @@ fn field(key: &str) -> Field {
     EDITOR.with(|c| c.borrow().as_ref().unwrap().fields[index])
 }
 
+pub(crate) fn switch_description(hwnd: HWND) -> Option<(&'static str, HFONT)> {
+    let id = unsafe { GetDlgCtrlID(hwnd) } as usize;
+    let spec = SPECS.get(id.checked_sub(FIELD)?)?;
+    let description = layout::field(spec.key).description;
+    let font = EDITOR.with(|c| c.borrow().as_ref().map(|e| e.small_font))?;
+    Some((description, font))
+}
+
 fn hidden_field(key: &str) -> bool {
     matches!(key, "Theme" | "ShowSkin")
 }
@@ -399,7 +407,7 @@ fn layout_page() {
             DeleteObject(region);
         }
         for (i, h) in footer.into_iter().enumerate() {
-            let (x, w) = [(17, 86), (111, 68), (187, 68), (940, 57), (1005, 80)][i];
+            let (x, w) = [(17, 86), (111, 68), (187, 68), (920, 56), (984, 101)][i];
             MoveWindow(h, px(x), foot + px(13), px(w), px(34), 0);
         }
         MoveWindow(status, px(267), foot + px(17), px(650), px(25), 0);
@@ -479,6 +487,14 @@ fn align_preview() {
             }
         }
         ShowWindow(query, if visible { SW_SHOWNA } else { SW_HIDE });
+        if visible {
+            RedrawWindow(
+                query,
+                std::ptr::null(),
+                null_mut(),
+                RDW_INVALIDATE | RDW_FRAME,
+            );
+        }
     }
 }
 
@@ -559,6 +575,15 @@ fn load_form(prefs: &Preferences) {
         }
     }
     refresh_font_family(prefs);
+    sync_sound_picker(prefs.flag("PlayPopupNotify"));
+}
+
+fn sync_sound_picker(enabled: bool) {
+    if let Some(index) = SPECS.iter().position(|spec| spec.key == "PopupFileName") {
+        unsafe {
+            EnableWindow(fields()[index].pick, i32::from(enabled));
+        }
+    }
 }
 
 fn read_form() -> Result<Preferences, (usize, String)> {
@@ -909,11 +934,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
             }
             theme_ui::rounded(item.hDC, swatch, scaled(4, dpi), color, color);
         } else if matches!(id, TITLE_CLOSE | MORE_PANEL | MORE_COLORS) {
-            let background = if id == TITLE_CLOSE {
-                theme::chrome()
-            } else {
-                theme::control_surface()
-            };
+            let background = theme::control_surface();
             let state = EDITOR.with(|c| {
                 c.borrow()
                     .as_ref()
@@ -984,7 +1005,33 @@ fn draw(item: &DRAWITEMSTRUCT) {
             return;
         };
         if item.CtlID as usize == PREVIEW {
-            s.preview.paint(item, s.dpi, &query);
+            unsafe {
+                let input = s.preview_controls[2];
+                let mut input_rect: RECT = std::mem::zeroed();
+                let clip = SaveDC(item.hDC);
+                if clip != 0
+                    && IsWindowVisible(input) != 0
+                    && GetWindowRect(input, &mut input_rect) != 0
+                {
+                    MapWindowPoints(
+                        null_mut(),
+                        item.hwndItem,
+                        &mut input_rect as *mut RECT as *mut POINT,
+                        2,
+                    );
+                    ExcludeClipRect(
+                        item.hDC,
+                        input_rect.left,
+                        input_rect.top,
+                        input_rect.right,
+                        input_rect.bottom,
+                    );
+                }
+                s.preview.paint(item, s.dpi, &query);
+                if clip != 0 {
+                    RestoreDC(item.hDC, clip);
+                }
+            }
         } else if item.CtlID as usize == IMAGE_THUMB {
             s.preview.paint_thumb(item, s.dpi);
         } else if item.CtlID as usize == TAB
@@ -1007,7 +1054,6 @@ fn draw(item: &DRAWITEMSTRUCT) {
                     right: bounds.left + scaled(6, s.dpi),
                     top: bounds.top + scaled(10, s.dpi),
                     bottom: bounds.bottom - scaled(10, s.dpi),
-                    ..bounds
                 };
                 theme_ui::rounded(
                     item.hDC,
@@ -1148,7 +1194,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                         &[]
                     })
             {
-                let top = r.top + px(y);
+                let top = px(bounds.y + y) - scroll;
                 theme_ui::fill(
                     dc,
                     &RECT {
@@ -1453,6 +1499,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     code == EN_KILLFOCUS
                 };
                 if changed && EDITOR.with(|c| c.borrow().is_some()) {
+                    if spec.key == "PlayPopupNotify" {
+                        let checked = unsafe { SendMessageW(l as HWND, BM_GETCHECK, 0, 0) != 0 };
+                        sync_sound_picker(checked);
+                    }
                     update_preview();
                 }
                 return 0;
@@ -1678,8 +1728,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         WS_CHILD | WS_VISIBLE | style,
                         scaled(x, dpi),
                         scaled(y, dpi),
-                        scaled(width, dpi),
-                        scaled(height, dpi),
+                        (scaled(x + width, dpi) - scaled(x, dpi)).max(1),
+                        (scaled(y + height, dpi) - scaled(y, dpi)).max(1),
                         hwnd,
                         id as HMENU,
                         instance,
@@ -1716,12 +1766,19 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let preview_controls = [
                     control("STATIC", "启动面板预览", 0, layout::RIGHT, 152, 220, 23, 0),
                     control(
-                        "STATIC", "", 0x0d, preview.x, preview.y, preview.w, preview.h, PREVIEW,
+                        "STATIC",
+                        "",
+                        0x0d | WS_CLIPSIBLINGS,
+                        preview.x,
+                        preview.y,
+                        preview.w,
+                        preview.h,
+                        PREVIEW,
                     ),
                     control(
                         "EDIT",
                         "",
-                        WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+                        WS_CLIPSIBLINGS | WS_TABSTOP | ES_AUTOHSCROLL as u32,
                         597,
                         250,
                         402,
@@ -1767,7 +1824,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         BoxRect::new(524, 435, 549, 22),
                     ),
                     (4, "可试输快捷字，例如 db", BoxRect::new(866, 152, 207, 21)),
-                    (4, "面板字体", BoxRect::new(228, 196, 86, 25)),
+                    (4, "面板字体", BoxRect::new(228, 189, 59, 41)),
                 ] {
                     let style = if bounds.x == 866 { 2 } else { 0 };
                     let control = control(
@@ -1780,7 +1837,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         bounds.h,
                         APPEARANCE_NOTE,
                     );
-                    SendMessageW(control, WM_SETFONT, small_font as usize, 0);
+                    if bounds.x != 228 {
+                        SendMessageW(control, WM_SETFONT, small_font as usize, 0);
+                    }
                     extra_controls.push((page, control));
                 }
                 for (id, label, x, y, w, h, page) in [
@@ -1790,7 +1849,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     (SEGMENT + 3, "纯色", 230, 299, 128, 30, 3),
                     (SEGMENT + 4, "图片", 361, 299, 127, 30, 3),
                     (MORE_PANEL, "其他面板选项", 528, 587, 541, 42, 3),
-                    (FONT_FAMILY, "", 326, 191, 164, 34, 4),
+                    (FONT_FAMILY, "", 301, 191, 189, 34, 4),
                     (MORE_COLORS, "其他颜色", 215, 517, 288, 40, 4),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
@@ -1843,28 +1902,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 dpi,
                                 !placement.description.is_empty(),
                             );
-                            if !placement.description.is_empty() {
-                                field.label = control(
-                                    "STATIC",
-                                    placement.description,
-                                    0,
-                                    x + 13,
-                                    y + 30,
-                                    w - 80,
-                                    19,
-                                    APPEARANCE_NOTE,
-                                );
-                                SendMessageW(field.label, WM_SETFONT, small_font as usize, 0);
-                                SetWindowPos(
-                                    field.label,
-                                    HWND_TOP,
-                                    0,
-                                    0,
-                                    0,
-                                    0,
-                                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                                );
-                            }
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
@@ -1969,7 +2006,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     0
                                 };
                                 let style = ES_AUTOHSCROLL as u32
-                                    | WS_BORDER
                                     | WS_TABSTOP
                                     | if hotkey {
                                         (ES_READONLY | ES_CENTER) as u32
