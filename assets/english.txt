@@ -284,6 +284,7 @@ ALTRun 设置=ALTRun Settings
 紫灰=Lavender gray
 自定义…=Custom…
 未选择图片=No image selected
+选图…=Browse…
 保存后应用到启动面板。=Save to apply the changes to the launcher.
 增大字号=Increase font size
 减小字号=Decrease font size

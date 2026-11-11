@@ -520,7 +520,10 @@ fn show_page(page: usize) {
                 if !hwnd.is_null() {
                     ShowWindow(
                         hwnd,
-                        if spec.key.ends_with("Color") && hwnd == field.value {
+                        if matches!(spec.kind, Kind::Text)
+                            && spec.key.ends_with("Color")
+                            && hwnd == field.value
+                        {
                             SW_HIDE
                         } else {
                             visibility
@@ -2702,7 +2705,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 field.pick = control(
                                     "BUTTON",
                                     if *key == "BGFileName" {
-                                        "换图…"
+                                        "选图…"
                                     } else if color {
                                         label
                                     } else {

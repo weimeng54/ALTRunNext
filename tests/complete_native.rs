@@ -223,6 +223,7 @@ fn settings_design(hwnd: HWND) {
             assert_eq!(text(title), size.to_string());
             command(hwnd, 2343);
             assert_eq!(IsWindowVisible(setting(hwnd, "TitleColor")), 0);
+            assert_ne!(IsWindowVisible(setting(hwnd, "UseCustomTextColor")), 0);
             assert_ne!(
                 IsWindowVisible(GetDlgItem(
                     hwnd,
