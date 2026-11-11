@@ -1611,11 +1611,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                     fields()[skin].value,
                                     BM_SETCHECK,
                                     BST_CHECKED as usize,
-                                    match *key {
-                                        "BGStrength" => STRENGTH_LABEL,
-                                        "BGCrop" => CROP_LABEL,
-                                        _ => 0,
-                                    },
+                                    0,
                                 );
                             }
                         }
@@ -2016,7 +2012,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     },
                                     label_width,
                                     23,
-                                    0,
+                                    match *key {
+                                        "BGStrength" => STRENGTH_LABEL,
+                                        "BGCrop" => CROP_LABEL,
+                                        _ => 0,
+                                    },
                                 );
                             }
                             field.value = if *key == "BGStrength" {
