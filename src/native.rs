@@ -1944,23 +1944,11 @@ pub fn run() -> Result<(), String> {
         });
         STATE.with(|c| rebuild_index(c.borrow_mut().as_mut().unwrap()));
         refresh();
-        if STATE.with(|c| {
-            c.borrow()
-                .as_ref()
-                .unwrap()
-                .preferences
-                .flag("ShowTrayIcon")
-        }) {
-            tray_icon(hwnd, NIM_ADD);
-        }
-        // Deliberately separate from the original's Alt+R / Pause binding.
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
-        match register_bindings(hwnd, &prefs, &[]) {
+        let mut startup_warnings = Vec::new();
+        match register_bindings(hwnd, &prefs, &[], Some(&mut startup_warnings)) {
             Ok(keys) => STATE.with(|c| c.borrow_mut().as_mut().unwrap().hotkeys = keys),
-            Err(error) => {
-                DestroyWindow(hwnd);
-                return Err(error);
-            }
+            Err(error) => startup_warnings.push(error),
         }
         apply_appearance();
         if STATE.with(|c| {
@@ -1983,6 +1971,7 @@ pub fn run() -> Result<(), String> {
             PostMessageW(hwnd, WM_COMMAND, ID_CLEAN, 0);
         }
         if args.iter().any(|a| a == "--show")
+            || !startup_warnings.is_empty()
             || STATE.with(|c| {
                 c.borrow()
                     .as_ref()
@@ -1992,6 +1981,9 @@ pub fn run() -> Result<(), String> {
             })
         {
             SendMessageW(hwnd, SHOW, 0, 0);
+        }
+        if !startup_warnings.is_empty() {
+            show_inline_error(&startup_warnings.join("，"));
         }
         let accelerator = ACCEL {
             fVirt: FVIRTKEY | FALT,
@@ -2270,6 +2262,7 @@ fn register_bindings(
     hwnd: HWND,
     prefs: &altrun_probe::preferences::Preferences,
     old: &[(i32, Option<altrun_probe::preferences::Hotkey>)],
+    mut startup_warnings: Option<&mut Vec<String>>,
 ) -> Result<Bindings, String> {
     let requested = ["HotKey1", "HotKey2", "LastItemHotKey"]
         .iter()
@@ -2299,15 +2292,20 @@ fn register_bindings(
             .ok_or("没有可用热键编号")?;
         if let Some(value) = value {
             if unsafe { RegisterHotKey(hwnd, id, value.modifiers | MOD_NOREPEAT, value.key) } == 0 {
+                let error = unsafe { GetLastError() };
+                let binding = prefs.get(key);
+                if let Some(warnings) = &mut startup_warnings {
+                    eprintln!("RegisterHotKey({binding}) failed: Win32 {error}");
+                    warnings.push(format!("热键 {binding} 不可用"));
+                    next.push((id, None));
+                    continue;
+                }
                 for id in added {
                     unsafe {
                         UnregisterHotKey(hwnd, id);
                     }
                 }
-                return Err(format!(
-                    "快捷键 {} 已被占用，原快捷键保持可用",
-                    prefs.get(key)
-                ));
+                return Err(format!("快捷键 {binding} 无法注册（Windows {error}）"));
             }
             added.push(id);
         }
@@ -2339,7 +2337,7 @@ fn apply_settings_messages() {
                     let _ = reply.send(Err("另一次设置修改尚未完成".into()));
                     continue;
                 }
-                match register_bindings(hwnd, &prefs, &old) {
+                match register_bindings(hwnd, &prefs, &old, None) {
                     Ok(keys) => {
                         STATE.with(|c| {
                             c.borrow_mut().as_mut().unwrap().pending_settings =
@@ -2533,9 +2531,13 @@ fn apply_appearance() {
                 SW_HIDE
             },
         );
+        let has_hotkey = STATE.with(|c| {
+            let state = c.borrow();
+            state.as_ref().unwrap().hotkeys.iter().any(|h| h.1.is_some())
+        });
         tray_icon(
             hwnd,
-            if prefs.flag("ShowTrayIcon") {
+            if prefs.flag("ShowTrayIcon") || !has_hotkey {
                 NIM_ADD
             } else {
                 NIM_DELETE
