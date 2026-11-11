@@ -110,11 +110,11 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Release build
         run: cargo build --release --locked --target x86_64-pc-windows-msvc --bin altrun-probe
-      - name: Test startup with the release executable
+      - name: Test startup and settings with the release executable
         timeout-minutes: 2
         run: |
           $env:ALTRUN_RELEASE_SMOKE_EXE = (Resolve-Path target/x86_64-pc-windows-msvc/release/altrun-probe.exe).Path
-          cargo test --locked --test review_startup_hotkeys
+          cargo test --locked --test review_startup_hotkeys --test complete_native
       - name: Package launcher
         shell: pwsh
         run: |

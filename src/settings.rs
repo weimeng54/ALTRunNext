@@ -1,141 +1,315 @@
-//! Lazy native property editor, running independently of the launch window.
-use crate::native::{make_font, ui, wide};
+//! Native settings pages, created only while the settings window is open.
+use crate::native::{make_font, scaled, ui, wide};
 use altrun_probe::{
     preferences::{Kind, Preferences, SPECS},
     state_store::TextFile,
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     path::PathBuf,
     ptr::null_mut,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc,
-    },
+    sync::{atomic::{AtomicUsize, Ordering}, mpsc},
 };
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{Controls::Dialogs::*, WindowsAndMessaging::*},
+    UI::{Controls::{Dialogs::*, *}, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
+
 pub const UPDATED: u32 = WM_APP + 12;
+const RECORDED: u32 = WM_APP + 1;
+const TAB: usize = 2301;
+const STATUS: usize = 2303;
+const FIELD: usize = 2400;
+const PICK: usize = 2500;
+const CLEAR: usize = 2600;
+
 pub enum Change {
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
     Commit(u64),
     Cancel(u64),
 }
+
+struct Page {
+    name: &'static str,
+    hint: &'static str,
+    keys: &'static [&'static str],
+}
+
+const PAGES: &[Page] = &[
+    Page {
+        name: "常规",
+        hint: "管理启动方式、系统托盘和资源管理器菜单。",
+        keys: &["ShowMeWhenStart", "ShowTrayIcon", "AutoRun", "AddToSendTo",
+                "ShowStartNotification", "PlayPopupNotify", "PopupFileName", "Lang"],
+    },
+    Page {
+        name: "快捷键",
+        hint: "点击“录制”，直接按下想用的快捷键。Esc 取消，“清除”停用该键。",
+        keys: &["HotKey1", "HotKey2", "LastItemHotKey"],
+    },
+    Page {
+        name: "搜索与执行",
+        hint: "调整匹配方式、结果编号和执行后的行为。",
+        keys: &["Regex", "MatchAnywhere", "RememberFavouratMatch", "NumberKey",
+                "IndexFrom0to9", "ExecuteIfOnlyOne", "ExitWhenExecute", "ParamHistoryLimit"],
+    },
+    Page {
+        name: "外观",
+        hint: "调整面板和结果列表。更改会在保存后生效。",
+        keys: &["Theme", "FormWidth", "RowHeight", "MaxRows", "ShowTopTen",
+                "ShowOperationHint", "ShowCommandLine", "ShowShortCutButton",
+                "ShowConfigButton", "ShowCloseButton", "ShowSkin", "BGFileName"],
+    },
+    Page {
+        name: "字体与颜色",
+        hint: "选择字体或颜色，也可以直接编辑已有值。",
+        keys: &["TitleFont", "KeywordFont", "ListFont", "TitleColor", "KeywordColor",
+                "ListColor", "TextColor", "SelectionColor", "Alpha", "RoundBorderRadius"],
+    },
+    Page {
+        name: "窗口位置",
+        hint: "设置呼出位置、自动隐藏时间和管理窗口大小。",
+        keys: &["PositionMode", "HideDelay", "WinLeft", "WinTop", "ManWinLeft",
+                "ManWinTop", "ManWinWidth", "ManWinHeight"],
+    },
+    Page {
+        name: "高级",
+        hint: "兼容旧版格式、正则语法和诊断选项。",
+        keys: &["StandardRegex", "ListFormat", "WorkingDirectory", "AllowDynamicTarget",
+                "TraceEnable", "AlphaColor"],
+    },
+];
+
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
+#[derive(Clone, Copy)]
+struct Field {
+    page: usize,
+    label: HWND,
+    value: HWND,
+    pick: HWND,
+    clear: HWND,
+}
+
 struct Editor {
+    hwnd: HWND,
+    tabs: HWND,
+    hint: HWND,
+    status: HWND,
     background: HBRUSH,
     paper: HBRUSH,
-    boolean: HWND,
-    picker: HWND,
-    dpi: i32,
-    prefs: Preferences,
+    font: HFONT,
+    saved: Preferences,
+    fields: Vec<Field>,
     file: TextFile,
     data: PathBuf,
-    list: HWND,
-    value: HWND,
-    status: HWND,
-    index: usize,
-    dirty: bool,
-    loading: bool,
-    font: HFONT,
     sender: mpsc::Sender<Change>,
     owner: usize,
 }
-thread_local! {static EDITOR:RefCell<Option<Editor>>=const{RefCell::new(None)};}
+
+#[derive(Clone, Copy)]
+struct Capture {
+    window: HWND,
+    index: usize,
+    hook: HHOOK,
+}
+
+thread_local! {
+    static EDITOR: RefCell<Option<Editor>> = const { RefCell::new(None) };
+    static CAPTURE: Cell<Option<Capture>> = const { Cell::new(None) };
+}
+
 fn text(hwnd: HWND) -> String {
     unsafe {
-        let mut b = vec![0; GetWindowTextLengthW(hwnd) as usize + 1];
-        let n = GetWindowTextW(hwnd, b.as_mut_ptr(), b.len() as i32);
-        String::from_utf16_lossy(&b[..n as usize])
+        let mut buffer = vec![0; GetWindowTextLengthW(hwnd) as usize + 1];
+        let len = GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32);
+        String::from_utf16_lossy(&buffer[..len as usize])
     }
 }
+
 fn status(message: &str) {
-    let h = EDITOR.with(|c| c.borrow().as_ref().unwrap().status);
-    unsafe {
-        SetWindowTextW(h, wide(message).as_ptr());
+    let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().status);
+    unsafe { SetWindowTextW(hwnd, ui(message).as_ptr()); }
+}
+
+fn choices(key: &str) -> &'static [(&'static str, &'static str)] {
+    match key {
+        "Theme" => &[("light", "浅色"), ("dark", "深色"), ("system", "跟随系统")],
+        "PositionMode" => &[("remember", "记住位置"), ("mouse", "鼠标附近"), ("center", "屏幕居中")],
+        _ => &[],
     }
 }
-fn select() {
-    let (value, index, prefs, boolean, picker, dpi) = EDITOR.with(|c| {
-        let mut s = c.borrow_mut();
-        let s = s.as_mut().unwrap();
-        s.loading = true;
-        (
-            s.value,
-            s.index,
-            s.prefs.clone(),
-            s.boolean,
-            s.picker,
-            s.dpi,
-        )
+
+fn fields() -> Vec<Field> {
+    EDITOR.with(|c| c.borrow().as_ref().unwrap().fields.clone())
+}
+
+fn show_page(page: usize) {
+    let Some(design) = PAGES.get(page) else { return; };
+    stop_capture();
+    let (tabs, hint) = EDITOR.with(|c| {
+        let editor = c.borrow();
+        let editor = editor.as_ref().unwrap();
+        (editor.tabs, editor.hint)
     });
     unsafe {
-        SetWindowTextW(value, wide(&prefs.get(SPECS[index].key)).as_ptr());
-        let spec = &SPECS[index];
-        let is_bool = matches!(spec.kind, Kind::Bool);
-        ShowWindow(boolean, if is_bool { SW_SHOW } else { SW_HIDE });
-        ShowWindow(value, if is_bool { SW_HIDE } else { SW_SHOW });
-        SendMessageW(boolean, BM_SETCHECK, usize::from(prefs.flag(spec.key)), 0);
-        let can_pick = matches!(spec.kind, Kind::Font)
-            || spec.key.ends_with("Color")
-            || ["BGFileName", "PopupFileName", "Lang", "WorkingDirectory"].contains(&spec.key);
-        ShowWindow(picker, if can_pick { SW_SHOW } else { SW_HIDE });
-        SetWindowPos(
-            value,
-            null_mut(),
-            crate::native::scaled(310, dpi),
-            crate::native::scaled(52, dpi),
-            crate::native::scaled(if can_pick { 258 } else { 350 }, dpi),
-            crate::native::scaled(30, dpi),
-            SWP_NOZORDER | SWP_NOACTIVATE,
-        );
-    }
-    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
-    let spec = &SPECS[index];
-    status(&format!(
-        "{} · {}",
-        spec.key,
-        match spec.kind {
-            Kind::Bool => "0 = 关闭，1 = 开启",
-            Kind::Hotkey => "例如 Ctrl+Alt+R；留空可关闭",
-            Kind::Font => "字体|[fsBold,fsItalic]|字号|颜色|字符集",
-            Kind::Number(_, _) => "输入整数",
-            Kind::Text => "输入文本；颜色格式 #RRGGBB",
+        SendMessageW(tabs, TCM_SETCURSEL, page, 0);
+        SetWindowTextW(hint, ui(design.hint).as_ptr());
+        for field in fields() {
+            let visibility = if field.page == page { SW_SHOWNA } else { SW_HIDE };
+            for hwnd in [field.label, field.value, field.pick, field.clear] {
+                if !hwnd.is_null() {
+                    ShowWindow(hwnd, visibility);
+                }
+            }
         }
-    ));
-}
-fn store_value() -> Result<(), String> {
-    let (h, index, loading) = EDITOR.with(|c| {
-        let s = c.borrow();
-        let s = s.as_ref().unwrap();
-        (s.value, s.index, s.loading)
-    });
-    if loading {
-        return Ok(());
     }
-    let value = text(h);
-    EDITOR.with(|c| {
-        let mut s = c.borrow_mut();
-        let s = s.as_mut().unwrap();
-        let changed = s.prefs.get(SPECS[index].key) != value.trim();
-        s.prefs.set(SPECS[index].key, &value)?;
-        s.dirty |= changed;
-        Ok(())
+}
+
+fn load_form(prefs: &Preferences) {
+    for (spec, field) in SPECS.iter().zip(fields()) {
+        let value = prefs.get(spec.key);
+        unsafe {
+            if matches!(spec.kind, Kind::Bool) {
+                SendMessageW(field.value, BM_SETCHECK, usize::from(value == "1"), 0);
+            } else if let Some(index) = choices(spec.key).iter().position(|(key, _)| *key == value) {
+                SendMessageW(field.value, CB_SETCURSEL, index, 0);
+            } else {
+                SetWindowTextW(field.value, wide(&value).as_ptr());
+            }
+        }
+    }
+}
+
+fn read_form() -> Result<Preferences, (usize, String)> {
+    let mut prefs = Preferences::default();
+    for (index, (spec, field)) in SPECS.iter().zip(fields()).enumerate() {
+        let value = if matches!(spec.kind, Kind::Bool) {
+            let checked = unsafe { SendMessageW(field.value, BM_GETCHECK, 0, 0) != 0 };
+            if checked { "1" } else { "0" }.to_owned()
+        } else if !choices(spec.key).is_empty() {
+            let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
+            choices(spec.key).get(selected as usize)
+                .map(|(value, _)| (*value).to_owned())
+                .ok_or_else(|| (index, "请选择一个值".into()))?
+        } else {
+            text(field.value)
+        };
+        prefs.set(spec.key, &value).map_err(|error| (index, error))?;
+    }
+    Ok(prefs)
+}
+
+fn validated_form() -> Option<Preferences> {
+    match read_form() {
+        Ok(prefs) => Some(prefs),
+        Err((index, error)) => {
+            let field = fields()[index];
+            show_page(field.page);
+            unsafe { SetFocus(field.value); }
+            status(&error);
+            None
+        }
+    }
+}
+
+fn stop_capture() {
+    if let Some(recording) = CAPTURE.take()
+        && !recording.hook.is_null()
+    {
+        unsafe { UnhookWindowsHookEx(recording.hook); }
+    }
+}
+
+fn key_name(vk: u32) -> Option<String> {
+    Some(match vk {
+        0x30..=0x39 | 0x41..=0x5a => char::from(vk as u8).to_string(),
+        0x70..=0x87 => format!("F{}", vk - 0x6f),
+        0x13 => "Pause".into(),
+        0x20 => "Space".into(),
+        0x09 => "Tab".into(),
+        0x0d => "Enter".into(),
+        0x1b => "Esc".into(),
+        0x2d => "Insert".into(),
+        0x2e => "Delete".into(),
+        0x24 => "Home".into(),
+        0x23 => "End".into(),
+        0x21 => "PageUp".into(),
+        0x22 => "PageDown".into(),
+        _ => return None,
     })
 }
-fn apply() {
-    if let Err(e) = store_value() {
-        status(&e);
-        return;
+
+fn modifier_bits(state: impl Fn(i32) -> i16) -> usize {
+    usize::from(state(VK_MENU as i32) < 0)
+        | (usize::from(state(VK_CONTROL as i32) < 0) << 1)
+        | (usize::from(state(VK_SHIFT as i32) < 0) << 2)
+        | (usize::from(state(VK_LWIN as i32) < 0 || state(VK_RWIN as i32) < 0) << 3)
+}
+
+fn is_modifier(vk: u32) -> bool {
+    matches!(vk, 0x10..=0x12 | 0x5b | 0x5c | 0xa0..=0xa5)
+}
+
+fn record_key(vk: u32, modifiers: usize) -> bool {
+    let Some(recording) = CAPTURE.get() else { return false; };
+    if is_modifier(vk) {
+        return false;
     }
-    let (prefs, sender, owner, data) = EDITOR.with(|c| {
+    if vk == VK_ESCAPE as u32 && modifiers == 0 {
+        stop_capture();
+        status("已取消录制。");
+        return true;
+    }
+    let Some(key) = key_name(vk) else {
+        status("请按字母、数字、功能键或 Pause 等受支持的按键。");
+        return true;
+    };
+    let mut value = String::new();
+    for (bit, label) in [(2, "Ctrl+"), (1, "Alt+"), (4, "Shift+"), (8, "Win+")] {
+        if modifiers & bit != 0 {
+            value.push_str(label);
+        }
+    }
+    value.push_str(&key);
+    stop_capture();
+    let field = fields()[recording.index];
+    unsafe { SetWindowTextW(field.value, wide(&value).as_ptr()); }
+    status("已录制。点击“保存并应用”生效。");
+    true
+}
+
+unsafe extern "system" fn capture_hook(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if code >= 0
+        && matches!(w as u32, WM_KEYDOWN | WM_SYSKEYDOWN)
+        && let Some(recording) = CAPTURE.get()
+        && unsafe { GetForegroundWindow() == recording.window }
+    {
+        let vk = unsafe { (*(l as *const KBDLLHOOKSTRUCT)).vkCode };
+        if !is_modifier(vk) {
+            let modifiers = modifier_bits(|key| unsafe { GetAsyncKeyState(key) });
+            unsafe { PostMessageW(recording.window, RECORDED, vk as usize, modifiers as isize); }
+            return 1;
+        }
+    }
+    unsafe { CallNextHookEx(null_mut(), code, w, l) }
+}
+
+fn start_capture(hwnd: HWND, index: usize) {
+    stop_capture();
+    let hook = unsafe {
+        SetWindowsHookExW(WH_KEYBOARD_LL, Some(capture_hook), GetModuleHandleW(std::ptr::null()), 0)
+    };
+    CAPTURE.set(Some(Capture { window: hwnd, index, hook }));
+    status("正在录制，按下快捷键。Esc 取消。");
+}
+fn apply() {
+    let Some(prefs) = validated_form() else { return; };
+    let (sender, owner, data) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.prefs.clone(), s.sender.clone(), s.owner, s.data.clone())
+        (s.sender.clone(), s.owner, s.data.clone())
     });
     if let Err(error) = crate::localization::load(
         &prefs.get("Lang"),
@@ -177,13 +351,14 @@ fn apply() {
     match result {
         Ok(()) => {
             let _ = sender.send(Change::Commit(token));
-            EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().dirty = false);
+            EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().saved = prefs.clone());
+            load_form(&prefs);
             refresh_style();
-            status("已保存并应用。热键冲突会保留原有可用设置。");
+            status("已保存并应用。");
         }
         Err(e) => {
             let _ = sender.send(Change::Cancel(token));
-            status(&e);
+            status(&format!("未保存。{e}"));
         }
     }
     unsafe {
@@ -258,74 +433,65 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
             })
         }
+        RECORDED => {
+            record_key(w as u32, l as usize);
+            0
+        }
+        WM_KEYDOWN | WM_SYSKEYDOWN if record_key(w as u32, modifier_bits(|key| unsafe { GetKeyState(key) })) => 0,
+        WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
+            stop_capture();
+            0
+        }
+        WM_NOTIFY if w == TAB && l != 0 => {
+            let header = unsafe { &*(l as *const NMHDR) };
+            if header.code == TCN_SELCHANGE {
+                let page = unsafe { SendMessageW(header.hwndFrom, TCM_GETCURSEL, 0, 0) };
+                show_page(page as usize);
+            }
+            0
+        }
         WM_COMMAND => {
             let id = w & 65535;
-            let code = w >> 16;
-            if id == 2301 && code == LBN_SELCHANGE as usize {
-                if let Err(e) = store_value() {
-                    status(&e);
-                    let (list, index) = EDITOR.with(|c| {
-                        let s = c.borrow();
-                        let s = s.as_ref().unwrap();
-                        (s.list, s.index)
-                    });
-                    unsafe {
-                        SendMessageW(list, LB_SETCURSEL, index, 0);
+            if let Some(index) = id.checked_sub(PICK).filter(|index| *index < SPECS.len()) {
+                let spec = &SPECS[index];
+                if matches!(spec.kind, Kind::Hotkey) {
+                    start_capture(hwnd, index);
+                } else {
+                    stop_capture();
+                    let value = fields()[index].value;
+                    if let Some(chosen) = crate::settings_pickers::choose(hwnd, spec.key, &text(value)) {
+                        unsafe { SetWindowTextW(value, wide(&chosen).as_ptr()); }
                     }
-                    return 0;
                 }
-                let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
-                let n = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
-                if n >= 0 {
-                    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().index = n as usize);
-                    select();
-                }
+                return 0;
+            }
+            if let Some(index) = id.checked_sub(CLEAR).filter(|index| *index < SPECS.len()) {
+                stop_capture();
+                unsafe { SetWindowTextW(fields()[index].value, wide("").as_ptr()); }
+                status("已清除。点击“保存并应用”生效。");
+                return 0;
             }
             match id {
-                2304 if code == BN_CLICKED as usize => {
-                    let (boolean, value) = EDITOR.with(|c| {
-                        let s = c.borrow();
-                        let s = s.as_ref().unwrap();
-                        (s.boolean, s.value)
-                    });
-                    let checked = unsafe { SendMessageW(boolean, BM_GETCHECK, 0, 0) != 0 };
-                    unsafe {
-                        SetWindowTextW(value, wide(if checked { "1" } else { "0" }).as_ptr());
-                    }
+                2310 => {
+                    stop_capture();
+                    apply();
                 }
-                2305 => {
-                    let (key, value) = EDITOR.with(|c| {
-                        let s = c.borrow();
-                        let s = s.as_ref().unwrap();
-                        (SPECS[s.index].key, s.value)
-                    });
-                    if let Some(chosen) = crate::settings_pickers::choose(hwnd, key, &text(value)) {
-                        unsafe {
-                            SetWindowTextW(value, wide(&chosen).as_ptr());
-                        }
-                    }
-                }
-                2310 => apply(),
                 2311 => {
+                    stop_capture();
                     if unsafe {
                         MessageBoxW(
                             hwnd,
-                            ui("将恢复默认设置；点击保存后才生效。").as_ptr(),
+                            ui("将恢复默认设置，保存后生效。").as_ptr(),
                             ui("恢复默认").as_ptr(),
-                            MB_OKCANCEL,
+                            MB_OKCANCEL | MB_DEFBUTTON2,
                         )
-                    } == IDOK
-                    {
-                        EDITOR.with(|c| {
-                            let mut s = c.borrow_mut();
-                            let s = s.as_mut().unwrap();
-                            s.prefs = Preferences::default();
-                            s.dirty = true;
-                        });
-                        select();
+                    } == IDOK {
+                        load_form(&Preferences::default());
+                        status("已载入默认设置，保存后生效。");
                     }
                 }
                 2312 => {
+                    stop_capture();
                     if let Some(path) = choose_file(false) {
                         let result = std::fs::read(&path)
                             .map_err(|e| e.to_string())
@@ -335,71 +501,57 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             Ok(mut prefs) => {
                                 prefs.set("AutoRun", "0").unwrap();
                                 prefs.set("AddToSendTo", "0").unwrap();
-                                EDITOR.with(|c| {
-                                    let mut s = c.borrow_mut();
-                                    let s = s.as_mut().unwrap();
-                                    s.prefs = prefs;
-                                    s.dirty = true;
-                                });
-                                select();
-                                status("设置已载入草稿，尚未应用。系统集成默认关闭。");
+                                load_form(&prefs);
+                                status("已导入，保存后生效。请按需重新启用系统集成。");
                             }
                             Err(e) => status(&e),
                         }
                     }
                 }
                 2313 => {
-                    if store_value().is_ok()
+                    stop_capture();
+                    if let Some(prefs) = validated_form()
                         && let Some(path) = choose_file(true)
                     {
-                        let source =
-                            EDITOR.with(|c| c.borrow().as_ref().unwrap().file.path.clone());
+                        let source = EDITOR.with(|c| c.borrow().as_ref().unwrap().file.path.clone());
                         if path == source
-                            || std::fs::canonicalize(&path)
-                                .ok()
+                            || std::fs::canonicalize(&path).ok()
                                 .is_some_and(|p| Some(p) == std::fs::canonicalize(&source).ok())
                         {
-                            status("请选择不同的导出文件；应用当前设置请使用保存。");
+                            status("请选择另一个文件用于导出。");
                             return 0;
                         }
-                        let t = EDITOR.with(|c| c.borrow().as_ref().unwrap().prefs.text());
-                        match TextFile::open(&path).and_then(|(mut f, _)| f.save(&t)) {
+                        match TextFile::open(&path).and_then(|(mut file, _)| file.save(&prefs.text())) {
                             Ok(()) => status("设置已导出。"),
                             Err(e) => status(&e),
                         }
                     }
                 }
-                2314 => unsafe {
-                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
-                },
+                2314 => unsafe { SendMessageW(hwnd, WM_CLOSE, 0, 0); },
                 _ => {}
             }
             0
         }
         WM_CLOSE => {
-            let dirty = EDITOR.with(|c| {
-                c.borrow()
-                    .as_ref()
-                    .is_some_and(|s| s.dirty || text(s.value) != s.prefs.get(SPECS[s.index].key))
+            stop_capture();
+            let dirty = read_form().map_or(true, |prefs| {
+                EDITOR.with(|c| c.borrow().as_ref().unwrap().saved != prefs)
             });
-            if dirty
-                && unsafe {
-                    MessageBoxW(
-                        hwnd,
-                        ui("放弃尚未保存的设置？").as_ptr(),
-                        ui("关闭设置").as_ptr(),
-                        MB_OKCANCEL | MB_DEFBUTTON2,
-                    )
-                } != IDOK
-            {
+            if dirty && unsafe {
+                MessageBoxW(
+                    hwnd,
+                    ui("放弃尚未保存的设置？").as_ptr(),
+                    ui("关闭设置").as_ptr(),
+                    MB_OKCANCEL | MB_DEFBUTTON2,
+                )
+            } != IDOK {
                 return 0;
             }
-            unsafe {
-                DestroyWindow(hwnd);
-            }
+            unsafe { DestroyWindow(hwnd); }
             0
         }
         WM_DESTROY => {
+            stop_capture();
             unsafe {
                 PostQuitMessage(0);
             }
@@ -468,7 +620,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     return Err("无法创建设置窗口".into());
                 }
                 WINDOW.store(hwnd as usize, Ordering::Release);
-                let dpi = crate::window_geometry::fit(hwnd, 680, 440, None);
+                let dpi = crate::window_geometry::fit(hwnd, 760, 560, None);
                 let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
                 let control = |class: &str, label: &str, style: u32, x, y, width, height, id| {
                     let h = CreateWindowExW(
@@ -488,82 +640,100 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     SendMessageW(h, WM_SETFONT, font as usize, 0);
                     h
                 };
-                let list = control(
-                    "LISTBOX",
-                    "",
-                    LBS_NOTIFY as u32 | WS_VSCROLL | WS_BORDER,
-                    16,
-                    16,
-                    276,
-                    364,
-                    2301,
-                );
-                for spec in SPECS {
-                    SendMessageW(
-                        list,
-                        LB_ADDSTRING,
-                        0,
-                        wide(&crate::localization::tr(spec.label)).as_ptr() as isize,
-                    );
+                let mut common: INITCOMMONCONTROLSEX = std::mem::zeroed();
+                common.dwSize = std::mem::size_of_val(&common) as u32;
+                common.dwICC = ICC_TAB_CLASSES;
+                InitCommonControlsEx(&common);
+                let tabs = control("SysTabControl32", "", WS_TABSTOP, 16, 12, 728, 34, TAB);
+                for (index, page) in PAGES.iter().enumerate() {
+                    let mut title = ui(page.name);
+                    let mut item: TCITEMW = std::mem::zeroed();
+                    item.mask = TCIF_TEXT;
+                    item.pszText = title.as_mut_ptr();
+                    SendMessageW(tabs, TCM_INSERTITEMW, index, &item as *const _ as isize);
                 }
-                control("STATIC", "选中设置的值", 0, 310, 20, 350, 24, 0);
-                let value = control(
-                    "EDIT",
-                    "",
-                    ES_AUTOHSCROLL as u32 | WS_BORDER | WS_TABSTOP,
-                    310,
-                    52,
-                    350,
-                    30,
-                    2302,
-                );
-                let status = control("STATIC", "", 0, 310, 100, 350, 245, 2303);
-                let boolean = control(
-                    "BUTTON",
-                    "启用",
-                    BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-                    310,
-                    52,
-                    350,
-                    30,
-                    2304,
-                );
-                let picker = control("BUTTON", "选择…", WS_TABSTOP, 580, 52, 80, 30, 2305);
+                let hint = control("STATIC", "", 0, 24, 54, 712, 25, 0);
+                let status = control("STATIC", "", 0, 24, 466, 712, 42, STATUS);
+                let mut fields = vec![None; SPECS.len()];
+                for (page, layout) in PAGES.iter().enumerate() {
+                    for (row, key) in layout.keys.iter().enumerate() {
+                        let index = SPECS.iter().position(|spec| spec.key == *key)
+                            .expect("every settings field must have a specification");
+                        let spec = &SPECS[index];
+                        let y = 80 + row as i32 * 31;
+                        let mut field = Field {
+                            page, label: null_mut(), value: null_mut(), pick: null_mut(), clear: null_mut(),
+                        };
+                        if matches!(spec.kind, Kind::Bool) {
+                            field.value = control(
+                                "BUTTON", spec.label, BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+                                24, y, 710, 26, FIELD + index,
+                            );
+                        } else {
+                            let label = match *key {
+                                "Theme" => "主题",
+                                "PositionMode" => "呼出位置",
+                                _ => spec.label,
+                            };
+                            field.label = control("STATIC", label, 0, 24, y + 3, 330, 26, 0);
+                            let options = choices(key);
+                            let hotkey = matches!(spec.kind, Kind::Hotkey);
+                            let picker = matches!(spec.kind, Kind::Font) || key.ends_with("Color")
+                                || ["BGFileName", "PopupFileName", "Lang", "WorkingDirectory"].contains(key);
+                            field.value = if options.is_empty() {
+                                control(
+                                    "EDIT", "", ES_AUTOHSCROLL as u32 | WS_BORDER | WS_TABSTOP
+                                        | if hotkey { ES_READONLY as u32 } else { 0 },
+                                    360, y, if hotkey { 216 } else if picker { 280 } else { 376 },
+                                    26, FIELD + index,
+                                )
+                            } else {
+                                let combo = control(
+                                    "COMBOBOX", "", CBS_DROPDOWNLIST as u32 | WS_VSCROLL | WS_TABSTOP,
+                                    360, y, 376, 140, FIELD + index,
+                                );
+                                for (_, name) in options {
+                                    SendMessageW(combo, CB_ADDSTRING, 0, ui(name).as_ptr() as isize);
+                                }
+                                combo
+                            };
+                            if hotkey {
+                                field.pick = control("BUTTON", "录制", WS_TABSTOP, 584, y, 72, 26, PICK + index);
+                                field.clear = control("BUTTON", "清除", WS_TABSTOP, 664, y, 72, 26, CLEAR + index);
+                            } else if picker {
+                                field.pick = control("BUTTON", "选择…", WS_TABSTOP, 648, y, 88, 26, PICK + index);
+                            }
+                        }
+                        assert!(fields[index].replace(field).is_none(), "duplicate settings field");
+                    }
+                }
                 for (label, id, x, width) in [
-                    ("保存并应用", 2310, 16, 120),
-                    ("恢复默认", 2311, 146, 110),
-                    ("导入…", 2312, 266, 90),
-                    ("导出…", 2313, 366, 90),
-                    ("关闭", 2314, 558, 100),
+                    ("恢复默认", 2311, 24, 100),
+                    ("导入…", 2312, 132, 82),
+                    ("导出…", 2313, 222, 82),
+                    ("保存并应用", 2310, 508, 120),
+                    ("关闭", 2314, 636, 100),
                 ] {
-                    control("BUTTON", label, WS_TABSTOP, x, 396, width, 30, id);
+                    control("BUTTON", label, WS_TABSTOP, x, 515, width, 30, id);
                 }
                 EDITOR.with(|c| {
                     *c.borrow_mut() = Some(Editor {
-                        background,
-                        paper,
-                        boolean,
-                        picker,
-                        dpi,
-                        prefs,
-                        file,
-                        data: path,
-                        list,
-                        value,
-                        status,
-                        index: 0,
-                        dirty: false,
-                        loading: false,
-                        font,
-                        sender,
-                        owner,
-                    })
+                        hwnd, tabs, hint, status, background, paper, font, saved: prefs.clone(),
+                        fields: fields.into_iter().map(|field| field.expect("missing settings field")).collect(),
+                        file, data: path, sender, owner,
+                    });
                 });
-                SendMessageW(list, LB_SETCURSEL, 0, 0);
-                select();
+                load_form(&prefs);
+                show_page(0);
                 ShowWindow(hwnd, SW_SHOW);
+                SetFocus(tabs);
                 let mut msg: MSG = std::mem::zeroed();
                 while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+                    if matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
+                        && record_key(msg.wParam as u32, modifier_bits(|key| GetKeyState(key)))
+                    {
+                        continue;
+                    }
                     if IsDialogMessageW(hwnd, &msg) == 0 {
                         TranslateMessage(&msg);
                         DispatchMessageW(&msg);
@@ -594,7 +764,7 @@ fn refresh_style() {
     let (hwnd, prefs) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (unsafe { GetParent(s.value) }, s.prefs.clone())
+        (s.hwnd, s.saved.clone())
     });
     crate::theme::install(&prefs);
     unsafe {

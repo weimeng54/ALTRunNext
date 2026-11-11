@@ -1946,7 +1946,7 @@ pub fn run() -> Result<(), String> {
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
         let mut startup_warnings = Vec::new();
-        match register_bindings(hwnd, &prefs, &[], Some(&mut startup_warnings)) {
+        match register_bindings(hwnd, &prefs, &[], BindingUpdate::Startup(&mut startup_warnings)) {
             Ok(keys) => STATE.with(|c| c.borrow_mut().as_mut().unwrap().hotkeys = keys),
             Err(error) => startup_warnings.push(error),
         }
@@ -2258,11 +2258,16 @@ fn open_settings() {
     }
 }
 type Bindings = Vec<(i32, Option<altrun_probe::preferences::Hotkey>)>;
+enum BindingUpdate<'a> {
+    Startup(&'a mut Vec<String>),
+    Settings(&'a altrun_probe::preferences::Preferences),
+}
+
 fn register_bindings(
     hwnd: HWND,
     prefs: &altrun_probe::preferences::Preferences,
     old: &[(i32, Option<altrun_probe::preferences::Hotkey>)],
-    mut startup_warnings: Option<&mut Vec<String>>,
+    mut update: BindingUpdate<'_>,
 ) -> Result<Bindings, String> {
     let requested = ["HotKey1", "HotKey2", "LastItemHotKey"]
         .iter()
@@ -2290,11 +2295,20 @@ fn register_bindings(
         let id = (HOTKEY..HOTKEY + 20)
             .find(|id| !old.iter().any(|v| v.0 == *id) && !next.iter().any(|v| v.0 == *id))
             .ok_or("没有可用热键编号")?;
+        // A binding that already failed at startup must not veto unrelated
+        // edits. New or changed bindings are still checked before saving.
+        if let BindingUpdate::Settings(previous) = &update
+            && old.get(i).is_none_or(|entry| entry.1.is_none())
+            && altrun_probe::preferences::parse_hotkey(&previous.get(key))? == value
+        {
+            next.push((id, None));
+            continue;
+        }
         if let Some(value) = value {
             if unsafe { RegisterHotKey(hwnd, id, value.modifiers | MOD_NOREPEAT, value.key) } == 0 {
                 let error = unsafe { GetLastError() };
                 let binding = prefs.get(key);
-                if let Some(warnings) = &mut startup_warnings {
+                if let BindingUpdate::Startup(warnings) = &mut update {
                     eprintln!("RegisterHotKey({binding}) failed: Win32 {error}");
                     warnings.push(format!("热键 {binding} 不可用"));
                     next.push((id, None));
@@ -2331,16 +2345,21 @@ fn apply_settings_messages() {
         };
         match change {
             crate::settings::Change::Prepare(token, prefs, reply) => {
-                let (hwnd, old, pending) = STATE.with(|c| {
+                let (hwnd, old, previous, pending) = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
-                    (s.hwnd, s.hotkeys.clone(), s.pending_settings.is_some())
+                    (
+                        s.hwnd,
+                        s.hotkeys.clone(),
+                        s.preferences.clone(),
+                        s.pending_settings.is_some(),
+                    )
                 });
                 if pending {
                     let _ = reply.send(Err("另一次设置修改尚未完成".into()));
                     continue;
                 }
-                match register_bindings(hwnd, &prefs, &old, None) {
+                match register_bindings(hwnd, &prefs, &old, BindingUpdate::Settings(&previous)) {
                     Ok(keys) => {
                         STATE.with(|c| {
                             c.borrow_mut().as_mut().unwrap().pending_settings =

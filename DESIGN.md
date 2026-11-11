@@ -28,6 +28,6 @@ Cloud native interaction regression for input focus, empty state, parameter canc
 
 ## Complete settings and maintenance
 
-Settings use a lazy native property list with a value editor, boolean checkbox, font/color/file/folder pickers, status and Save/Reset/Import/Export. Keep the same surface/paper/text palette as the manager. Saved settings update main cached fonts, brushes and geometry; hotkeys are prepared before replacing working bindings. Language changes take effect next startup.
+Settings use native tabs with fields visible together by purpose: General, Hotkeys, Search and Launch, Appearance, Fonts and Colors, Window Position, and Advanced. General puts startup, tray and Send to together. Hotkeys show all three bindings, with an explicit Record button and a Clear action for each. Use native checkboxes, edit fields, dropdowns and file/font/color pickers, with the same surface, paper and text palette as the manager. Keep save and validation status above the fixed footer. Compare normalized form values to the saved snapshot when closing. Language changes take effect next startup.
 
 The manager adds work directory, enabled/type controls and menu-only maintenance actions. Keep optional maintenance and UI buttons outside the default launch path. Both lists expose text to native accessibility. Persist manager position/selection; fit windows to work areas, including menu/non-client bounds.

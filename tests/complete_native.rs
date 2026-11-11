@@ -105,20 +105,25 @@ fn command(hwnd: HWND, id: usize) {
         SendMessageW(hwnd, WM_COMMAND, id, 0);
     }
 }
-fn select_setting(hwnd: HWND, key: &str) {
+fn setting_index(key: &str) -> usize {
+    altrun_probe::preferences::SPECS
+        .iter()
+        .position(|spec| spec.key == key)
+        .unwrap()
+}
+fn setting(hwnd: HWND, key: &str) -> HWND {
+    unsafe { GetDlgItem(hwnd, (2400 + setting_index(key)) as i32) }
+}
+fn select_page(hwnd: HWND, page: usize) {
+    use windows_sys::Win32::UI::Controls::TCM_GETCURSEL;
     unsafe {
-        let index = altrun_probe::preferences::SPECS
-            .iter()
-            .position(|s| s.key == key)
-            .unwrap();
-        let list = GetDlgItem(hwnd, 2301);
-        SendMessageW(list, LB_SETCURSEL, index, 0);
-        SendMessageW(
-            hwnd,
-            WM_COMMAND,
-            2301 | ((LBN_SELCHANGE as usize) << 16),
-            list as isize,
-        );
+        let tabs = GetDlgItem(hwnd, 2301);
+        let current = SendMessageW(tabs, TCM_GETCURSEL, 0, 0) as usize;
+        let key = if page < current { 0x25 } else { 0x27 };
+        for _ in 0..page.abs_diff(current) {
+            SendMessageW(tabs, WM_KEYDOWN, key, 0);
+        }
+        assert_eq!(SendMessageW(tabs, TCM_GETCURSEL, 0, 0) as usize, page);
     }
 }
 #[test]
@@ -134,12 +139,18 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     for p in [&state, &settings, &marker] {
         let _ = std::fs::remove_file(p);
     }
+    // Reserve the secondary action before launch to reproduce the user's
+    // unrelated occupied hotkey while changing appearance and primary hotkey.
+    assert_ne!(unsafe { RegisterHotKey(null_mut(), 22221, 3, 0x78) }, 0);
+    std::fs::write(&settings, "[Config]\nLastItemHotKey=Ctrl+Alt+F9\n").unwrap();
     let shell = altrun_probe::safe_notepad_path()
         .unwrap()
         .with_file_name("cmd.exe");
     std::fs::write(&data,format!("self\tSynthetic launch\t\"{}\" /D /C echo ok>\"{}\"\t0\nabab\tRepeated alias\t__missing__.exe\t0\nparam\tParameter fixture\t__missing__.exe %p\t0\n",shell.display(),marker.display())).unwrap();
+    let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_altrun-probe").into());
     let child = Running(
-        Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
+        Command::new(&exe)
             .args(["--show", "--enable-launch", "--data"])
             .arg(&data)
             .spawn()
@@ -186,10 +197,14 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         let mut dialog = null_mut();
         wait(|| {
             dialog = window("ALTRun.Native.Settings", pid);
-            !dialog.is_null() && !GetDlgItem(dialog, 2302).is_null()
+            !dialog.is_null() && IsWindowVisible(dialog) != 0
         });
-        select_setting(dialog, "RowHeight");
-        set(GetDlgItem(dialog, 2302), "24");
+        assert_ne!(IsWindowVisible(setting(dialog, "AddToSendTo")), 0);
+        assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
+        native_snapshot::save(dialog, "settings-general");
+        select_page(dialog, 3);
+        assert_ne!(IsWindowVisible(setting(dialog, "RowHeight")), 0);
+        set(setting(dialog, "RowHeight"), "024 ");
         command(dialog, 2310);
         wait(|| SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) == 24);
         assert!(
@@ -198,19 +213,22 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 .contains("RowHeight=24")
         );
         native_snapshot::save(dialog, "settings");
-        select_setting(dialog, "Regex");
-        SendMessageW(GetDlgItem(dialog, 2304), BM_CLICK, 0, 0);
+        select_page(dialog, 2);
+        SendMessageW(setting(dialog, "Regex"), BM_CLICK, 0, 0);
         command(dialog, 2310);
         assert!(
             std::fs::read_to_string(&settings)
                 .unwrap()
                 .contains("Regex=0")
         );
-        SendMessageW(GetDlgItem(dialog, 2304), BM_CLICK, 0, 0);
+        SendMessageW(setting(dialog, "Regex"), BM_CLICK, 0, 0);
         command(dialog, 2310);
         assert_ne!(RegisterHotKey(null_mut(), 22222, 3, 0x7b), 0);
-        select_setting(dialog, "HotKey1");
-        set(GetDlgItem(dialog, 2302), "Ctrl+Alt+F12");
+        select_page(dialog, 1);
+        let main_key = setting(dialog, "HotKey1");
+        assert_ne!(IsWindowVisible(setting(dialog, "LastItemHotKey")), 0);
+        native_snapshot::save(dialog, "settings-hotkeys");
+        set(main_key, "Ctrl+Alt+F12");
         command(dialog, 2310);
         assert!(text(GetDlgItem(dialog, 2303)).contains("占用"));
         assert!(
@@ -219,11 +237,25 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 .contains("Ctrl+Alt+F12")
         );
         UnregisterHotKey(null_mut(), 22222);
-        set(GetDlgItem(dialog, 2302), "Ctrl+Alt+R");
+        command(dialog, 2500 + setting_index("HotKey1"));
+        SendMessageW(dialog, WM_KEYDOWN, 0x77, 0);
+        assert_eq!(text(main_key), "F8");
         command(dialog, 2310);
+        assert!(std::fs::read_to_string(&settings).unwrap().contains("HotKey1=F8"));
+        assert!(std::fs::read_to_string(&settings).unwrap().contains("LastItemHotKey=Ctrl+Alt+F9"));
+        select_page(dialog, 0);
+        let integration = altrun_probe::integration::Integration::for_data(&data).unwrap();
+        assert!(!integration.send_to.exists());
+        SendMessageW(setting(dialog, "AddToSendTo"), BM_CLICK, 0, 0);
+        command(dialog, 2310);
+        assert!(integration.send_to.exists());
+        SendMessageW(setting(dialog, "AddToSendTo"), BM_CLICK, 0, 0);
+        command(dialog, 2310);
+        assert!(!integration.send_to.exists());
         command(dialog, 2314);
         wait(|| IsWindow(dialog) == 0);
-        let mut second = Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
+        UnregisterHotKey(null_mut(), 22221);
+        let mut second = Command::new(&exe)
             .arg("--data")
             .arg(&data)
             .spawn()
