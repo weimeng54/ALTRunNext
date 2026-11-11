@@ -2305,6 +2305,9 @@ fn register_bindings(
                         UnregisterHotKey(hwnd, id);
                     }
                 }
+                if error == ERROR_HOTKEY_ALREADY_REGISTERED {
+                    return Err(format!("快捷键 {binding} 已被占用，原快捷键保持可用"));
+                }
                 return Err(format!("快捷键 {binding} 无法注册（Windows {error}）"));
             }
             added.push(id);
@@ -2533,7 +2536,12 @@ fn apply_appearance() {
         );
         let has_hotkey = STATE.with(|c| {
             let state = c.borrow();
-            state.as_ref().unwrap().hotkeys.iter().any(|h| h.1.is_some())
+            state
+                .as_ref()
+                .unwrap()
+                .hotkeys
+                .iter()
+                .any(|h| h.1.is_some())
         });
         tray_icon(
             hwnd,
