@@ -736,6 +736,9 @@ fn run(
                 std::ptr::null(),
             );
             SendMessageW(child, WM_SETFONT, font as WPARAM, 0);
+            if class == "COMBOBOX" {
+                crate::theme_ui::style_combo(child, dpi);
+            }
             child
         };
         let title = control("STATIC", "管理快捷项", 0, 12, 12, 300, 25, 0);

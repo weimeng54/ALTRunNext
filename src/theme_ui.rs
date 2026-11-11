@@ -158,6 +158,136 @@ pub fn combo(item: &DRAWITEMSTRUCT) {
     }
 }
 
+pub fn style_combo(hwnd: HWND, dpi: i32) {
+    unsafe { SetWindowSubclass(hwnd, Some(combo_proc), 1, dpi as usize) };
+}
+
+unsafe extern "system" fn combo_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    dpi: usize,
+) -> LRESULT {
+    unsafe {
+        if msg == WM_ERASEBKGND {
+            return 1;
+        }
+        if matches!(msg, WM_PAINT | WM_PRINTCLIENT) {
+            let mut paint: PAINTSTRUCT = std::mem::zeroed();
+            let dc = if msg == WM_PAINT {
+                BeginPaint(hwnd, &mut paint)
+            } else {
+                w as HDC
+            };
+            let mut bounds: RECT = std::mem::zeroed();
+            GetClientRect(hwnd, &mut bounds);
+            let dpi = dpi as i32;
+            let enabled =
+                windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(hwnd) != 0;
+            let focused = GetFocus() == hwnd;
+            fill(dc, &bounds, theme::surface());
+            rounded(
+                dc,
+                bounds,
+                scaled(6, dpi),
+                theme::paper(),
+                if focused {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
+            );
+            let ink = if enabled {
+                theme::text()
+            } else {
+                theme::muted()
+            };
+            let font = DefSubclassProc(hwnd, WM_GETFONT, 0, 0) as HFONT;
+            let old = SelectObject(dc, font);
+            let label = RECT {
+                left: scaled(8, dpi),
+                right: bounds.right - scaled(25, dpi),
+                ..bounds
+            };
+            line_text(dc, label, &window_text(hwnd), ink, 0);
+            SelectObject(dc, old);
+            let pen = CreatePen(PS_SOLID, 1, ink);
+            let old = SelectObject(dc, pen);
+            let x = bounds.right - scaled(14, dpi);
+            let y = bounds.bottom / 2;
+            let d = scaled(3, dpi).max(2);
+            MoveToEx(dc, x - d, y - 1, std::ptr::null_mut());
+            LineTo(dc, x, y + d - 1);
+            LineTo(dc, x + d + 1, y - 2);
+            SelectObject(dc, old);
+            DeleteObject(pen);
+            if msg == WM_PAINT {
+                EndPaint(hwnd, &paint);
+            }
+            return 0;
+        }
+        let result = DefSubclassProc(hwnd, msg, w, l);
+        if matches!(
+            msg,
+            CB_SETCURSEL
+                | CB_SHOWDROPDOWN
+                | WM_SETFOCUS
+                | WM_KILLFOCUS
+                | WM_ENABLE
+                | WM_KEYDOWN
+                | WM_LBUTTONUP
+        ) {
+            InvalidateRect(hwnd, std::ptr::null(), 0);
+        }
+        result
+    }
+}
+
+pub fn slider(item: &NMCUSTOMDRAW) -> LRESULT {
+    let dc = item.hdc;
+    let mut rect = item.rc;
+    if item.dwDrawStage == CDDS_PREPAINT {
+        unsafe {
+            GetClientRect(item.hdr.hwndFrom, &mut rect);
+        }
+        fill(dc, &rect, theme::surface());
+        return CDRF_NOTIFYITEMDRAW as isize;
+    }
+    if item.dwDrawStage == CDDS_ITEMPREPAINT {
+        match item.dwItemSpec as u32 {
+            TBCD_CHANNEL => {
+                let middle = (rect.top + rect.bottom) / 2;
+                rect.top = middle - 2;
+                rect.bottom = middle + 2;
+                rounded(dc, rect, 4, theme::selection(), theme::border());
+                return CDRF_SKIPDEFAULT as isize;
+            }
+            TBCD_THUMB => {
+                let size = (rect.right - rect.left).min(rect.bottom - rect.top).max(5);
+                let x = (rect.left + rect.right - size) / 2;
+                let y = (rect.top + rect.bottom - size) / 2;
+                let thumb = RECT {
+                    left: x,
+                    top: y,
+                    right: x + size,
+                    bottom: y + size,
+                };
+                let color = if item.uItemState & CDIS_DISABLED == 0 {
+                    theme::accent()
+                } else {
+                    theme::border()
+                };
+                rounded(dc, thumb, size, color, color);
+                return CDRF_SKIPDEFAULT as isize;
+            }
+            _ => {}
+        }
+    }
+    CDRF_DODEFAULT as isize
+}
+
 pub fn switch(hwnd: HWND, dpi: i32) {
     unsafe { SetWindowSubclass(hwnd, Some(switch_proc), 1, dpi as usize) };
 }

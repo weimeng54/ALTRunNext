@@ -714,6 +714,19 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             draw(unsafe { &*(l as *const DRAWITEMSTRUCT) });
             1
         }
+        WM_NOTIFY if l != 0 => {
+            let header = unsafe { &*(l as *const NMHDR) };
+            if header.code == NM_CUSTOMDRAW
+                && let Some(spec) = header
+                    .idFrom
+                    .checked_sub(FIELD)
+                    .and_then(|index| SPECS.get(index))
+                && spec.key == "BGStrength"
+            {
+                return theme_ui::slider(unsafe { &*(l as *const NMCUSTOMDRAW) });
+            }
+            0
+        }
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => {
             EDITOR.with(|c| {
                 let s = c.borrow();
@@ -1217,6 +1230,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     scaled(26, dpi) as isize,
                                 );
                                 SendMessageW(combo, CB_SETITEMHEIGHT, 0, scaled(28, dpi) as isize);
+                                theme_ui::style_combo(combo, dpi);
                                 for (_, name) in options {
                                     SendMessageW(
                                         combo,

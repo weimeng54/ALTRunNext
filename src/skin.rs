@@ -10,6 +10,9 @@ pub struct Request {
 }
 
 impl Request {
+    pub fn same_tint(&self, other: &Self) -> bool {
+        self.tint == other.tint
+    }
     pub fn for_settings(
         prefs: &altrun_probe::preferences::Preferences,
         data: &std::path::Path,

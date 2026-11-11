@@ -41,6 +41,11 @@ impl Preview {
         if request == self.request {
             return;
         }
+        if let (Some(before), Some(after)) = (&self.request, &request)
+            && !before.same_tint(after)
+        {
+            self.bitmap = None;
+        }
         self.request = request.clone();
         let Some(request) = request else {
             self.bitmap = None;
@@ -90,10 +95,7 @@ impl Preview {
             right: rect.right - 1,
             bottom: rect.bottom - 1,
         };
-        theme_ui::fill(dc, &inset, theme::surface());
-        if let Some(bitmap) = &self.bitmap {
-            bitmap.draw(dc, inset, &self.prefs.get("BGCrop"));
-        }
+        theme_ui::fill(dc, &inset, theme::chrome());
         let mut matches: Vec<_> = [
             ("Doubao", "豆包", "Doubao.exe"),
             ("download", "下载目录", "%USERPROFILE%\\Downloads"),
@@ -113,6 +115,22 @@ impl Preview {
         })
         .collect();
         matches.truncate(self.prefs.number("MaxRows").clamp(1, 4) as usize);
+        let row_height = self.prefs.number("RowHeight").clamp(18, 32);
+        let rows_height = if matches.is_empty() {
+            24
+        } else {
+            row_height * matches.len() as i32
+        };
+        let command_height = if self.prefs.flag("ShowCommandLine") && !matches.is_empty() {
+            24
+        } else {
+            0
+        };
+        let panel = area(1, 1, 408, 67 + rows_height + command_height + 6);
+        theme_ui::fill(dc, &panel, theme::surface());
+        if let Some(bitmap) = &self.bitmap {
+            bitmap.draw(dc, panel, &self.prefs.get("BGCrop"));
+        }
         let title = matches.first().map_or("ALTRun", |row| row.1);
         let draw_font = |key: &str, fallback| {
             Font::parse(&self.prefs.get(key)).ok().map_or_else(
@@ -133,7 +151,6 @@ impl Preview {
                 0,
             );
             SelectObject(dc, row_font);
-            let row_height = self.prefs.number("RowHeight").clamp(18, 32);
             let mut y = 67;
             for (i, (alias, name, _)) in matches.iter().enumerate() {
                 theme_ui::fill(
