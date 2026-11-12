@@ -672,9 +672,9 @@ fn launch_selected() {
             context.clipboard = clipboard_text();
         }
         let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
-        .and_then(|(request, mode, directory)| {
-            execute_request_with(&request, mode, directory.as_deref())
-        });
+            .and_then(|(request, mode, directory)| {
+                execute_request_with(&request, mode, directory.as_deref())
+            });
         let _ = result_sender.send(result);
         unsafe {
             PostMessageW(owner as HWND, LAUNCH_DONE, 0, 0);
@@ -2862,8 +2862,8 @@ fn selected_action(copy: bool) {
                         .ok_or_else(|| "无法确定目标所在目录".to_owned())
                 } else {
                     altrun_probe::local_target::directory(
-                    &entry.command,
-                    std::path::Path::new(&base),
+                        &entry.command,
+                        std::path::Path::new(&base),
                     )
                 };
                 match directory {

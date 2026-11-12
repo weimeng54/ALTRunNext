@@ -678,14 +678,7 @@ fn layout_page() {
                 },
             );
             let (x, w) = [(17, 132), (157, 136), (301, 136), (882, 65), (955, 130)][i];
-            MoveWindow(
-                h,
-                px(x),
-                foot + px(13),
-                px(w),
-                px(37),
-                0,
-            );
+            MoveWindow(h, px(x), foot + px(13), px(w), px(37), 0);
         }
         MoveWindow(
             status,
@@ -2032,14 +2025,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             1
         }
         WM_NCHITTEST => {
-            let Some((dpi, width)) = EDITOR.with(|c| {
-                c.borrow().as_ref().map(|s| {
-                    (
-                        s.dpi,
-                        layout::WIDTH,
-                    )
-                })
-            }) else {
+            let Some((dpi, width)) =
+                EDITOR.with(|c| c.borrow().as_ref().map(|s| (s.dpi, layout::WIDTH)))
+            else {
                 return HTCLIENT as isize;
             };
             let mut point = POINT {

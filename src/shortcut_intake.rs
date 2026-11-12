@@ -10,7 +10,9 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Controls::*, Input::{Ime::*, KeyboardAndMouse::*}, WindowsAndMessaging::*,
+        Controls::*,
+        Input::{Ime::*, KeyboardAndMouse::*},
+        WindowsAndMessaging::*,
     },
 };
 
@@ -47,11 +49,16 @@ pub fn is_open() -> bool {
 
 pub fn plain_path(text: &str) -> &str {
     let text = text.trim();
-    text.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(text)
+    text.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(text)
 }
 
 pub fn program_name(path: &str) -> &str {
-    Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or(path)
+    Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
 }
 
 pub fn pick_program(owner: HWND) -> Result<Option<String>, String> {
@@ -80,7 +87,9 @@ fn read(hwnd: HWND) -> String {
 }
 
 fn label(hwnd: HWND, id: usize, text: &str) {
-    unsafe { SetWindowTextW(get(hwnd, id), wide(text).as_ptr()); }
+    unsafe {
+        SetWindowTextW(get(hwnd, id), wide(text).as_ptr());
+    }
 }
 
 fn status(hwnd: HWND, message: &str) {
@@ -97,11 +106,13 @@ fn sync(hwnd: HWND, state: *mut Dialog) {
         let document = match &entry.open_target {
             Some(OpenTarget::Document(program)) => {
                 let name = program.as_deref().map(program_name);
-                let caption = name.map_or_else(
-                    || crate::localization::tr("系统默认"),
-                    str::to_owned,
+                let caption =
+                    name.map_or_else(|| crate::localization::tr("系统默认"), str::to_owned);
+                label(
+                    hwnd,
+                    OPEN_LABEL,
+                    &format!("{}  ·  {caption}", crate::localization::tr("打开方式")),
                 );
-                label(hwnd, OPEN_LABEL, &format!("{}  ·  {caption}", crate::localization::tr("打开方式")));
                 EnableWindow(get(hwnd, DEFAULT), i32::from(name.is_some()));
                 true
             }
@@ -132,27 +143,54 @@ fn edit_row(hwnd: HWND, state: *mut Dialog) {
 fn draw_row(item: &DRAWITEMSTRUCT, state: &Dialog) {
     let rect = item.rcItem;
     let selected = item.itemState & ODS_SELECTED != 0;
-    let colour = if selected { theme::selection() } else { theme::paper() };
+    let colour = if selected {
+        theme::selection()
+    } else {
+        theme::paper()
+    };
     theme_ui::fill(item.hDC, &rect, colour);
     let Some(entry) = state.entries.get(item.itemID as usize) else {
         return;
     };
     let px = |value| scaled(value, state.dpi);
     for (value, left, right) in [
-        (entry.alias.as_str(), rect.left + px(12), rect.left + px(178)),
-        (entry.name.as_str(), rect.left + px(190), rect.left + px(402)),
-        (entry.command.as_str(), rect.left + px(414), rect.right - px(12)),
+        (
+            entry.alias.as_str(),
+            rect.left + px(12),
+            rect.left + px(178),
+        ),
+        (
+            entry.name.as_str(),
+            rect.left + px(190),
+            rect.left + px(402),
+        ),
+        (
+            entry.command.as_str(),
+            rect.left + px(414),
+            rect.right - px(12),
+        ),
     ] {
-        let mut bounds = RECT { left, right, ..rect };
+        let mut bounds = RECT {
+            left,
+            right,
+            ..rect
+        };
         unsafe {
             SetBkMode(item.hDC, TRANSPARENT as i32);
             SetTextColor(item.hDC, theme::text());
-            DrawTextW(item.hDC, wide(value).as_ptr(), -1, &mut bounds,
-                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            DrawTextW(
+                item.hDC,
+                wide(value).as_ptr(),
+                -1,
+                &mut bounds,
+                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
+            );
         }
     }
     if item.itemState & ODS_FOCUS != 0 {
-        unsafe { DrawFocusRect(item.hDC, &rect); }
+        unsafe {
+            DrawFocusRect(item.hDC, &rect);
+        }
     }
 }
 
@@ -167,9 +205,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
             return DefWindowProcW(hwnd, message, w, l);
         }
         match message {
-            WM_CLOSE => { DestroyWindow(hwnd); return 0; }
+            WM_CLOSE => {
+                DestroyWindow(hwnd);
+                return 0;
+            }
             WM_NCHITTEST => {
-                let mut point = POINT { x: l as i16 as i32, y: (l >> 16) as i16 as i32 };
+                let mut point = POINT {
+                    x: l as i16 as i32,
+                    y: (l >> 16) as i16 as i32,
+                };
                 ScreenToClient(hwnd, &mut point);
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
@@ -187,7 +231,16 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 GetClientRect(hwnd, &mut rect);
                 let px = |v| scaled(v, (*state).dpi);
                 theme_ui::fill(dc, &rect, theme::surface());
-                for bar in [RECT { bottom: px(42), ..rect }, RECT { top: px((*state).height - 59), ..rect }] {
+                for bar in [
+                    RECT {
+                        bottom: px(42),
+                        ..rect
+                    },
+                    RECT {
+                        top: px((*state).height - 59),
+                        ..rect
+                    },
+                ] {
                     theme_ui::fill(dc, &bar, theme::chrome());
                 }
                 theme_ui::panel_caption(dc, (*state).dpi, (*state).caption, "添加快捷项");
@@ -203,7 +256,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 } else {
                     theme::surface()
                 };
-                SetTextColor(w as HDC, if id == STATUS { theme::error() } else { theme::text() });
+                SetTextColor(
+                    w as HDC,
+                    if id == STATUS {
+                        theme::error()
+                    } else {
+                        theme::text()
+                    },
+                );
                 SetBkColor(w as HDC, background);
                 SetDCBrushColor(w as HDC, background);
                 return GetStockObject(DC_BRUSH) as isize;
@@ -220,7 +280,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                     } else {
                         theme::chrome()
                     };
-                    theme_ui::button_on(item, item.CtlID as usize == SAVE, background, (*state).dpi);
+                    theme_ui::button_on(
+                        item,
+                        item.CtlID as usize == SAVE,
+                        background,
+                        (*state).dpi,
+                    );
                 }
                 return 1;
             }
@@ -234,18 +299,24 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                     ALIAS | NAME if notification == EN_CHANGE as usize => edit_row(hwnd, state),
                     ROWS if notification == LBN_SELCHANGE as usize => {
                         let row = SendMessageW(get(hwnd, ROWS), LB_GETCURSEL, 0, 0);
-                        if row >= 0 && (row as usize) < (*state).entries.len() {
+                        let entries = &(*state).entries;
+                        if row >= 0 && (row as usize) < entries.len() {
                             (*state).selected = row as usize;
                             sync(hwnd, state);
                             status(hwnd, "");
                         }
                     }
                     PROGRAM | DEFAULT => {
-                        let program = if id == DEFAULT { None } else {
+                        let program = if id == DEFAULT {
+                            None
+                        } else {
                             match pick_program(hwnd) {
                                 Ok(Some(path)) => Some(path),
                                 Ok(None) => return 0,
-                                Err(error) => { status(hwnd, &error); return 0; }
+                                Err(error) => {
+                                    status(hwnd, &error);
+                                    return 0;
+                                }
                             }
                         };
                         if let Some(OpenTarget::Document(current)) =
@@ -260,31 +331,50 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                         let entry = (&(*state).entries)[(*state).selected].clone();
                         let owner = hwnd as usize;
                         std::thread::spawn(move || {
-                            let result = altrun_probe::launch::resolve_entry(&entry, None, &Default::default())
-                                .and_then(|(request, mode, directory)| {
-                                    crate::native::execute_request_with(&request, mode, directory.as_deref())
-                                });
+                            let result = altrun_probe::launch::resolve_entry(
+                                &entry,
+                                None,
+                                &Default::default(),
+                            )
+                            .and_then(|(request, mode, directory)| {
+                                crate::native::execute_request_with(
+                                    &request,
+                                    mode,
+                                    directory.as_deref(),
+                                )
+                            });
                             if let Err(error) = result {
                                 let owner = owner as HWND;
                                 if IsWindow(owner) != 0 {
-                                    MessageBoxW(owner, ui(&error).as_ptr(), ui("试打开").as_ptr(), MB_OK | MB_ICONERROR);
+                                    MessageBoxW(
+                                        owner,
+                                        ui(&error).as_ptr(),
+                                        ui("试打开").as_ptr(),
+                                        MB_OK | MB_ICONERROR,
+                                    );
                                 }
                             }
                         });
                     }
                     SAVE => {
-                        let mut entries = (*state).entries.clone();
+                        let mut entries = Vec::clone(&(*state).entries);
                         for entry in &mut entries {
                             entry.alias = entry.alias.trim().to_owned();
                             entry.name = entry.name.trim().to_owned();
-                            if entry.name.is_empty() { entry.name = entry.alias.clone(); }
+                            if entry.name.is_empty() {
+                                entry.name = entry.alias.clone();
+                            }
                         }
                         match ((*state).save)(&entries) {
-                            Ok(()) => { DestroyWindow(hwnd); }
+                            Ok(()) => {
+                                DestroyWindow(hwnd);
+                            }
                             Err((row, error)) => {
                                 (*state).selected = row;
                                 let list = get(hwnd, ROWS);
-                                if !list.is_null() { SendMessageW(list, LB_SETCURSEL, row, 0); }
+                                if !list.is_null() {
+                                    SendMessageW(list, LB_SETCURSEL, row, 0);
+                                }
                                 sync(hwnd, state);
                                 status(hwnd, &error);
                                 let field = get(hwnd, ALIAS);
@@ -293,7 +383,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                             }
                         }
                     }
-                    CANCEL | CLOSE => { DestroyWindow(hwnd); }
+                    CANCEL | CLOSE => {
+                        DestroyWindow(hwnd);
+                    }
                     _ => {}
                 }
                 return 0;
@@ -313,21 +405,43 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide("ALTRun.Native.AddShortcut");
         let batch = entries.len() > 1;
-        let (width, height, form) = if batch { (840, 542, 246) } else { (700, 354, 58) };
+        let (width, height, form) = if batch {
+            (840, 542, 246)
+        } else {
+            (700, 354, 58)
+        };
         let mut state = Dialog {
-            entries, selected: 0, updating: true, dpi: 96, height,
-            caption: null_mut(), launch_enabled, save,
+            entries,
+            selected: 0,
+            updating: true,
+            dpi: 96,
+            height,
+            caption: null_mut(),
+            launch_enabled,
+            save,
         };
         RegisterClassW(&WNDCLASSW {
-            lpfnWndProc: Some(procedure), hInstance: instance, lpszClassName: class.as_ptr(),
-            hCursor: LoadCursorW(null_mut(), IDC_ARROW), ..Default::default()
+            lpfnWndProc: Some(procedure),
+            hInstance: instance,
+            lpszClassName: class.as_ptr(),
+            hCursor: LoadCursorW(null_mut(), IDC_ARROW),
+            ..Default::default()
         });
         let mut rect = RECT::default();
         GetWindowRect(owner, &mut rect);
         let hwnd = CreateWindowExW(
-            WS_EX_CONTROLPARENT, class.as_ptr(), ui("添加快捷项").as_ptr(),
+            WS_EX_CONTROLPARENT,
+            class.as_ptr(),
+            ui("添加快捷项").as_ptr(),
             WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
-            rect.left, rect.top, 1, 1, owner, null_mut(), instance, &mut state as *mut Dialog as _,
+            rect.left,
+            rect.top,
+            1,
+            1,
+            owner,
+            null_mut(),
+            instance,
+            &mut state as *mut Dialog as _,
         );
         if hwnd.is_null() {
             UnregisterClassW(class.as_ptr(), instance);
@@ -343,21 +457,47 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         theme::frame(hwnd);
         theme_ui::round_panel(hwnd, px(width), px(height), dpi);
         let control = |class: &str, text: &str, id, (x, y, w, h), style| {
-            let child = CreateWindowExW(0, wide(class).as_ptr(), ui(text).as_ptr(),
-                WS_CHILD | WS_VISIBLE | style, px(x), px(y), px(x + w) - px(x), px(y + h) - px(y),
-                hwnd, id as HMENU, instance, std::ptr::null());
+            let child = CreateWindowExW(
+                0,
+                wide(class).as_ptr(),
+                ui(text).as_ptr(),
+                WS_CHILD | WS_VISIBLE | style,
+                px(x),
+                px(y),
+                px(x + w) - px(x),
+                px(y + h) - px(y),
+                hwnd,
+                id as HMENU,
+                instance,
+                std::ptr::null(),
+            );
             SendMessageW(child, WM_SETFONT, font as usize, 0);
             child
         };
-        let button = |text, id, bounds| control("BUTTON", text, id, bounds, WS_TABSTOP | BS_OWNERDRAW as u32);
+        let button = |text, id, bounds| {
+            control("BUTTON", text, id, bounds, WS_TABSTOP | BS_OWNERDRAW as u32)
+        };
         theme_ui::style_caption_close(button("关闭", CLOSE, (width - 47, 1, 46, 41)));
         if batch {
-            for (caption, x, w) in [("快捷字", 34, 166), ("名称", 212, 212), ("目标路径", 436, width - 460)] {
+            for (caption, x, w) in [
+                ("快捷字", 34, 166),
+                ("名称", 212, 212),
+                ("目标路径", 436, width - 460),
+            ] {
                 control("STATIC", caption, 0, (x, 55, w, 24), 0);
             }
-            let list = control("LISTBOX", "", ROWS, (22, 84, width - 44, 145),
-                WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY as u32 | LBS_OWNERDRAWFIXED as u32
-                    | LBS_HASSTRINGS as u32 | LBS_NOINTEGRALHEIGHT as u32);
+            let list = control(
+                "LISTBOX",
+                "",
+                ROWS,
+                (22, 84, width - 44, 145),
+                WS_TABSTOP
+                    | WS_VSCROLL
+                    | LBS_NOTIFY as u32
+                    | LBS_OWNERDRAWFIXED as u32
+                    | LBS_HASSTRINGS as u32
+                    | LBS_NOINTEGRALHEIGHT as u32,
+            );
             SendMessageW(list, LB_SETITEMHEIGHT, 0, px(29) as LPARAM);
             for entry in &state.entries {
                 let accessible = format!("{} · {} · {}", entry.alias, entry.name, entry.command);
@@ -366,16 +506,38 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             SendMessageW(list, LB_SETCURSEL, 0, 0);
             theme_ui::style_vertical_scrollbar(list, 12, dpi);
         }
-        let label_style = SS_CENTERIMAGE as u32;
-        for (caption, id, dy) in [("快捷字", ALIAS, 0), ("名称", NAME, 48), ("目标路径", PATH, 96)] {
+        let label_style = theme_ui::STATIC_CENTER_IMAGE;
+        for (caption, id, dy) in [
+            ("快捷字", ALIAS, 0),
+            ("名称", NAME, 48),
+            ("目标路径", PATH, 96),
+        ] {
             control("STATIC", caption, 0, (22, form + dy, 113, 36), label_style);
-            let style = WS_TABSTOP | ES_AUTOHSCROLL as u32 | if id == PATH { ES_READONLY as u32 } else { 0 };
-            theme_ui::style_edit(control("EDIT", "", id, (140, form + dy, width - 162, 36), style), dpi, false);
+            let style = WS_TABSTOP
+                | ES_AUTOHSCROLL as u32
+                | if id == PATH { ES_READONLY as u32 } else { 0 };
+            theme_ui::style_edit(
+                control("EDIT", "", id, (140, form + dy, width - 162, 36), style),
+                dpi,
+                false,
+            );
         }
-        control("STATIC", "打开方式", OPEN_LABEL, (22, form + 154, width - 326, 36), label_style);
+        control(
+            "STATIC",
+            "打开方式",
+            OPEN_LABEL,
+            (22, form + 154, width - 326, 36),
+            label_style,
+        );
         button("使用系统默认", DEFAULT, (width - 299, form + 154, 132, 36));
         button("选择程序…", PROGRAM, (width - 156, form + 154, 134, 36));
-        control("STATIC", "", STATUS, (22, height - 99, width - 44, 34), label_style);
+        control(
+            "STATIC",
+            "",
+            STATUS,
+            (22, height - 99, width - 44, 34),
+            label_style,
+        );
         let test = button("试打开", TEST, (22, height - 48, 100, 36));
         EnableWindow(test, i32::from(launch_enabled));
         button("取消", CANCEL, (width - 257, height - 48, 86, 36));
@@ -390,24 +552,35 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             let mut msg = MSG::default();
             let result = GetMessageW(&mut msg, null_mut(), 0, 0);
             if result <= 0 {
-                if result == 0 { PostQuitMessage(msg.wParam as i32); }
+                if result == 0 {
+                    PostQuitMessage(msg.wParam as i32);
+                }
                 break;
             }
-            if msg.message == WM_KEYDOWN && (msg.hwnd == hwnd || IsChild(hwnd, msg.hwnd) != 0)
+            if msg.message == WM_KEYDOWN
+                && (msg.hwnd == hwnd || IsChild(hwnd, msg.hwnd) != 0)
                 && matches!(msg.wParam as u16, VK_RETURN | VK_ESCAPE)
             {
                 let focus = GetFocus();
                 let ime = ImmGetContext(focus);
-                let composing = !ime.is_null() && ImmGetCompositionStringW(ime, GCS_COMPSTR, null_mut(), 0) > 0;
-                if !ime.is_null() { ImmReleaseContext(focus, ime); }
+                let composing =
+                    !ime.is_null() && ImmGetCompositionStringW(ime, GCS_COMPSTR, null_mut(), 0) > 0;
+                if !ime.is_null() {
+                    ImmReleaseContext(focus, ime);
+                }
                 if composing {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                     continue;
                 }
                 let id = GetDlgCtrlID(focus) as usize;
-                let command = if msg.wParam as u16 == VK_ESCAPE { CANCEL } else {
-                    match id { PROGRAM | DEFAULT | TEST | CANCEL | CLOSE => id, _ => SAVE }
+                let command = if msg.wParam as u16 == VK_ESCAPE {
+                    CANCEL
+                } else {
+                    match id {
+                        PROGRAM | DEFAULT | TEST | CANCEL | CLOSE => id,
+                        _ => SAVE,
+                    }
                 };
                 SendMessageW(hwnd, WM_COMMAND, command, 0);
                 continue;
@@ -417,9 +590,13 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
                 DispatchMessageW(&msg);
             }
         }
-        if IsWindow(hwnd) != 0 { DestroyWindow(hwnd); }
+        if IsWindow(hwnd) != 0 {
+            DestroyWindow(hwnd);
+        }
         EnableWindow(owner, 1);
-        if IsWindowVisible(owner) != 0 { SetForegroundWindow(owner); }
+        if IsWindowVisible(owner) != 0 {
+            SetForegroundWindow(owner);
+        }
         DeleteObject(font);
         DeleteObject(state.caption);
         UnregisterClassW(class.as_ptr(), instance);

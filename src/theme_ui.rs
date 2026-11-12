@@ -14,6 +14,8 @@ use windows_sys::Win32::{
     },
 };
 
+pub const STATIC_CENTER_IMAGE: u32 = 0x0200;
+
 pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
     unsafe {
         let brush = CreateSolidBrush(colour);

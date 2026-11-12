@@ -19,7 +19,10 @@ pub fn validate(entry: &Entry, base: &Path) -> Validation {
             OpenTarget::Document(Some(program)) => Some(program.as_str()),
             _ => None,
         };
-        for path in [Some(entry.command.as_str()), program].into_iter().flatten() {
+        for path in [Some(entry.command.as_str()), program]
+            .into_iter()
+            .flatten()
+        {
             if launch::is_network_path(path) {
                 return Validation::Unconfirmed("网络目标，不探测".into());
             }
@@ -128,14 +131,21 @@ pub fn absolute_path(path: &Path) -> Result<String, String> {
 pub fn from_path(path: &Path) -> Result<Entry, String> {
     let text = absolute_path(path)?;
     let directory = path.is_dir();
-    let name = if directory { path.file_name() } else { path.file_stem() }
-        .or_else(|| path.file_name())
-        .unwrap_or(path.as_os_str())
-        .to_string_lossy()
-        .into_owned();
+    let name = if directory {
+        path.file_name()
+    } else {
+        path.file_stem()
+    }
+    .or_else(|| path.file_name())
+    .unwrap_or(path.as_os_str())
+    .to_string_lossy()
+    .into_owned();
     let document = !directory && !is_executable(path);
     let display_name = if document {
-        path.file_name().and_then(|s| s.to_str()).unwrap_or(&name).to_owned()
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&name)
+            .to_owned()
     } else {
         name.clone()
     };
@@ -147,7 +157,11 @@ pub fn from_path(path: &Path) -> Result<Entry, String> {
         param_type: ParamType::None,
         id: crate::library::new_id(),
         working_directory: String::new(),
-        open_target: Some(if document { OpenTarget::Document(None) } else { OpenTarget::Path }),
+        open_target: Some(if document {
+            OpenTarget::Document(None)
+        } else {
+            OpenTarget::Path
+        }),
         enabled: true,
         kind: EntryKind::Command,
     })

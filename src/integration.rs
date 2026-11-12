@@ -128,7 +128,7 @@ impl Integration {
         if !enabled {
             return match std::fs::remove_file(&self.send_to) {
                 Ok(()) => {
-                    self.notify_send_to(SHCNE_DELETE);
+                    self.notify_send_to(SHCNE_DELETE as i32);
                     Ok(())
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -178,7 +178,7 @@ impl Integration {
         .status()
         .map_err(|e| e.to_string())?;
         if status.success() && self.send_to.exists() {
-            self.notify_send_to(SHCNE_CREATE);
+            self.notify_send_to(SHCNE_CREATE as i32);
             Ok(())
         } else {
             Err("创建“发送到”快捷方式失败".into())

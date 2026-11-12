@@ -413,6 +413,14 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_ne!(IsWindowVisible(setting(dialog, "AddToSendTo")), 0);
         assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
         assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
+        let size = |rect: RECT| (rect.right - rect.left, rect.bottom - rect.top);
+        let initial_size = size(bounds(dialog));
+        for page in 1..=6 {
+            select_page(dialog, page);
+            assert_eq!(size(bounds(dialog)), initial_size, "settings page {page}");
+        }
+        assert_eq!(IsWindowVisible(setting(dialog, "WorkingDirectory")), 0);
+        select_page(dialog, 0);
         click_tab_and_wait_for_pixels(dialog, 2, "NumberKey", "settings-live-search");
         click_tab_and_wait_for_pixels(dialog, 3, "ShowCommandLine", "settings-live-appearance");
         settings_design(dialog);

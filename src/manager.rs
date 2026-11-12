@@ -454,7 +454,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if msg == FOCUS {
         if crate::shortcut_intake::is_open() {
             if w != 0 {
-                unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE); }
+                unsafe {
+                    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                }
             }
             return 0;
         }
@@ -534,8 +536,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().selected = selected as usize);
                     sync_fields();
                 }
-            } else if [ALIAS, NAME, COMMAND].contains(&id)
-                && notification == EN_CHANGE as usize
+            } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
                 || [KIND, ENTRY_KIND].contains(&id) && notification == CBN_SELCHANGE as usize
                 || id == ENABLED && notification == BN_CLICKED as usize
             {
@@ -1097,7 +1098,16 @@ fn run(
         ] {
             control("BUTTON", label, WS_TABSTOP, 0, 0, 0, 0, id);
         }
-        let status = control("STATIC", "修改后点击保存。", SS_CENTERIMAGE as u32, 0, 0, 0, 0, 0);
+        let status = control(
+            "STATIC",
+            "修改后点击保存。",
+            crate::theme_ui::STATIC_CENTER_IMAGE,
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
         SetWindowTextW(status, wide("").as_ptr());
 
         let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
@@ -1239,9 +1249,7 @@ pub fn enqueue(paths: Vec<PathBuf>, action: Option<(String, u16)>) {
         list.extend(paths);
     }
     let show = action.is_some();
-    if show
-        && let Ok(mut pending) = ACTION.lock()
-    {
+    if show && let Ok(mut pending) = ACTION.lock() {
         *pending = action;
     }
     notify(show);
@@ -1264,8 +1272,7 @@ fn apply_intake(hwnd: HWND) {
             .collect::<Result<Vec<_>, _>>()
         {
             Ok(entries) => {
-                let launch_enabled =
-                    EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled);
+                let launch_enabled = EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled);
                 crate::shortcut_intake::open(hwnd, entries, launch_enabled, save_intake);
             }
             Err(error) => crate::native::show_error(&error),
@@ -1302,7 +1309,11 @@ fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
     let (sender, committed, parent) = EDITOR.with(|c| {
         let mut editor = c.borrow_mut();
         let s = editor.as_mut().unwrap();
-        let mut aliases = s.file.entries.iter().chain(&s.draft)
+        let mut aliases = s
+            .file
+            .entries
+            .iter()
+            .chain(&s.draft)
             .filter(|e| e.kind == library::EntryKind::Command)
             .map(|e| e.alias.trim().to_lowercase())
             .collect::<std::collections::HashSet<_>>();
@@ -1325,14 +1336,19 @@ fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
         Ok((s.sender.clone(), committed, s.parent))
     })?;
     sender.saved(committed);
-    unsafe { PostMessageW(parent as HWND, UPDATED, 0, 0); }
+    unsafe {
+        PostMessageW(parent as HWND, UPDATED, 0, 0);
+    }
     refresh_list();
     let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().dirty);
-    status(if dirty {
-        "已添加快捷项。管理窗口仍有未保存的修改。"
-    } else {
-        "已添加快捷项。"
-    }, false);
+    status(
+        if dirty {
+            "已添加快捷项。管理窗口仍有未保存的修改。"
+        } else {
+            "已添加快捷项。"
+        },
+        false,
+    );
     Ok(())
 }
 
@@ -1352,7 +1368,9 @@ fn change_open_with(hwnd: HWND, use_default: bool) {
     let changed = EDITOR.with(|c| {
         let mut editor = c.borrow_mut();
         let s = editor.as_mut().unwrap();
-        let Some(entry) = s.draft.get_mut(s.selected) else { return false; };
+        let Some(entry) = s.draft.get_mut(s.selected) else {
+            return false;
+        };
         let Some(OpenTarget::Document(current)) = entry.open_target.as_mut() else {
             return false;
         };
@@ -1425,7 +1443,12 @@ pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf>
     pick_path_filtered(hwnd, save, folder, None)
 }
 
-pub(crate) fn pick_path_filtered(hwnd: HWND, save: bool, folder: bool, filter: Option<&[u16]>) -> Option<PathBuf> {
+pub(crate) fn pick_path_filtered(
+    hwnd: HWND,
+    save: bool,
+    folder: bool,
+    filter: Option<&[u16]>,
+) -> Option<PathBuf> {
     unsafe {
         if folder {
             use windows_sys::Win32::{System::Com::*, UI::Shell::*};
@@ -1814,9 +1837,9 @@ fn test_selected(hwnd: HWND) {
             context.clipboard = crate::native::clipboard_text();
         }
         let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
-        .and_then(|(request, mode, directory)| {
-            crate::native::execute_request_with(&request, mode, directory.as_deref())
-        });
+            .and_then(|(request, mode, directory)| {
+                crate::native::execute_request_with(&request, mode, directory.as_deref())
+            });
         if let Err(error) = result {
             crate::native::show_error(&error);
         }
@@ -2095,21 +2118,37 @@ fn sync_kind_layout() {
         let entry = s.draft.get(s.selected);
         let kind = entry.map(|e| e.kind);
         let typed = entry.is_some_and(|e| e.open_target.is_some());
-        let document = entry.is_some_and(|e| matches!(e.open_target, Some(OpenTarget::Document(_))));
+        let document =
+            entry.is_some_and(|e| matches!(e.open_target, Some(OpenTarget::Document(_))));
         if s.laid_out_kind == Some((kind, typed, document)) {
             return None;
         }
         s.laid_out_kind = Some((kind, typed, document));
-        Some((unsafe { GetParent(s.list) }, kind, typed, document, s.name, s.dpi))
+        Some((
+            unsafe { GetParent(s.list) },
+            kind,
+            typed,
+            document,
+            s.name,
+            s.dpi,
+        ))
     });
     let Some((hwnd, kind, typed, document, name, dpi)) = layout else {
         return;
     };
     unsafe {
         for (id, show) in [
-            (ALIAS, true), (COMMAND, true), (KIND, !typed), (ENABLED, true),
-            (2170, true), (2171, true), (2172, true), (2173, !typed),
-            (OPEN_LABEL, document), (OPEN_WITH, document), (OPEN_DEFAULT, document),
+            (ALIAS, true),
+            (COMMAND, true),
+            (KIND, !typed),
+            (ENABLED, true),
+            (2170, true),
+            (2171, true),
+            (2172, true),
+            (2173, !typed),
+            (OPEN_LABEL, document),
+            (OPEN_WITH, document),
+            (OPEN_DEFAULT, document),
         ] {
             ShowWindow(
                 GetDlgItem(hwnd, id as i32),

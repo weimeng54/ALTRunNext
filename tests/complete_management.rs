@@ -16,9 +16,12 @@ fn validation_does_not_classify_network_system_or_search_targets_as_missing() {
 fn legacy_path_conversion_preserves_parameters_and_id() {
     let root = std::env::current_dir().unwrap();
     let path = root.join("target/folder with spaces/tool.exe");
-    let mut entry = parse_entries(&format!("tool\tTool\t\"{}\" --flag\t0\tnone", path.display()))
-        .unwrap()
-        .remove(0);
+    let mut entry = parse_entries(&format!(
+        "tool\tTool\t\"{}\" --flag\t0\tnone",
+        path.display()
+    ))
+    .unwrap()
+    .remove(0);
     let id = entry.id.clone();
     assert!(entry.command.starts_with('"'));
     assert!(management::convert_path(&mut entry, &root, true).unwrap());
@@ -29,7 +32,10 @@ fn legacy_path_conversion_preserves_parameters_and_id() {
 }
 #[test]
 fn sent_documents_round_trip_without_interpreting_the_path_as_a_command() {
-    use altrun_probe::{launch, library::{self, OpenTarget}};
+    use altrun_probe::{
+        launch,
+        library::{self, OpenTarget},
+    };
     let base = std::env::current_dir().unwrap().join("target");
     let document = base.join("会议 %c 纪要.txt");
     let mut entry = management::from_path(&document).unwrap();
@@ -39,7 +45,11 @@ fn sent_documents_round_trip_without_interpreting_the_path_as_a_command() {
     let (request, _, _) = launch::resolve_entry(&entry, None, &Default::default()).unwrap();
     assert_eq!(request.file, entry.command);
     assert!(request.parameters.is_empty());
-    let program = std::env::current_exe().unwrap().to_str().unwrap().to_owned();
+    let program = std::env::current_exe()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
     entry.open_target = Some(OpenTarget::Document(Some(program.clone())));
     let loaded = parse_entries(&library::serialize(&[entry.clone()]).unwrap()).unwrap();
     assert_eq!(loaded[0].open_target, entry.open_target);

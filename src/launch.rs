@@ -84,7 +84,10 @@ pub fn resolve_entry(
             // A Windows file name cannot contain a quote. A trailing backslash
             // must be doubled before the closing quote in a Windows argument.
             let tail = entry.command.len() - entry.command.trim_end_matches('\\').len();
-            (program.clone(), format!("\"{}{}\"", entry.command, "\\".repeat(tail)))
+            (
+                program.clone(),
+                format!("\"{}{}\"", entry.command, "\\".repeat(tail)),
+            )
         }
     };
     let directory = crate::management::is_executable(Path::new(&file))
@@ -98,7 +101,11 @@ pub fn resolve_entry(
                     .is_none_or(|owner| !path.starts_with(owner))
         })
         .map(|path| path.to_string_lossy().into_owned());
-    Ok((LaunchRequest { file, parameters }, ShowMode::Normal, directory))
+    Ok((
+        LaunchRequest { file, parameters },
+        ShowMode::Normal,
+        directory,
+    ))
 }
 
 pub fn resolve_context(
