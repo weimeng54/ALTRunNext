@@ -196,7 +196,7 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
         };
         let body = RECT {
             left: rect.left + px(25),
-            right: rect.right - px(14),
+            right: rect.right - px(if item.child { 26 } else { 14 }),
             ..rect
         };
         unsafe {
@@ -211,21 +211,112 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
                 theme_ui::line_text(dc, tick, "✓", theme::accent(), DT_CENTER);
             }
             if item.child {
-                // Win32 paints its cascade arrow in the right gutter after
-                // WM_DRAWITEM. Keep the theme stroke in that same footprint.
-                let x = rect.right - px(6);
-                let y = (rect.top + rect.bottom) / 2;
-                let half = px(3).max(2);
-                let pen = CreatePen(PS_SOLID, px(1).max(1), ink);
-                let old_pen = SelectObject(dc, pen);
-                MoveToEx(dc, x, y - half, std::ptr::null_mut());
-                LineTo(dc, x + half, y);
-                LineTo(dc, x, y + half);
-                SelectObject(dc, old_pen);
-                DeleteObject(pen);
+                theme_ui::chevron(
+                    dc,
+                    POINT {
+                        x: rect.right - px(14),
+                        y: (rect.top + rect.bottom) / 2,
+                    },
+                    theme_ui::Chevron::Right,
+                    skin.dpi,
+                    ink,
+                );
             }
             SelectObject(dc, font);
+            if item.child {
+                // USER32 draws an additional cascade glyph after this callback.
+                // Exclude only this row's indicator gutter from that draw.
+                ExcludeClipRect(
+                    dc,
+                    rect.right - px(23),
+                    rect.top,
+                    rect.right + px(12),
+                    rect.bottom,
+                );
+            }
         }
         true
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ptr::null_mut;
+
+    #[test]
+    fn cascade_arrow_is_a_single_shape_inside_each_scaled_row() {
+        for dpi in [96, 120, 144, 168, 192, 240] {
+            unsafe {
+                let dc = CreateCompatibleDC(null_mut());
+                assert!(!dc.is_null());
+                let bitmap_info = BITMAPINFO {
+                    bmiHeader: BITMAPINFOHEADER {
+                        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                        biWidth: 540,
+                        biHeight: -100,
+                        biPlanes: 1,
+                        biBitCount: 32,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                let mut pixels = null_mut();
+                let bitmap =
+                    CreateDIBSection(dc, &bitmap_info, DIB_RGB_COLORS, &mut pixels, null_mut(), 0);
+                assert!(!bitmap.is_null());
+                let previous = SelectObject(dc, bitmap);
+                let style = PopupStyle::new(dpi, GetStockObject(DEFAULT_GUI_FONT));
+                let menu = CreatePopupMenu();
+                style.submenu(menu, CreatePopupMenu(), "Sort");
+                let rect = RECT {
+                    left: 0,
+                    top: 0,
+                    right: scaled(195, dpi),
+                    bottom: scaled(29, dpi),
+                };
+                let center = POINT {
+                    x: rect.right - scaled(14, dpi),
+                    y: rect.bottom / 2,
+                };
+                assert!(draw(&DRAWITEMSTRUCT {
+                    CtlType: ODT_MENU,
+                    hDC: dc,
+                    rcItem: rect,
+                    itemData: 1,
+                    ..Default::default()
+                }));
+                assert_eq!(PtVisible(dc, rect.right - scaled(5, dpi), center.y), 0);
+                assert_ne!(
+                    PtVisible(dc, rect.right - scaled(5, dpi), rect.bottom + 1),
+                    0
+                );
+                assert_ne!(PtVisible(dc, scaled(30, dpi), center.y), 0);
+                SelectClipRgn(dc, null_mut());
+                let radius = scaled(4, dpi);
+                let mut ink_rows = 0;
+                for y in center.y - radius..center.y + radius {
+                    let ink = (center.x - radius..=center.x + radius)
+                        .filter(|x| GetPixel(dc, *x, y) == theme::text())
+                        .collect::<Vec<_>>();
+                    if !ink.is_empty() {
+                        ink_rows += 1;
+                        assert!(
+                            ink.windows(2).all(|pair| pair[1] == pair[0] + 1),
+                            "{dpi} DPI"
+                        );
+                    }
+                }
+                assert!(ink_rows >= scaled(6, dpi), "{dpi} DPI");
+                assert_eq!(
+                    GetPixel(dc, rect.right - scaled(5, dpi), center.y),
+                    theme::control_surface()
+                );
+                DestroyMenu(menu);
+                SelectObject(dc, previous);
+                DeleteObject(bitmap);
+                DeleteDC(dc);
+            }
+        }
+    }
 }

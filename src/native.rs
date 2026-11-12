@@ -119,7 +119,7 @@ pub(crate) fn ui(text: &str) -> Vec<u16> {
     wide(&crate::localization::tr(text))
 }
 pub(crate) fn scaled(value: i32, dpi: i32) -> i32 {
-    value * dpi / 96
+    (value * dpi + 48 * value.signum()) / 96
 }
 
 pub fn show_error(message: &str) {
@@ -1646,7 +1646,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 return 1;
             }
             if d.CtlType == ODT_BUTTON {
-                crate::theme_ui::button_on(d, false, theme::surface());
+                let dpi = STATE.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
+                crate::theme_ui::button_on(d, false, theme::surface(), dpi);
                 return 1;
             }
             if d.itemID == u32::MAX {

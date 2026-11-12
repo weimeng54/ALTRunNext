@@ -151,7 +151,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         GetClientRect(manager, &mut client);
         assert_eq!(
             (client.right, client.bottom),
-            (1102 * dpi / 96, 683 * dpi / 96),
+            ((1102 * dpi + 48) / 96, (683 * dpi + 48) / 96),
             "stale size from the profile must not shrink the editor"
         );
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2140)), 0);

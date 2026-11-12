@@ -10,6 +10,7 @@ use windows_sys::Win32::{
     UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 struct Input {
+    dpi: i32,
     done: bool,
     value: Option<String>,
     edit: HWND,
@@ -68,7 +69,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             },
             WM_DRAWITEM if l != 0 => {
                 let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-                theme_ui::button(item, item.CtlID == 1);
+                theme_ui::button_on(item, item.CtlID == 1, theme::surface(), unsafe {
+                    (*state).dpi
+                });
                 return 1;
             }
             _ => {}
@@ -116,6 +119,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         RegisterClassW(&wc);
         let state = Box::into_raw(Box::new(Input {
+            dpi: 96,
             done: false,
             value: None,
             edit: null_mut(),
@@ -156,6 +160,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
             (110, 28, 66)
         };
         let dpi = crate::window_geometry::fit(hwnd, 420, height, None);
+        (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
         let content_style = if long {
             WS_TABSTOP | WS_VSCROLL | WS_BORDER | (ES_MULTILINE | ES_READONLY) as u32

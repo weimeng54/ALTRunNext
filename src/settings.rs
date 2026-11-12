@@ -1570,14 +1570,19 @@ fn draw(item: &DRAWITEMSTRUCT) {
             let mut rect = item.rcItem;
             rect.left += scaled(14, dpi);
             draw_button_text(item, rect, theme::muted(), 0);
-            rect.left -= scaled(13, dpi);
-            rect.right = rect.left + scaled(12, dpi);
-            theme_ui::line_text(
+            theme_ui::chevron(
                 item.hDC,
-                rect,
-                if expanded { "⌄" } else { "›" },
+                POINT {
+                    x: item.rcItem.left + scaled(5, dpi),
+                    y: (rect.top + rect.bottom) / 2,
+                },
+                if expanded {
+                    theme_ui::Chevron::Down
+                } else {
+                    theme_ui::Chevron::Right
+                },
+                dpi,
                 theme::muted(),
-                0,
             );
             if item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0 {
                 unsafe {
@@ -1606,24 +1611,26 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 let mut label = item.rcItem;
                 label.left += scaled(31, dpi);
                 draw_button_text(item, label, theme::text(), 0);
-                label.left -= scaled(18, dpi);
-                label.right = label.left + scaled(13, dpi);
-                theme_ui::line_text(
+                theme_ui::chevron(
                     item.hDC,
-                    label,
-                    if (id == MORE_PANEL && panel) || (id == MORE_COLORS && colors) {
-                        "⌄"
-                    } else {
-                        "›"
+                    POINT {
+                        x: item.rcItem.left + scaled(19, dpi),
+                        y: (label.top + label.bottom) / 2,
                     },
+                    if (id == MORE_PANEL && panel) || (id == MORE_COLORS && colors) {
+                        theme_ui::Chevron::Down
+                    } else {
+                        theme_ui::Chevron::Right
+                    },
+                    dpi,
                     theme::muted(),
-                    0,
                 );
             }
             if item.itemState & ODS_FOCUS != 0 {
                 let mut focus = item.rcItem;
                 unsafe {
-                    InflateRect(&mut focus, -2, -2);
+                    let inset = scaled(2, dpi);
+                    InflateRect(&mut focus, -inset, -inset);
                     DrawFocusRect(item.hDC, &focus);
                 }
             }
@@ -1633,12 +1640,14 @@ fn draw(item: &DRAWITEMSTRUCT) {
             } else {
                 theme::control_surface()
             };
-            theme_ui::button_on(item, id == 2310, background);
+            let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
+            theme_ui::button_on(item, id == 2310, background, dpi);
         }
         return;
     }
     if item.CtlType == ODT_COMBOBOX {
-        theme_ui::combo(item);
+        let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
+        theme_ui::combo(item, dpi);
         return;
     }
     let format = (item.CtlID as usize == FORMAT_PREVIEW).then(|| text(field("ListFormat").value));

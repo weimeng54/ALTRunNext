@@ -672,13 +672,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         } else {
                             theme::surface()
                         };
-                        crate::theme_ui::button_on(d, d.CtlID as usize == SAVE, background);
+                        let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+                        crate::theme_ui::button_on(d, d.CtlID as usize == SAVE, background, dpi);
                     }
                 }
                 return 1;
             }
             if d.CtlType == ODT_COMBOBOX {
-                crate::theme_ui::combo(d);
+                let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+                crate::theme_ui::combo(d, dpi);
                 return 1;
             }
             EDITOR.with(|c| {
@@ -910,11 +912,11 @@ fn run(
                 WS_CHILD | WS_VISIBLE | style,
                 scaled(x, dpi),
                 scaled(y, dpi),
-                scaled(width, dpi),
+                (scaled(x + width, dpi) - scaled(x, dpi)).max(1),
                 if id == LIST {
                     list_height(dpi)
                 } else {
-                    scaled(height, dpi)
+                    (scaled(y + height, dpi) - scaled(y, dpi)).max(1)
                 },
                 hwnd,
                 id as HMENU,
@@ -2157,7 +2159,11 @@ unsafe extern "system" fn scrollbar_proc(
                     dc,
                     track,
                     &bar,
-                    GetDpiForWindow(hwnd).max(96) as i32,
+                    EDITOR.with(|c| {
+                        c.borrow()
+                            .as_ref()
+                            .map_or_else(|| GetDpiForWindow(hwnd).max(96) as i32, |s| s.dpi)
+                    }),
                 );
             } else {
                 crate::theme_ui::fill(dc, &track, theme::paper());
@@ -2244,8 +2250,8 @@ fn sync_kind_layout() {
                 null_mut(),
                 scaled(x, dpi),
                 scaled(233, dpi),
-                scaled(width, dpi),
-                scaled(36, dpi),
+                scaled(x + width, dpi) - scaled(x, dpi),
+                scaled(269, dpi) - scaled(233, dpi),
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }

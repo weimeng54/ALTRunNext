@@ -1,9 +1,6 @@
 //! Settings geometry in device-independent pixels, measured from the design.
+use crate::native::scaled;
 use windows_sys::Win32::Foundation::RECT;
-
-pub fn scale(value: i32, dpi: i32) -> i32 {
-    (value * dpi + 48 * value.signum()) / 96
-}
 
 pub const WIDTH: i32 = 1102;
 pub const HEIGHT: i32 = 721;
@@ -31,7 +28,7 @@ impl BoxRect {
     }
 
     pub fn pixels(self, dpi: i32) -> RECT {
-        let px = |v| scale(v, dpi);
+        let px = |v| scaled(v, dpi);
         RECT {
             left: px(self.x),
             top: px(self.y),

@@ -8,7 +8,6 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     UI::{
         Controls::*,
-        HiDpi::GetDpiForWindow,
         Input::KeyboardAndMouse::GetFocus,
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -19,6 +18,34 @@ pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
     unsafe {
         let brush = CreateSolidBrush(colour);
         FillRect(dc, rect, brush);
+        DeleteObject(brush);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Chevron {
+    Right,
+    Down,
+}
+
+pub fn chevron(dc: HDC, center: POINT, direction: Chevron, dpi: i32, ink: u32) {
+    let points = [(-3, -4), (-1, -4), (3, 0), (-1, 4), (-3, 4), (1, 0)].map(|(x, y)| {
+        let (x, y) = match direction {
+            Chevron::Right => (x, y),
+            Chevron::Down => (-y, x),
+        };
+        POINT {
+            x: center.x + scaled(x, dpi),
+            y: center.y + scaled(y, dpi),
+        }
+    });
+    unsafe {
+        let brush = CreateSolidBrush(ink);
+        let old_brush = SelectObject(dc, brush);
+        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Polygon(dc, points.as_ptr(), points.len() as i32);
+        SelectObject(dc, old_pen);
+        SelectObject(dc, old_brush);
         DeleteObject(brush);
     }
 }
@@ -315,16 +342,11 @@ fn smooth_round(dc: HDC, rect: RECT, diameter: i32, colour: u32, border: u32) ->
     })
 }
 
-pub fn button(item: &DRAWITEMSTRUCT, primary: bool) {
-    button_on(item, primary, theme::surface());
-}
-
-pub fn button_on(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32) {
+pub fn button_on(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32) {
     let dc = item.hDC;
     let rect = item.rcItem;
     let pressed = item.itemState & ODS_SELECTED != 0;
     let disabled = item.itemState & ODS_DISABLED != 0;
-    let dpi = unsafe { GetDpiForWindow(item.hwndItem) }.max(96) as i32;
     let colour = if disabled {
         theme::surface()
     } else if primary && !pressed {
@@ -361,7 +383,7 @@ pub fn button_on(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32) {
     }
 }
 
-pub fn combo(item: &DRAWITEMSTRUCT) {
+pub fn combo(item: &DRAWITEMSTRUCT, dpi: i32) {
     let selected = item.itemState & ODS_SELECTED != 0;
     let dc = item.hDC;
     let mut rect = item.rcItem;
@@ -394,8 +416,8 @@ pub fn combo(item: &DRAWITEMSTRUCT) {
             return;
         }
         let old = SelectObject(dc, SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT);
-        rect.left += 5;
-        rect.right -= 4;
+        rect.left += scaled(5, dpi);
+        rect.right -= scaled(4, dpi);
         line_text(
             dc,
             rect,
@@ -834,16 +856,16 @@ unsafe extern "system" fn combo_proc(
             };
             line_text(dc, label, &window_text(hwnd), ink, 0);
             SelectObject(dc, old);
-            let pen = CreatePen(PS_SOLID, 1, ink);
-            let old = SelectObject(dc, pen);
-            let x = bounds.right - scaled(14, dpi);
-            let y = bounds.bottom / 2;
-            let d = scaled(3, dpi).max(2);
-            MoveToEx(dc, x - d, y - 1, std::ptr::null_mut());
-            LineTo(dc, x, y + d - 1);
-            LineTo(dc, x + d + 1, y - 2);
-            SelectObject(dc, old);
-            DeleteObject(pen);
+            chevron(
+                dc,
+                POINT {
+                    x: bounds.right - scaled(14, dpi),
+                    y: bounds.bottom / 2,
+                },
+                Chevron::Down,
+                dpi,
+                ink,
+            );
             if msg == WM_PAINT {
                 EndPaint(hwnd, &paint);
             }
@@ -934,7 +956,7 @@ unsafe extern "system" fn switch_proc(
             GetClientRect(hwnd, &mut bounds);
             let description = dpi & 0x20000 != 0;
             let dpi = (dpi & 0xffff) as i32;
-            let px = |n| crate::settings_layout::scale(n, dpi);
+            let px = |n| scaled(n, dpi);
             let checked = DefSubclassProc(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
             let enabled =
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(hwnd) != 0;
