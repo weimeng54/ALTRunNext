@@ -86,6 +86,31 @@ impl ParamType {
         }
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpenTarget {
+    Path,
+    Document(Option<String>),
+}
+
+impl OpenTarget {
+    pub(crate) fn parse(kind: &str, program: &str) -> Result<Option<Self>, String> {
+        match (kind, program) {
+            ("", "") => Ok(None),
+            ("path", "") => Ok(Some(Self::Path)),
+            ("document", "") => Ok(Some(Self::Document(None))),
+            ("document", program) => Ok(Some(Self::Document(Some(program.into())))),
+            _ => Err("无法识别文件打开方式".into()),
+        }
+    }
+
+    fn fields(&self) -> (&str, &str) {
+        match self {
+            Self::Path => ("path", ""),
+            Self::Document(program) => ("document", program.as_deref().unwrap_or("")),
+        }
+    }
+}
+
 pub(crate) fn validate(e: &Entry) -> Result<(), String> {
     if e.alias.trim().is_empty() || (e.kind == EntryKind::Command && e.command.trim().is_empty()) {
         return Err("快捷字和命令不能为空".into());
@@ -95,6 +120,20 @@ pub(crate) fn validate(e: &Entry) -> Result<(), String> {
             return Err("快捷项不能包含换行、制表符或空字符".into());
         }
     }
+    if let Some(target) = &e.open_target {
+        if e.kind != EntryKind::Command
+            || e.param_type != ParamType::None
+            || !crate::management::valid_absolute_path(&e.command)
+        {
+            return Err("请填写完整的文件或文件夹路径".into());
+        }
+        if let OpenTarget::Document(Some(program)) = target
+            && (!crate::management::valid_absolute_path(program)
+                || !crate::management::is_executable(Path::new(program)))
+        {
+            return Err("请选择有效的 EXE 程序".into());
+        }
+    }
     Ok(())
 }
 pub fn serialize(entries: &[Entry]) -> Result<String, String> {
@@ -102,7 +141,7 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
     for (i, e) in entries.iter().enumerate() {
         validate(e).map_err(|s| format!("第 {} 项：{s}", i + 1))?;
         output.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             e.alias,
             e.name,
             e.command,
@@ -117,6 +156,11 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
             e.kind.name(),
             u8::from(e.enabled)
         ));
+        if let Some(target) = &e.open_target {
+            let (kind, program) = target.fields();
+            output.push_str(&format!("\t{kind}\t{program}"));
+        }
+        output.push('\n');
     }
     Ok(output)
 }

@@ -646,21 +646,18 @@ fn launch_selected() {
         None
     };
     let result_sender = LAUNCH_SENDER.with(|s| s.borrow().as_ref().unwrap().clone());
-    let param_type = entry.param_type;
     let query = if parameter_mode {
         STATE.with(|c| c.borrow().as_ref().unwrap().saved_query.clone())
     } else {
         STATE.with(|c| c.borrow().as_ref().unwrap().current_query.clone())
     };
     let mut context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
-    let working_directory = entry.working_directory;
     STATE.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
-        s.successful = Some((entry.id, query, parameter.clone()));
+        s.successful = Some((entry.id.clone(), query, parameter.clone()));
         s.launching = Some(s.generation);
     });
-    let command = entry.command;
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }
@@ -668,16 +665,13 @@ fn launch_selected() {
     // All path checks, environment expansion, COM initialization and shell work
     // happen off the resident UI thread. No implicit cmd.exe is introduced.
     std::thread::spawn(move || {
-        if altrun_probe::launch::has_context(&command) && command.contains("%c") {
+        if entry.open_target.is_none()
+            && altrun_probe::launch::has_context(&entry.command)
+            && entry.command.contains("%c")
+        {
             context.clipboard = clipboard_text();
         }
-        let result = altrun_probe::launch::resolve_context(
-            &command,
-            parameter.as_deref(),
-            param_type,
-            &working_directory,
-            &context,
-        )
+        let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
         .and_then(|(request, mode, directory)| {
             execute_request_with(&request, mode, directory.as_deref())
         });
@@ -1128,7 +1122,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             Ok(paths) => {
                 if !paths.is_empty() {
                     crate::manager::enqueue(paths, None);
-                    open_manager();
+                    open_manager_window(false);
                 } else {
                     unsafe {
                         PostMessageW(hwnd, SHOW, 0, 0);
@@ -1141,7 +1135,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         WM_DROPFILES => {
             let paths = crate::manager::drop_paths(w as _);
             crate::manager::enqueue(paths, None);
-            open_manager();
+            open_manager_window(false);
             0
         }
         WM_HOTKEY | SHOW => {
@@ -1854,9 +1848,11 @@ pub fn run() -> Result<(), String> {
         .map(|i| {
             args[i + 1..]
                 .iter()
-                .map(std::path::PathBuf::from)
-                .collect::<Vec<_>>()
+                .map(std::path::absolute)
+                .collect::<Result<Vec<_>, _>>()
         })
+        .transpose()
+        .map_err(|error| error.to_string())?
         .unwrap_or_default();
     let Some(instance_lock) = crate::instance::acquire(&data_path, &intake)? else {
         return Ok(());
@@ -2186,7 +2182,7 @@ pub fn run() -> Result<(), String> {
         }
         if !intake.is_empty() {
             crate::manager::enqueue(intake, None);
-            open_manager();
+            open_manager_window(false);
         }
         if args
             .iter()
@@ -2268,6 +2264,10 @@ fn working_directory(
 }
 
 fn open_manager() {
+    open_manager_window(true);
+}
+
+fn open_manager_window(show: bool) {
     let context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
     crate::manager::configure_context(context);
     let geometry = STATE.with(|c| {
@@ -2295,7 +2295,7 @@ fn open_manager() {
             s.enabled,
         )
     });
-    crate::manager::open(path, entries, hwnd, sender, enabled);
+    crate::manager::open(path, entries, hwnd, sender, enabled, show);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }
@@ -2855,10 +2855,18 @@ fn selected_action(copy: bool) {
                 } else {
                     entry.working_directory
                 };
-                match altrun_probe::local_target::directory(
+                let directory = if entry.open_target.is_some() {
+                    std::path::Path::new(&entry.command)
+                        .parent()
+                        .map(std::path::Path::to_path_buf)
+                        .ok_or_else(|| "无法确定目标所在目录".to_owned())
+                } else {
+                    altrun_probe::local_target::directory(
                     &entry.command,
                     std::path::Path::new(&base),
-                ) {
+                    )
+                };
+                match directory {
                     Ok(parent) => {
                         let _ = execute_request(&altrun_probe::launch::LaunchRequest {
                             file: parent.to_string_lossy().into_owned(),

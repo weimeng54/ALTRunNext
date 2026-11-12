@@ -59,6 +59,48 @@ pub(crate) fn explicit_path(file: &str) -> bool {
         && !file.starts_with("::")
 }
 
+pub fn resolve_entry(
+    entry: &crate::Entry,
+    parameter: Option<&str>,
+    context: &LaunchContext,
+) -> Result<(LaunchRequest, ShowMode, Option<String>), String> {
+    use crate::library::OpenTarget;
+    let Some(target) = &entry.open_target else {
+        return resolve_context(
+            &entry.command,
+            parameter,
+            entry.param_type,
+            &entry.working_directory,
+            context,
+        );
+    };
+    crate::library::validate(entry)?;
+    let (file, parameters) = match target {
+        OpenTarget::Path | OpenTarget::Document(None) => (entry.command.clone(), String::new()),
+        OpenTarget::Document(Some(program)) => {
+            if !Path::new(program).is_file() {
+                return Err("找不到指定的打开程序，请在快捷项管理中重新选择。".into());
+            }
+            // A Windows file name cannot contain a quote. A trailing backslash
+            // must be doubled before the closing quote in a Windows argument.
+            let tail = entry.command.len() - entry.command.trim_end_matches('\\').len();
+            (program.clone(), format!("\"{}{}\"", entry.command, "\\".repeat(tail)))
+        }
+    };
+    let directory = crate::management::is_executable(Path::new(&file))
+        .then(|| Path::new(&file).parent())
+        .flatten()
+        .filter(|path| {
+            *path != Path::new(&context.base_directory)
+                && std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(Path::to_path_buf))
+                    .is_none_or(|owner| !path.starts_with(owner))
+        })
+        .map(|path| path.to_string_lossy().into_owned());
+    Ok((LaunchRequest { file, parameters }, ShowMode::Normal, directory))
+}
+
 pub fn resolve_context(
     command: &str,
     parameter: Option<&str>,

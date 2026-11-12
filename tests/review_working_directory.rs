@@ -47,7 +47,12 @@ fn absolute_conversion_preserves_the_original_target_and_working_directory() {
 #[test]
 fn relative_conversion_keeps_default_directory_semantics() {
     let (_, default, _) = fixture();
-    let mut entry = management::from_path(&default.join("bin/app.exe")).unwrap();
+    let mut entry = parse_entries(&format!(
+        "app\tFixture\t\"{}\"\t0\tnone",
+        default.join("bin/app.exe").display()
+    ))
+    .unwrap()
+    .remove(0);
     assert!(management::convert_path(&mut entry, &default, true).unwrap());
     assert!(
         entry.working_directory.is_empty(),

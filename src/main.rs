@@ -23,6 +23,8 @@ mod settings_pickers;
 #[cfg(windows)]
 mod settings_preview;
 #[cfg(windows)]
+mod shortcut_intake;
+#[cfg(windows)]
 mod skin;
 #[cfg(windows)]
 mod theme;

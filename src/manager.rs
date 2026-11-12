@@ -5,7 +5,7 @@ use crate::{
 };
 use altrun_probe::{
     Entry,
-    library::{self, ParamType, Snapshot},
+    library::{self, OpenTarget, ParamType, Snapshot},
 };
 use std::{
     cell::RefCell,
@@ -74,7 +74,9 @@ const ADD: usize = 2110;
 const DELETE: usize = 2111;
 const SAVE: usize = 2113;
 const CLOSE: usize = 2114;
-const WORKDIR: usize = 2115;
+const OPEN_WITH: usize = 2115;
+const OPEN_DEFAULT: usize = 2118;
+const OPEN_LABEL: usize = 2174;
 const ENABLED: usize = 2116;
 const ENTRY_KIND: usize = 2117;
 const ADD_FILE: usize = 2120;
@@ -127,7 +129,6 @@ static WINDOW: AtomicUsize = AtomicUsize::new(0);
 struct Editor {
     launch_enabled: bool,
     preferred_sort: usize,
-    workdir: HWND,
     enabled: HWND,
     entry_kind: HWND,
     undo: Vec<Vec<Entry>>,
@@ -136,7 +137,7 @@ struct Editor {
     selected: usize,
     dirty: bool,
     loading: bool,
-    laid_out_kind: Option<Option<library::EntryKind>>,
+    laid_out_kind: Option<(Option<library::EntryKind>, bool, bool)>,
     list: HWND,
     alias: HWND,
     name: HWND,
@@ -162,10 +163,13 @@ pub fn is_open() -> bool {
     OPEN.load(Ordering::Acquire)
 }
 pub fn focus() {
+    notify(true);
+}
+fn notify(show: bool) {
     let hwnd = WINDOW.load(Ordering::Acquire);
     if hwnd != 0 {
         unsafe {
-            PostMessageW(hwnd as HWND, FOCUS, 0, 0);
+            PostMessageW(hwnd as HWND, FOCUS, usize::from(show), 0);
         }
     }
 }
@@ -175,14 +179,15 @@ pub fn open(
     parent: HWND,
     sender: altrun_probe::library_updates::LibraryWriter,
     launch_enabled: bool,
+    show: bool,
 ) {
     if OPEN.swap(true, Ordering::AcqRel) {
-        focus();
+        notify(show);
         return;
     }
     let owner = parent as usize;
     std::thread::spawn(move || {
-        if let Err(error) = run(path, initial, owner, sender, launch_enabled) {
+        if let Err(error) = run(path, initial, owner, sender, launch_enabled, show) {
             unsafe {
                 MessageBoxW(
                     null_mut(),
@@ -240,16 +245,12 @@ fn sync_fields() {
         for hwnd in [alias, name, command, kind, delete] {
             EnableWindow(hwnd, i32::from(entry.is_some()));
         }
-        let (workdir, enabled, entry_kind) = EDITOR.with(|c| {
+        let (enabled, entry_kind) = EDITOR.with(|c| {
             let s = c.borrow();
             let s = s.as_ref().unwrap();
-            (s.workdir, s.enabled, s.entry_kind)
+            (s.enabled, s.entry_kind)
         });
         for (field, value) in [
-            (
-                workdir,
-                entry.as_ref().map_or("", |e| e.working_directory.as_str()),
-            ),
             (alias, entry.as_ref().map_or("", |e| e.alias.as_str())),
             (name, entry.as_ref().map_or("", |e| e.name.as_str())),
             (command, entry.as_ref().map_or("", |e| e.command.as_str())),
@@ -270,7 +271,17 @@ fn sync_fields() {
             entry.as_ref().map_or(0, |e| e.kind as usize),
             0,
         );
-        let index = entry.map_or(0, |e| e.param_type as usize);
+        let program = entry.as_ref().and_then(|e| match &e.open_target {
+            Some(OpenTarget::Document(Some(program))) => Some(program),
+            _ => None,
+        });
+        let hwnd = GetParent(command);
+        let label = program.map_or_else(
+            || crate::localization::tr("选择程序…"),
+            |p| crate::shortcut_intake::program_name(p).to_owned(),
+        );
+        SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
+        let index = entry.as_ref().map_or(0, |e| e.param_type as usize);
         SendMessageW(kind, CB_SETCURSEL, index, 0);
         EnableWindow(save, i32::from(dirty));
     }
@@ -320,11 +331,10 @@ fn update_draft() {
     let values = (text(alias), text(name), text(command), unsafe {
         SendMessageW(kind, CB_GETCURSEL, 0, 0)
     });
-    let (extra, enabled, entry_kind) = EDITOR.with(|c| {
+    let (enabled, entry_kind) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
-            text(s.workdir),
             unsafe { SendMessageW(s.enabled, BM_GETCHECK, 0, 0) != 0 },
             unsafe { SendMessageW(s.entry_kind, CB_GETCURSEL, 0, 0) },
         )
@@ -334,7 +344,6 @@ fn update_draft() {
         let s = state.as_mut().unwrap();
         let entry = s.draft.get_mut(s.selected)?;
         let row_changed = entry.alias != values.0 || entry.name != values.1;
-        entry.working_directory = extra;
         entry.enabled = enabled;
         entry.kind = match entry_kind {
             1 => library::EntryKind::Separator,
@@ -343,7 +352,14 @@ fn update_draft() {
         };
         entry.alias = values.0;
         entry.name = values.1;
-        entry.command = values.2;
+        entry.command = if entry.open_target.is_some() {
+            crate::shortcut_intake::plain_path(&values.2).to_owned()
+        } else {
+            values.2
+        };
+        if entry.kind != library::EntryKind::Command {
+            entry.open_target = None;
+        }
         entry.param_type = match values.3 {
             1 => ParamType::None,
             2 => ParamType::Raw,
@@ -436,10 +452,18 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return 0;
     }
     if msg == FOCUS {
+        if crate::shortcut_intake::is_open() {
+            if w != 0 {
+                unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE); }
+            }
+            return 0;
+        }
         apply_intake(hwnd);
-        unsafe {
-            ShowWindow(hwnd, SW_SHOWNORMAL);
-            SetForegroundWindow(hwnd);
+        if w != 0 {
+            unsafe {
+                ShowWindow(hwnd, SW_SHOWNORMAL);
+                SetForegroundWindow(hwnd);
+            }
         }
         return 0;
     }
@@ -510,7 +534,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().selected = selected as usize);
                     sync_fields();
                 }
-            } else if [ALIAS, NAME, COMMAND, WORKDIR].contains(&id)
+            } else if [ALIAS, NAME, COMMAND].contains(&id)
                 && notification == EN_CHANGE as usize
                 || [KIND, ENTRY_KIND].contains(&id) && notification == CBN_SELCHANGE as usize
                 || id == ENABLED && notification == BN_CLICKED as usize
@@ -529,6 +553,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
                     NEW_MENU | TOOLS_MENU => popup(hwnd, id, None),
+                    OPEN_WITH | OPEN_DEFAULT => change_open_with(hwnd, id == OPEN_DEFAULT),
                     ADD => {
                         EDITOR.with(|c| {
                             let mut state = c.borrow_mut();
@@ -541,6 +566,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 param_type: ParamType::None,
                                 id: library::new_id(),
                                 working_directory: String::new(),
+                                open_target: None,
                                 enabled: true,
                                 kind: library::EntryKind::Command,
                             });
@@ -773,6 +799,7 @@ fn run(
     parent: usize,
     sender: altrun_probe::library_updates::LibraryWriter,
     launch_enabled: bool,
+    show: bool,
 ) -> Result<(), String> {
     if !path
         .extension()
@@ -841,7 +868,6 @@ fn run(
                     "名称" => 2171,
                     "命令或路径" => 2172,
                     "参数类型" => 2173,
-                    "工作目录（留空使用默认）" => 2174,
                     _ => id,
                 }
             } else {
@@ -881,28 +907,22 @@ fn run(
                 COMMAND => (FIELD_LEFT, 317, FIELD_WIDTH, 36),
                 KIND => (FIELD_LEFT, 401, FIELD_WIDTH - 144, 220),
                 ENABLED => (FIELD_RIGHT - 128, 401, 128, 36),
-                WORKDIR => (FIELD_LEFT, 485, FIELD_WIDTH, 36),
+                OPEN_LABEL => (FIELD_LEFT, 459, FIELD_WIDTH, 21),
+                OPEN_WITH => (FIELD_LEFT, 485, FIELD_WIDTH - 144, 36),
+                OPEN_DEFAULT => (FIELD_RIGHT - 128, 485, 128, 36),
                 ENTRY_KIND => (FIELD_LEFT, 153, FIELD_WIDTH, 120),
-                _ if label == "修改后点击保存。" => (112, FOOTER_TOP + 17, 600, 25),
+                _ if label == "修改后点击保存。" => (112, FOOTER_TOP + 13, 600, 37),
                 _ if label == "管理快捷项" => (RAIL + 25, 60, FIELD_WIDTH, 41),
                 _ if label == "快捷字" => (FIELD_LEFT, 207, HALF_FIELD, 21),
                 _ if label == "名称" => (FIELD_RIGHT - HALF_FIELD, 207, HALF_FIELD, 21),
                 _ if label == "命令或路径" => (FIELD_LEFT, 291, FIELD_WIDTH, 21),
                 _ if label == "参数类型" => (FIELD_LEFT, 375, FIELD_WIDTH - 144, 21),
-                _ if label == "工作目录（留空使用默认）" => {
-                    (FIELD_LEFT, 459, FIELD_WIDTH, 21)
-                }
                 _ => (x, y, width, height),
             };
             let child = CreateWindowExW(
                 0,
                 wide(class).as_ptr(),
-                ui(if label == "工作目录（留空使用默认）" {
-                    "工作目录"
-                } else {
-                    label
-                })
-                .as_ptr(),
+                ui(label).as_ptr(),
                 WS_CHILD | WS_VISIBLE | style,
                 scaled(x, dpi),
                 scaled(y, dpi),
@@ -929,14 +949,6 @@ fn run(
                 crate::theme_ui::style_combo(child, dpi);
             } else if class == "EDIT" {
                 crate::theme_ui::style_edit(child, dpi, true);
-                if id == WORKDIR {
-                    SendMessageW(
-                        child,
-                        EM_SETCUEBANNER,
-                        0,
-                        ui("可留空，自动处理").as_ptr() as isize,
-                    );
-                }
             }
             child
         };
@@ -1023,26 +1035,9 @@ fn run(
                 wide(&crate::localization::tr(label)).as_ptr() as LPARAM,
             );
         }
-        control(
-            "STATIC",
-            "工作目录（留空使用默认）",
-            0,
-            280,
-            245,
-            464,
-            18,
-            0,
-        );
-        let workdir = control(
-            "EDIT",
-            "",
-            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            280,
-            266,
-            464,
-            24,
-            WORKDIR,
-        );
+        control("STATIC", "打开方式", 0, 0, 0, 0, 0, OPEN_LABEL);
+        control("BUTTON", "选择程序…", WS_TABSTOP, 0, 0, 0, 0, OPEN_WITH);
+        control("BUTTON", "系统默认", WS_TABSTOP, 0, 0, 0, 0, OPEN_DEFAULT);
         let enabled = control(
             "BUTTON",
             "启用",
@@ -1102,7 +1097,7 @@ fn run(
         ] {
             control("BUTTON", label, WS_TABSTOP, 0, 0, 0, 0, id);
         }
-        let status = control("STATIC", "修改后点击保存。", 0, 280, 318, 464, 40, 0);
+        let status = control("STATIC", "修改后点击保存。", SS_CENTERIMAGE as u32, 0, 0, 0, 0, 0);
         SetWindowTextW(status, wide("").as_ptr());
 
         let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
@@ -1124,7 +1119,6 @@ fn run(
             *c.borrow_mut() = Some(Editor {
                 launch_enabled,
                 preferred_sort: SORT_ALIAS,
-                workdir,
                 enabled,
                 entry_kind,
                 undo: Vec::new(),
@@ -1164,9 +1158,11 @@ fn run(
         refresh_list();
         windows_sys::Win32::UI::Shell::DragAcceptFiles(hwnd, 1);
         WINDOW.store(hwnd as usize, Ordering::Release);
-        ShowWindow(hwnd, SW_SHOWNORMAL);
-        SetForegroundWindow(hwnd);
-        SetFocus(list);
+        if show {
+            ShowWindow(hwnd, SW_SHOWNORMAL);
+            SetForegroundWindow(hwnd);
+            SetFocus(list);
+        }
         apply_intake(hwnd);
         let mut message: MSG = zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
@@ -1242,20 +1238,38 @@ pub fn enqueue(paths: Vec<PathBuf>, action: Option<(String, u16)>) {
     if let Ok(mut list) = INTAKE.lock() {
         list.extend(paths);
     }
-    if action.is_some()
+    let show = action.is_some();
+    if show
         && let Ok(mut pending) = ACTION.lock()
     {
         *pending = action;
     }
-    focus();
+    notify(show);
 }
 fn apply_intake(hwnd: HWND) {
-    let paths = INTAKE
-        .lock()
-        .map(|mut p| std::mem::take(&mut *p))
-        .unwrap_or_default();
-    if !paths.is_empty() {
-        add_paths(paths);
+    if crate::shortcut_intake::is_open() {
+        return;
+    }
+    loop {
+        let paths = INTAKE
+            .lock()
+            .map(|mut p| std::mem::take(&mut *p))
+            .unwrap_or_default();
+        if paths.is_empty() {
+            break;
+        }
+        match paths
+            .iter()
+            .map(|path| altrun_probe::management::from_path(path))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(entries) => {
+                let launch_enabled =
+                    EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled);
+                crate::shortcut_intake::open(hwnd, entries, launch_enabled, save_intake);
+            }
+            Err(error) => crate::native::show_error(&error),
+        }
     }
     let action = ACTION.lock().ok().and_then(|mut p| p.take());
     if let Some((id, action)) = action {
@@ -1281,6 +1295,77 @@ fn apply_intake(hwnd: HWND) {
                 SetFocus(field);
             }
         }
+    }
+}
+
+fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
+    let (sender, committed, parent) = EDITOR.with(|c| {
+        let mut editor = c.borrow_mut();
+        let s = editor.as_mut().unwrap();
+        let mut aliases = s.file.entries.iter().chain(&s.draft)
+            .filter(|e| e.kind == library::EntryKind::Command)
+            .map(|e| e.alias.trim().to_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+        for (index, entry) in additions.iter().enumerate() {
+            if entry.alias.trim().is_empty() {
+                return Err((index, "请输入快捷字。".into()));
+            }
+            if !aliases.insert(entry.alias.trim().to_lowercase()) {
+                return Err((index, "这个快捷字已存在，请换一个。".into()));
+            }
+        }
+        let mut committed = s.file.entries.clone();
+        committed.extend_from_slice(additions);
+        s.file.save(&committed).map_err(|error| (0, error))?;
+        s.selected = s.draft.len();
+        s.draft.extend_from_slice(additions);
+        for previous in &mut s.undo {
+            previous.extend_from_slice(additions);
+        }
+        Ok((s.sender.clone(), committed, s.parent))
+    })?;
+    sender.saved(committed);
+    unsafe { PostMessageW(parent as HWND, UPDATED, 0, 0); }
+    refresh_list();
+    let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().dirty);
+    status(if dirty {
+        "已添加快捷项。管理窗口仍有未保存的修改。"
+    } else {
+        "已添加快捷项。"
+    }, false);
+    Ok(())
+}
+
+fn change_open_with(hwnd: HWND, use_default: bool) {
+    let program = if use_default {
+        None
+    } else {
+        match crate::shortcut_intake::pick_program(hwnd) {
+            Ok(Some(path)) => Some(path),
+            Ok(None) => return,
+            Err(error) => {
+                status(&error, true);
+                return;
+            }
+        }
+    };
+    let changed = EDITOR.with(|c| {
+        let mut editor = c.borrow_mut();
+        let s = editor.as_mut().unwrap();
+        let Some(entry) = s.draft.get_mut(s.selected) else { return false; };
+        let Some(OpenTarget::Document(current)) = entry.open_target.as_mut() else {
+            return false;
+        };
+        if *current == program {
+            return false;
+        }
+        *current = program;
+        s.dirty = true;
+        true
+    });
+    if changed {
+        sync_fields();
+        status("尚未保存。保存后立即更新启动面板。", false);
     }
 }
 pub fn drop_paths(handle: windows_sys::Win32::UI::Shell::HDROP) -> Vec<PathBuf> {
@@ -1337,6 +1422,10 @@ fn add_paths(paths: Vec<PathBuf>) {
     status("已添加到草稿。请调整快捷字后保存。", false);
 }
 pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf> {
+    pick_path_filtered(hwnd, save, folder, None)
+}
+
+pub(crate) fn pick_path_filtered(hwnd: HWND, save: bool, folder: bool, filter: Option<&[u16]>) -> Option<PathBuf> {
     unsafe {
         if folder {
             use windows_sys::Win32::{System::Com::*, UI::Shell::*};
@@ -1366,6 +1455,7 @@ pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf>
         dialog.hwndOwner = hwnd;
         dialog.lpstrFile = b.as_mut_ptr();
         dialog.nMaxFile = b.len() as u32;
+        dialog.lpstrFilter = filter.map_or(std::ptr::null(), |filter| filter.as_ptr());
         dialog.Flags = OFN_NOCHANGEDIR
             | OFN_EXPLORER
             | if save {
@@ -1449,6 +1539,7 @@ fn tool(hwnd: HWND, id: usize) {
                 param_type: ParamType::None,
                 id: identity,
                 working_directory: String::new(),
+                open_target: None,
                 enabled: false,
                 kind: library::EntryKind::Separator,
             });
@@ -1716,16 +1807,13 @@ fn test_selected(hwnd: HWND) {
     };
     status("已发出测试启动请求。草稿尚未保存。", false);
     std::thread::spawn(move || {
-        if altrun_probe::launch::has_context(&entry.command) && entry.command.contains("%c") {
+        if entry.open_target.is_none()
+            && altrun_probe::launch::has_context(&entry.command)
+            && entry.command.contains("%c")
+        {
             context.clipboard = crate::native::clipboard_text();
         }
-        let result = altrun_probe::launch::resolve_context(
-            &entry.command,
-            parameter.as_deref(),
-            entry.param_type,
-            &entry.working_directory,
-            &context,
-        )
+        let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
         .and_then(|(request, mode, directory)| {
             crate::native::execute_request_with(&request, mode, directory.as_deref())
         });
@@ -2004,23 +2092,28 @@ fn sync_kind_layout() {
     let layout = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
-        let kind = s.draft.get(s.selected).map(|e| e.kind);
-        if s.laid_out_kind == Some(kind) {
+        let entry = s.draft.get(s.selected);
+        let kind = entry.map(|e| e.kind);
+        let typed = entry.is_some_and(|e| e.open_target.is_some());
+        let document = entry.is_some_and(|e| matches!(e.open_target, Some(OpenTarget::Document(_))));
+        if s.laid_out_kind == Some((kind, typed, document)) {
             return None;
         }
-        s.laid_out_kind = Some(kind);
-        Some((unsafe { GetParent(s.list) }, kind, s.name, s.dpi))
+        s.laid_out_kind = Some((kind, typed, document));
+        Some((unsafe { GetParent(s.list) }, kind, typed, document, s.name, s.dpi))
     });
-    let Some((hwnd, kind, name, dpi)) = layout else {
+    let Some((hwnd, kind, typed, document, name, dpi)) = layout else {
         return;
     };
     unsafe {
-        for id in [
-            ALIAS, COMMAND, KIND, ENABLED, WORKDIR, 2170, 2171, 2172, 2173, 2174,
+        for (id, show) in [
+            (ALIAS, true), (COMMAND, true), (KIND, !typed), (ENABLED, true),
+            (2170, true), (2171, true), (2172, true), (2173, !typed),
+            (OPEN_LABEL, document), (OPEN_WITH, document), (OPEN_DEFAULT, document),
         ] {
             ShowWindow(
                 GetDlgItem(hwnd, id as i32),
-                if kind == Some(library::EntryKind::Command) {
+                if show && kind == Some(library::EntryKind::Command) {
                     SW_SHOW
                 } else {
                     SW_HIDE

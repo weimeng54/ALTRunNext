@@ -9,7 +9,6 @@ pub const CONTENT: i32 = 214;
 pub const RIGHT: i32 = 524;
 pub const CAPTION: i32 = 42;
 pub const FOOTER: i32 = 62;
-pub const ADVANCED_WIDTH: i32 = 980;
 pub const ADVANCED_RAIL: i32 = 154;
 pub const ADVANCED_EXPANSION: i32 = 125;
 pub const PREVIEW: BoxRect = BoxRect::new(RIGHT, 180, 549, 246);
@@ -106,8 +105,8 @@ pub const CARDS: &[Card] = &[
     card(5, "管理窗口", BoxRect::new(CONTENT, 407, 859, 90), &[45]),
     card(6, "搜索与结果", BoxRect::new(177, 135, 391, 246), &[80]),
     card(6, "启动面板外观", BoxRect::new(177, 419, 391, 124), &[61]),
-    card(6, "命令执行", BoxRect::new(581, 135, 376, 201), &[120]),
-    card(6, "诊断", BoxRect::new(581, 374, 376, 63), &[]),
+    card(6, "命令执行", BoxRect::new(581, 135, 376, 82), &[]),
+    card(6, "诊断", BoxRect::new(581, 255, 376, 63), &[]),
 ];
 
 pub const fn page_height(page: usize) -> i32 {
@@ -190,8 +189,8 @@ pub fn field(key: &str) -> Placement {
         "StandardRegex" => (176, 139, 394, 34, 0, "", ""),
         "ListFormat" => (176, 396, 393, 46, 367, "格式", ""),
         "WorkingDirectory" => (580, 136, 378, 119, 352, "", ""),
-        "AllowDynamicTarget" => (580, 259, 379, 34, 0, "允许用参数指定启动目标", ""),
-        "TraceEnable" => (580, 378, 379, 34, 0, "保存启动诊断日志", ""),
+        "AllowDynamicTarget" => (580, 140, 379, 34, 0, "允许用参数指定启动目标", ""),
+        "TraceEnable" => (580, 259, 379, 34, 0, "保存启动诊断日志", ""),
         "Alpha" => (176, 420, 372, 60, 66, "不透明度", ""),
         "RoundBorderRadius" => (176, 481, 361, 62, 66, "窗口圆角", ""),
         _ => unreachable!("No layout for {key}"),

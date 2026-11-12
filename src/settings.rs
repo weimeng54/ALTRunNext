@@ -164,7 +164,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "高级",
-        hint: "设置正则语法、工作目录和诊断选项。",
+        hint: "设置搜索结果、命令执行和诊断选项。",
         keys: &[
             "StandardRegex",
             "ListFormat",
@@ -306,7 +306,7 @@ pub(crate) fn preview_edit_colours() -> (u32, u32) {
 }
 
 fn hidden_field(key: &str) -> bool {
-    matches!(key, "Theme" | "ShowSkin")
+    matches!(key, "Theme" | "ShowSkin" | "WorkingDirectory")
 }
 
 fn extra_color(key: &str) -> bool {
@@ -606,11 +606,7 @@ fn layout_page() {
     let px = |value| scaled(value, dpi);
     let image = page == 3 && background_image();
     let advanced = page == 6;
-    let width = if advanced {
-        layout::ADVANCED_WIDTH
-    } else {
-        layout::WIDTH
-    };
+    let width = layout::WIDTH;
     let (tabs, title, format_expanded, sections, extras) = EDITOR.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
@@ -632,7 +628,7 @@ fn layout_page() {
             &mut monitor,
         );
         let work = monitor.rcWork;
-        let available = (work.bottom - work.top).max(px(layout::HEIGHT));
+        let available = (work.bottom - work.top).max(1);
         let target = if page == 3 && expanded {
             936
         } else if page == 4 && more_colors {
@@ -642,10 +638,10 @@ fn layout_page() {
         } else {
             layout::page_height(page)
         };
-        let height = px(target).min(available);
-        let foot = height - px(if advanced { 57 } else { layout::FOOTER });
+        let height = px(layout::HEIGHT).min(available);
+        let foot = height - px(layout::FOOTER);
         let scroll_max = if page == 3 && expanded {
-            (px(936) - height).max(0)
+            (px(target) - height).max(0)
         } else if advanced && format_expanded {
             (px(target) - height).max(0)
         } else {
@@ -681,17 +677,13 @@ fn layout_page() {
                     SW_SHOWNA
                 },
             );
-            let (x, w) = if advanced {
-                [(17, 132), (157, 136), (301, 136), (770, 65), (843, 121)][i]
-            } else {
-                [(17, 132), (157, 136), (301, 136), (882, 65), (955, 130)][i]
-            };
+            let (x, w) = [(17, 132), (157, 136), (301, 136), (882, 65), (955, 130)][i];
             MoveWindow(
                 h,
                 px(x),
-                foot + px(if advanced { 11 } else { 13 }),
+                foot + px(13),
                 px(w),
-                px(if advanced { 34 } else { 37 }),
+                px(37),
                 0,
             );
         }
@@ -1854,7 +1846,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     let px = |v| scaled(v, dpi);
     let divider = theme::divider();
     let advanced = page == 6;
-    let foot = height - px(if advanced { 57 } else { layout::FOOTER });
+    let foot = height - px(layout::FOOTER);
     let rail = px(if advanced {
         layout::ADVANCED_RAIL
     } else {
@@ -2044,11 +2036,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 c.borrow().as_ref().map(|s| {
                     (
                         s.dpi,
-                        if s.page == 6 {
-                            layout::ADVANCED_WIDTH
-                        } else {
-                            layout::WIDTH
-                        },
+                        layout::WIDTH,
                     )
                 })
             }) else {

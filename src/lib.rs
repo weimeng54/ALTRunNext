@@ -7,6 +7,7 @@ pub struct Entry {
     pub param_type: library::ParamType,
     pub id: String,
     pub working_directory: String,
+    pub open_target: Option<library::OpenTarget>,
     pub enabled: bool,
     pub kind: library::EntryKind,
 }
@@ -18,7 +19,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
         .filter(|(_, line)| !line.trim().is_empty())
         .map(|(i, line)| {
             let fields: Vec<_> = line.split('\t').collect();
-            if !(4..=9).contains(&fields.len()) || fields[0].is_empty() {
+            if !(4..=11).contains(&fields.len()) || fields[0].is_empty() {
                 return Err(format!("Invalid dataset row {}", i + 1));
             }
             Ok(Entry {
@@ -34,6 +35,10 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| library::derived_id(fields[0], fields[1], fields[2], i)),
                 working_directory: fields.get(6).unwrap_or(&"").to_string(),
+                open_target: library::OpenTarget::parse(
+                    fields.get(9).copied().unwrap_or(""),
+                    fields.get(10).copied().unwrap_or(""),
+                )?,
                 kind: library::EntryKind::parse(fields.get(7).unwrap_or(&"command"))?,
                 enabled: match fields.get(8).copied().unwrap_or("1") {
                     "1" => true,

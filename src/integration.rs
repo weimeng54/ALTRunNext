@@ -127,7 +127,10 @@ impl Integration {
     fn shortcut(&self, enabled: bool) -> Result<(), String> {
         if !enabled {
             return match std::fs::remove_file(&self.send_to) {
-                Ok(()) => Ok(()),
+                Ok(()) => {
+                    self.notify_send_to(SHCNE_DELETE);
+                    Ok(())
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(e) => Err(e.to_string()),
             };
@@ -175,17 +178,30 @@ impl Integration {
         .status()
         .map_err(|e| e.to_string())?;
         if status.success() && self.send_to.exists() {
+            self.notify_send_to(SHCNE_CREATE);
             Ok(())
         } else {
             Err("创建“发送到”快捷方式失败".into())
         }
     }
+    fn notify_send_to(&self, event: i32) {
+        let path = wide(&self.send_to.to_string_lossy());
+        unsafe {
+            SHChangeNotify(event, SHCNF_PATHW, path.as_ptr().cast(), std::ptr::null());
+        }
+    }
     pub fn apply(&self, startup: bool, send_to: bool) -> Result<(), String> {
         let previous = self.status()?;
-        self.startup(startup)?;
-        if let Err(e) = self.shortcut(send_to) {
-            let _ = self.startup(previous.0);
-            return Err(e);
+        if previous.0 != startup {
+            self.startup(startup)?;
+        }
+        if previous.1 != send_to
+            && let Err(error) = self.shortcut(send_to)
+        {
+            if previous.0 != startup {
+                let _ = self.startup(previous.0);
+            }
+            return Err(error);
         }
         Ok(())
     }
