@@ -129,10 +129,12 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/altrun-probe.exe dist/ALTRun.exe
           Copy-Item assets/shortcuts.tsv dist/
+          Copy-Item assets/Popup.wav dist/
           $metadata = cargo metadata --format-version 1 --locked --offline | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $notices = 'dist/THIRD-PARTY-NOTICES.txt'
           'ALTRun third-party notices' | Set-Content -Encoding utf8 $notices
+          'Popup.wav — original ALTRun sound (etworker), https://github.com/etworker/ALTRun/blob/master/Bin/Popup.wav' | Add-Content -Encoding utf8 $notices
           foreach ($package in $metadata.packages | Where-Object { $_.source }) {
             $source = Split-Path $package.manifest_path
             $licenses = @(Get-ChildItem $source -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)([-.]|$)' })
@@ -142,7 +144,7 @@ jobs:
               Get-Content -Raw -LiteralPath $license.FullName | Add-Content -Encoding utf8 $notices
             }
           }
-          Compress-Archive -LiteralPath @('dist/ALTRun.exe', 'dist/shortcuts.tsv', $notices) -DestinationPath target/ALTRun-Win11-x64.zip
+          Compress-Archive -LiteralPath @('dist/ALTRun.exe', 'dist/shortcuts.tsv', 'dist/Popup.wav', $notices) -DestinationPath target/ALTRun-Win11-x64.zip
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
           @(Get-ChildItem dist -Recurse -File | ForEach-Object { @{Name=[IO.Path]::GetRelativePath((Join-Path $PWD dist),$_.FullName);Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -1537,20 +1537,61 @@ fn draw(item: &DRAWITEMSTRUCT) {
             );
         } else if id == TITLE_CLOSE {
             theme_ui::caption_close(item, EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi));
-        } else if id == FORMAT_DISCLOSE {
+        } else if matches!(id, FORMAT_DISCLOSE | MORE_PANEL | MORE_COLORS) {
             let (dpi, expanded) = EDITOR.with(|c| {
                 let state = c.borrow();
                 let s = state.as_ref().unwrap();
-                (s.dpi, s.format_expanded)
+                let expanded = match id {
+                    FORMAT_DISCLOSE => s.format_expanded,
+                    MORE_PANEL => s.more_panel,
+                    _ => s.more_colors,
+                };
+                (s.dpi, expanded)
             });
-            theme_ui::fill(item.hDC, &item.rcItem, theme::control_surface());
-            let mut rect = item.rcItem;
-            rect.left += scaled(14, dpi);
-            draw_button_text(item, rect, theme::muted(), 0);
+            let rect = item.rcItem;
+            let standalone = id == MORE_COLORS;
+            let pressed = item.itemState & ODS_SELECTED != 0;
+            let focused = item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0;
+            let background = if standalone {
+                theme::surface()
+            } else {
+                theme::control_surface()
+            };
+            theme_ui::fill(item.hDC, &rect, background);
+            if standalone || pressed || focused {
+                theme_ui::rounded(
+                    item.hDC,
+                    rect,
+                    scaled(10, dpi),
+                    if pressed {
+                        theme::selection()
+                    } else {
+                        theme::control_surface()
+                    },
+                    if focused {
+                        theme::accent()
+                    } else {
+                        theme::divider()
+                    },
+                );
+            }
+            let compact = id == FORMAT_DISCLOSE;
+            let mut label = rect;
+            label.left += scaled(if compact { 18 } else { 31 }, dpi);
+            draw_button_text(
+                item,
+                label,
+                if compact {
+                    theme::muted()
+                } else {
+                    theme::text()
+                },
+                0,
+            );
             theme_ui::chevron(
                 item.hDC,
                 POINT {
-                    x: item.rcItem.left + scaled(5, dpi),
+                    x: rect.left + scaled(if compact { 8 } else { 19 }, dpi),
                     y: (rect.top + rect.bottom) / 2,
                 },
                 if expanded {
@@ -1561,56 +1602,6 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 dpi,
                 theme::muted(),
             );
-            if item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0 {
-                unsafe {
-                    DrawFocusRect(item.hDC, &item.rcItem);
-                }
-            }
-        } else if matches!(id, MORE_PANEL | MORE_COLORS) {
-            let state = EDITOR.with(|c| {
-                c.borrow()
-                    .as_ref()
-                    .map(|s| (s.dpi, s.more_panel, s.more_colors))
-            });
-            let Some((dpi, panel, colors)) = state else {
-                return;
-            };
-            theme_ui::fill(
-                item.hDC,
-                &item.rcItem,
-                if item.itemState & ODS_SELECTED != 0 {
-                    theme::selection()
-                } else {
-                    theme::control_surface()
-                },
-            );
-            {
-                let mut label = item.rcItem;
-                label.left += scaled(31, dpi);
-                draw_button_text(item, label, theme::text(), 0);
-                theme_ui::chevron(
-                    item.hDC,
-                    POINT {
-                        x: item.rcItem.left + scaled(19, dpi),
-                        y: (label.top + label.bottom) / 2,
-                    },
-                    if (id == MORE_PANEL && panel) || (id == MORE_COLORS && colors) {
-                        theme_ui::Chevron::Down
-                    } else {
-                        theme_ui::Chevron::Right
-                    },
-                    dpi,
-                    theme::muted(),
-                );
-            }
-            if item.itemState & ODS_FOCUS != 0 {
-                let mut focus = item.rcItem;
-                unsafe {
-                    let inset = scaled(2, dpi);
-                    InflateRect(&mut focus, -inset, -inset);
-                    DrawFocusRect(item.hDC, &focus);
-                }
-            }
         } else {
             let background = if (2310..=2314).contains(&id) {
                 theme::chrome()

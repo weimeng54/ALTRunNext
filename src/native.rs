@@ -40,9 +40,9 @@ type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type BackdropResult = (crate::skin::Request, Result<crate::skin::Bitmap, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
-enum PopupSound {
-    System,
-    File(std::path::PathBuf),
+struct PopupSound {
+    path: std::path::PathBuf,
+    use_bundled_fallback: bool,
 }
 
 struct State {
@@ -1886,15 +1886,23 @@ pub fn run() -> Result<(), String> {
             while let Ok(newer) = sound_tasks.try_recv() {
                 sound = newer;
             }
-            let (source, flags) = match sound {
-                PopupSound::System => ("SystemAsterisk".to_owned(), SND_ALIAS),
-                PopupSound::File(path) => (
-                    path.to_string_lossy().into_owned(),
-                    SND_FILENAME | SND_NODEFAULT,
-                ),
-            };
+            let source = wide(&sound.path.to_string_lossy());
             unsafe {
-                PlaySoundW(wide(&source).as_ptr(), null_mut(), flags | SND_ASYNC);
+                if PlaySoundW(
+                    source.as_ptr(),
+                    null_mut(),
+                    SND_FILENAME | SND_NODEFAULT | SND_ASYNC,
+                ) == 0
+                    && sound.use_bundled_fallback
+                {
+                    // The asynchronous WinMM player needs the buffer to outlive playback.
+                    let wav = include_bytes!("../assets/Popup.wav");
+                    PlaySoundW(
+                        wav.as_ptr().cast(),
+                        null_mut(),
+                        SND_MEMORY | SND_NODEFAULT | SND_ASYNC,
+                    );
+                }
             }
         }
     });
@@ -3054,14 +3062,11 @@ fn popup_sound() {
             return;
         }
         let file = s.preferences.get("PopupFileName");
-        let path = std::path::Path::new(&file);
-        let sound = if file.is_empty() {
-            PopupSound::System
-        } else if path.is_absolute() {
-            PopupSound::File(path.into())
-        } else {
-            let data_directory = s.data_path.parent().unwrap_or(std::path::Path::new("."));
-            PopupSound::File(data_directory.join(path))
+        let data_directory = s.data_path.parent().unwrap_or(std::path::Path::new("."));
+        let sound = PopupSound {
+            path: data_directory.join(&file),
+            use_bundled_fallback: file
+                .eq_ignore_ascii_case(altrun_probe::preferences::DEFAULT_POPUP_SOUND),
         };
         let _ = s.sound_sender.try_send(sound);
     });

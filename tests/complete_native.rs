@@ -310,7 +310,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     assert_ne!(unsafe { RegisterHotKey(null_mut(), 22221, 3, 0x78) }, 0);
     std::fs::write(
         &settings,
-        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\nTheme=dark\nMaxRows=2\nShowShortCutButton=1\nShowCloseButton=1\n[Legacy]\nExtraSetting=keep\n",
+        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\nTheme=dark\nMaxRows=2\n[Legacy]\nExtraSetting=keep\n",
     )
     .unwrap();
     let shell = altrun_probe::safe_notepad_path()
@@ -357,6 +357,13 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             &mut suggested as *mut RECT as LPARAM,
         );
         let button = GetDlgItem(launcher, 18001);
+        for id in [18003, 18005, 18001] {
+            assert_ne!(
+                IsWindowVisible(GetDlgItem(launcher, id)),
+                0,
+                "default button {id}"
+            );
+        }
         assert_eq!(
             GetWindowLongW(button, GWL_STYLE) as u32 & 15,
             BS_OWNERDRAW as u32
@@ -411,6 +418,11 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             !dialog.is_null() && IsWindowVisible(dialog) != 0
         });
         assert_ne!(IsWindowVisible(setting(dialog, "AddToSendTo")), 0);
+        assert_eq!(
+            SendMessageW(setting(dialog, "PlayPopupNotify"), BM_GETCHECK, 0, 0),
+            1
+        );
+        assert_eq!(text(setting(dialog, "PopupFileName")), "Popup.wav");
         assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
         assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
         let size = |rect: RECT| (rect.right - rect.left, rect.bottom - rect.top);
