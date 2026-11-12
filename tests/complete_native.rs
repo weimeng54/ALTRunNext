@@ -431,10 +431,15 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         DeleteObject(region);
         command(dialog, 2314);
         wait(|| IsWindow(dialog) == 0);
-        command(launcher, 18005);
         wait(|| {
             dialog = window("ALTRun.Native.Settings", pid);
-            !dialog.is_null() && IsWindowVisible(dialog) != 0
+            if dialog.is_null() {
+                // A closed window's UI thread can still be releasing its slot.
+                command(launcher, 18005);
+                false
+            } else {
+                IsWindowVisible(dialog) != 0
+            }
         });
         select_page(dialog, 0);
         click_tab_and_wait_for_pixels(dialog, 2, "NumberKey", "settings-live-search");
