@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::{DataExchange::*, Memory::*};
+use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
 #[repr(C)]
@@ -334,6 +335,27 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     unsafe {
         let edit = GetDlgItem(launcher, 1001);
         let list = GetDlgItem(launcher, 1002);
+        let original_dpi = GetDpiForWindow(launcher) as usize;
+        let mut suggested = bounds(launcher);
+        SendMessageW(
+            launcher,
+            WM_DPICHANGED,
+            120 | (120 << 16),
+            &mut suggested as *mut RECT as LPARAM,
+        );
+        let mut list_client = RECT::default();
+        assert_ne!(GetClientRect(list, &mut list_client), 0);
+        assert_eq!(SendMessageW(list, LB_GETITEMHEIGHT, 0, 0), 28);
+        assert_eq!(
+            list_client.bottom, 56,
+            "125% should display two complete rows"
+        );
+        SendMessageW(
+            launcher,
+            WM_DPICHANGED,
+            original_dpi | (original_dpi << 16),
+            &mut suggested as *mut RECT as LPARAM,
+        );
         let button = GetDlgItem(launcher, 18001);
         assert_eq!(
             GetWindowLongW(button, GWL_STYLE) as u32 & 15,

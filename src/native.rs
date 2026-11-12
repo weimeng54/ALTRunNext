@@ -247,6 +247,7 @@ fn render_hits() {
             s.title,
         )
     });
+    let row_pixels = scaled(row, dpi).max(1);
     unsafe {
         let mut monitor: MONITORINFO = zeroed();
         monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
@@ -257,11 +258,9 @@ fn render_hits() {
         {
             width =
                 width.min(((monitor.rcWork.right - monitor.rcWork.left) * 96 / dpi - 2).max(160));
-            max_rows = max_rows.min(
-                (((monitor.rcWork.bottom - monitor.rcWork.top) * 96 / dpi - theme::BASE_HEIGHT)
-                    / row)
-                    .max(1),
-            );
+            let available =
+                monitor.rcWork.bottom - monitor.rcWork.top - scaled(theme::BASE_HEIGHT, dpi);
+            max_rows = max_rows.min((available / row_pixels).max(1));
         }
     }
     let labels = STATE.with(|c| {
@@ -280,7 +279,7 @@ fn render_hits() {
             SendMessageW(list, LB_ADDSTRING, 0, wide(&label).as_ptr() as isize);
         }
         SendMessageW(list, LB_SETCURSEL, 0, 0);
-        let height = scaled((count.max(1) as i32).min(max_rows) * row, dpi);
+        let height = (count.max(1) as i32).min(max_rows) * row_pixels;
         let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
         SetWindowPos(
             empty,
