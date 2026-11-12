@@ -65,3 +65,46 @@ fn network_working_directories_are_unconfirmed_not_missing() {
         Validation::Unconfirmed(_)
     ));
 }
+
+#[test]
+fn portable_target_resolution_does_not_set_the_process_working_directory() {
+    use altrun_probe::{launch::LaunchContext, launch::resolve_context, library::ParamType};
+    let (_, base, explicit) = fixture();
+    let base = base.join("bin");
+    let mut context = LaunchContext {
+        base_directory: base.to_string_lossy().into_owned(),
+        ..LaunchContext::default()
+    };
+    for command in ["./app.exe", "app.exe", "app"] {
+        let (request, _, directory) =
+            resolve_context(command, None, ParamType::None, "", &context).unwrap();
+        assert_eq!(
+            std::fs::canonicalize(request.file).unwrap(),
+            std::fs::canonicalize(base.join("app.exe")).unwrap()
+        );
+        assert_eq!(directory, None);
+    }
+    for command in ["notepad.exe", "https://example.com", "shell:Downloads"] {
+        let (request, _, directory) =
+            resolve_context(command, None, ParamType::None, "", &context).unwrap();
+        assert_eq!(request.file, command);
+        assert_eq!(directory, None);
+    }
+    context.base_is_working_directory = true;
+    let (_, _, directory) =
+        resolve_context("./app.exe", None, ParamType::None, "", &context).unwrap();
+    assert_eq!(directory.as_deref(), base.to_str());
+    let (request, _, directory) = resolve_context(
+        "./bin/app.exe",
+        None,
+        ParamType::None,
+        explicit.to_str().unwrap(),
+        &context,
+    )
+    .unwrap();
+    assert_eq!(directory.as_deref(), explicit.to_str());
+    assert_eq!(
+        std::fs::canonicalize(request.file).unwrap(),
+        std::fs::canonicalize(explicit.join("bin/app.exe")).unwrap()
+    );
+}

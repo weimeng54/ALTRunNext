@@ -2741,7 +2741,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     (0, "结果显示样式", 189, 225, 367, 22),
                     (
                         ADVANCED_NOTE,
-                        "快捷项没有单独指定目录时使用。留空则使用快捷项数据文件所在的文件夹。",
+                        "可留空。只在程序或脚本需要从指定文件夹查找相对文件时填写。",
                         593,
                         170,
                         352,
@@ -3094,7 +3094,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                         handle,
                                         EM_SETCUEBANNER,
                                         0,
-                                        ui("快捷项数据文件所在的文件夹").as_ptr() as isize,
+                                        ui("可留空，自动处理").as_ptr() as isize,
                                     );
                                 }
                                 handle

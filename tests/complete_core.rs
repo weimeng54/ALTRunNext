@@ -102,6 +102,7 @@ fn templates_preserve_context_literals_and_window_display_flags() {
         window_title: "编辑器".into(),
         window_class: "EditorClass".into(),
         base_directory: r"D:\Work".into(),
+        base_is_working_directory: true,
         allow_dynamic_target: false,
     };
     let (request, show, directory) = launch::resolve_context(

@@ -13,6 +13,7 @@ pub struct LaunchContext {
     pub window_title: String,
     pub window_class: String,
     pub base_directory: String,
+    pub base_is_working_directory: bool,
     pub allow_dynamic_target: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,16 +184,34 @@ pub fn resolve_context(
     };
     result.file = substitute(&result.file)?;
     result.parameters = substitute(&result.parameters)?;
-    if let Some(base) = &directory
-        && explicit_path(&result.file)
-        && !Path::new(&result.file).is_absolute()
-    {
-        result.file = base.join(&result.file).to_string_lossy().into_owned();
+    if let Some(base) = &directory {
+        let target = Path::new(&result.file);
+        if explicit_path(&result.file) && !target.is_absolute() {
+            result.file = base.join(target).to_string_lossy().into_owned();
+        } else if !result.file.contains(['/', '\\', ':'])
+            && !is_network_path(&base.to_string_lossy())
+            && matches!(
+                target.components().next(),
+                Some(std::path::Component::Normal(_))
+            )
+        {
+            // Resolve local bare names before assigning a different directory to the child.
+            let local = base.join(target);
+            if local.exists() {
+                result.file = local.to_string_lossy().into_owned();
+            } else if local.extension().is_none() && local.with_extension("exe").is_file() {
+                result.file = local.with_extension("exe").to_string_lossy().into_owned();
+            }
+        }
     }
+    let has_working_directory =
+        !working_directory.trim().is_empty() || context.base_is_working_directory;
     Ok((
         result,
         mode,
-        directory.map(|d| d.to_string_lossy().into_owned()),
+        directory
+            .filter(|_| has_working_directory)
+            .map(|d| d.to_string_lossy().into_owned()),
     ))
 }
 

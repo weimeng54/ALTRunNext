@@ -119,6 +119,7 @@ static TEST_CONTEXT: std::sync::Mutex<altrun_probe::launch::LaunchContext> =
         window_title: String::new(),
         window_class: String::new(),
         base_directory: String::new(),
+        base_is_working_directory: false,
         allow_dynamic_target: false,
     });
 pub fn configure_context(context: altrun_probe::launch::LaunchContext) {
@@ -935,7 +936,7 @@ fn run(
                         child,
                         EM_SETCUEBANNER,
                         0,
-                        ui("使用默认工作目录").as_ptr() as isize,
+                        ui("可留空，自动处理").as_ptr() as isize,
                     );
                 }
             }

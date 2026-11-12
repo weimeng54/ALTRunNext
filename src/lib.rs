@@ -289,6 +289,11 @@ pub fn advance(selected: usize, length: usize, delta: isize) -> usize {
 
 #[cfg(windows)]
 pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
+    Ok(windows_system_directory()?.join("notepad.exe"))
+}
+
+#[cfg(windows)]
+pub fn windows_system_directory() -> Result<std::path::PathBuf, String> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
     let mut buffer = vec![0_u16; 512];
@@ -302,7 +307,7 @@ pub fn safe_notepad_path() -> Result<std::path::PathBuf, String> {
             continue;
         }
         let directory = std::ffi::OsString::from_wide(&buffer[..size as usize]);
-        return Ok(std::path::PathBuf::from(directory).join("notepad.exe"));
+        return Ok(std::path::PathBuf::from(directory));
     }
 }
 #[cfg(windows)]

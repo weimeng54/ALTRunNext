@@ -699,7 +699,16 @@ pub(crate) fn execute_request_with(
     use windows_sys::Win32::System::Com::*;
     let file = wide(&request.file);
     let parameters = wide(&request.parameters);
-    let directory = directory.map(wide);
+    let directory = match directory {
+        Some(directory) => wide(directory),
+        None => {
+            let profile = std::env::var_os("USERPROFILE")
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute() && path.is_dir());
+            let directory = profile.map_or_else(altrun_probe::windows_system_directory, Ok)?;
+            wide(&directory.to_string_lossy())
+        }
+    };
     unsafe {
         let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
         if hr < 0 {
@@ -713,7 +722,7 @@ pub(crate) fn execute_request_with(
         info.lpVerb = verb.as_ptr();
         info.lpFile = file.as_ptr();
         info.lpParameters = parameters.as_ptr();
-        info.lpDirectory = directory.as_ref().map_or(std::ptr::null(), |d| d.as_ptr());
+        info.lpDirectory = directory.as_ptr();
         info.nShow = match mode {
             altrun_probe::launch::ShowMode::Normal => SW_SHOWNORMAL,
             altrun_probe::launch::ShowMode::Maximized => SW_SHOWMAXIMIZED,
@@ -1864,7 +1873,7 @@ pub fn run() -> Result<(), String> {
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("settings.ini"))?;
     drop(settings_file);
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
-    let base_directory = working_directory(&preferences, &data_path);
+    let (base_directory, base_is_working_directory) = working_directory(&preferences, &data_path);
     let allow_dynamic_target = preferences.flag("AllowDynamicTarget");
     let (state_file, state_text) =
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("state.tsv"))?;
@@ -2079,6 +2088,7 @@ pub fn run() -> Result<(), String> {
                 last_key: 0,
                 context: altrun_probe::launch::LaunchContext {
                     base_directory,
+                    base_is_working_directory,
                     allow_dynamic_target,
                     ..Default::default()
                 },
@@ -2247,13 +2257,13 @@ pub fn run() -> Result<(), String> {
 fn working_directory(
     preferences: &altrun_probe::preferences::Preferences,
     data_path: &std::path::Path,
-) -> String {
+) -> (String, bool) {
     let parent = data_path.parent().unwrap_or(std::path::Path::new("."));
     let configured = preferences.get("WorkingDirectory");
     if configured.is_empty() {
-        parent.to_string_lossy().into_owned()
+        (parent.to_string_lossy().into_owned(), false)
     } else {
-        parent.join(configured).to_string_lossy().into_owned()
+        (parent.join(configured).to_string_lossy().into_owned(), true)
     }
 }
 
@@ -2587,7 +2597,10 @@ fn apply_settings_messages() {
                         s.usage.positions.remove("launcher");
                     }
                     s.preferences = prefs;
-                    s.context.base_directory = working_directory(&s.preferences, &s.data_path);
+                    (
+                        s.context.base_directory,
+                        s.context.base_is_working_directory,
+                    ) = working_directory(&s.preferences, &s.data_path);
                     s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
                     crate::manager::configure_context(s.context.clone());
                     s.hotkeys = keys;
