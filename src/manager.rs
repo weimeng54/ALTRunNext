@@ -19,7 +19,11 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Controls::Dialogs::*, Controls::*, HiDpi::*, Input::KeyboardAndMouse::*,
+        Controls::Dialogs::*,
+        Controls::*,
+        HiDpi::*,
+        Input::KeyboardAndMouse::*,
+        Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
@@ -425,15 +429,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return unsafe { DefWindowProcW(hwnd, msg, w, l) };
     }
     match msg {
-        WM_ERASEBKGND => {
-            let brush = EDITOR.with(|c| c.borrow().as_ref().unwrap().background);
-            let mut rect: RECT = unsafe { zeroed() };
-            unsafe {
-                GetClientRect(hwnd, &mut rect);
-                FillRect(w as HDC, &rect, brush);
-            }
-            1
-        }
+        WM_ERASEBKGND => 1,
         WM_ACTIVATE => {
             unsafe {
                 InvalidateRect(GetDlgItem(hwnd, CAPTION_CLOSE as i32), std::ptr::null(), 1);
@@ -605,10 +601,50 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             library::EntryKind::Remark => TYPE_REMARK,
                         })
                     });
-                    crate::theme_ui::button(
-                        d,
-                        d.CtlID as usize == SAVE || selected_type == Some(d.CtlID as usize),
-                    );
+                    if [TYPE_COMMAND, TYPE_SEPARATOR, TYPE_REMARK].contains(&(d.CtlID as usize)) {
+                        let selected = selected_type == Some(d.CtlID as usize);
+                        let color = if selected {
+                            theme::selection()
+                        } else {
+                            theme::paper()
+                        };
+                        let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+                        crate::theme_ui::fill(d.hDC, &d.rcItem, theme::paper());
+                        crate::theme_ui::rounded(
+                            d.hDC,
+                            d.rcItem,
+                            scaled(8, dpi),
+                            color,
+                            if d.itemState & ODS_FOCUS != 0 {
+                                theme::accent()
+                            } else if selected {
+                                theme::border()
+                            } else {
+                                color
+                            },
+                        );
+                        unsafe {
+                            let font = SendMessageW(d.hwndItem, WM_GETFONT, 0, 0) as HFONT;
+                            let old = SelectObject(d.hDC, font);
+                            crate::theme_ui::line_text(
+                                d.hDC,
+                                d.rcItem,
+                                &text(d.hwndItem),
+                                theme::text(),
+                                DT_CENTER,
+                            );
+                            SelectObject(d.hDC, old);
+                        }
+                    } else {
+                        let background = if [DELETE, CLOSE, SAVE, NEW_MENU, TOOLS_MENU]
+                            .contains(&(d.CtlID as usize))
+                        {
+                            theme::chrome()
+                        } else {
+                            theme::surface()
+                        };
+                        crate::theme_ui::button_on(d, d.CtlID as usize == SAVE, background);
+                    }
                 }
                 return 1;
             }
@@ -683,8 +719,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let id = GetDlgCtrlID(l as HWND) as usize;
                 let form = (2170..=2174).contains(&id)
                     || [TYPE_LABEL, NOTE_LABEL, SEPARATOR_HELP].contains(&id);
-                let color = if msg != WM_CTLCOLORSTATIC || form {
+                let color = if msg != WM_CTLCOLORSTATIC {
                     theme::paper()
+                } else if form {
+                    theme::control_surface()
                 } else if l as HWND == s.status {
                     theme::chrome()
                 } else {
@@ -745,12 +783,7 @@ fn run(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
             ui("ALTRun · 管理快捷项").as_ptr(),
-            WS_OVERLAPPED
-                | WS_CAPTION
-                | WS_SYSMENU
-                | WS_MINIMIZEBOX
-                | WS_THICKFRAME
-                | WS_MAXIMIZEBOX,
+            WS_POPUP | WS_THICKFRAME | WS_SYSMENU,
             450,
             180,
             760,
@@ -778,8 +811,8 @@ fn run(
         let work = monitor.rcWork;
         theme::frame(hwnd);
         let dpi = (GetDpiForWindow(hwnd).max(96) as i32)
-            .min(((work.right - work.left - 64) * 96 / 760).max(72))
-            .min(((work.bottom - work.top - 80) * 96 / 420).max(72));
+            .min(((work.right - work.left - 64) * 96 / 980).max(48))
+            .min(((work.bottom - work.top - 80) * 96 / 571).max(48));
         let mut outer = RECT {
             left: 0,
             top: 0,
@@ -803,7 +836,7 @@ fn run(
             height,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        let font = make_font(13, 400, "Microsoft YaHei UI", dpi);
+        let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(27, 600, "Microsoft YaHei UI", dpi);
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
             let id = if class == "STATIC" && id == 0 {
@@ -822,6 +855,8 @@ fn run(
                 (style & !15) | BS_OWNERDRAW as u32
             } else if class == "COMBOBOX" {
                 style | (CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32
+            } else if class == "EDIT" {
+                style & !WS_BORDER
             } else {
                 style
             };
@@ -859,7 +894,12 @@ fn run(
             let child = CreateWindowExW(
                 0,
                 wide(class).as_ptr(),
-                wide(&crate::localization::tr(label)).as_ptr(),
+                ui(if label == "工作目录（留空使用默认）" {
+                    "工作目录"
+                } else {
+                    label
+                })
+                .as_ptr(),
                 WS_CHILD | WS_VISIBLE | style,
                 scaled(x, dpi),
                 scaled(y, dpi),
@@ -874,7 +914,15 @@ fn run(
             if class == "COMBOBOX" {
                 crate::theme_ui::style_combo(child, dpi);
             } else if class == "EDIT" {
-                crate::theme_ui::style_edit(child, dpi, false);
+                crate::theme_ui::style_edit(child, dpi, true);
+                if id == WORKDIR {
+                    SendMessageW(
+                        child,
+                        EM_SETCUEBANNER,
+                        0,
+                        ui("使用默认工作目录").as_ptr() as isize,
+                    );
+                }
             }
             child
         };
@@ -888,8 +936,7 @@ fn run(
         let list = control(
             "LISTBOX",
             "",
-            WS_BORDER
-                | WS_VSCROLL
+            WS_VSCROLL
                 | WS_TABSTOP
                 | LBS_NOTIFY as u32
                 | LBS_OWNERDRAWFIXED as u32
@@ -902,6 +949,7 @@ fn run(
             LIST,
         );
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(31, dpi) as LPARAM);
+        SetWindowSubclass(list, Some(list_scrollbar_proc), 1, 0);
         control("STATIC", "快捷字", 0, 280, 52, 210, 20, 0);
         control("STATIC", "名称", 0, 512, 52, 232, 20, 0);
         let alias = control(
@@ -1618,12 +1666,11 @@ fn resize(hwnd: HWND) {
     unsafe {
         GetClientRect(hwnd, &mut client);
     }
-    let (layout, dpi, base) = EDITOR.with(|c| {
+    let (layout, base) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.layout.clone(), s.dpi, s.client_size)
+        (s.layout.clone(), s.client_size)
     });
-    let _ = dpi;
     for child in layout {
         let r = child.rectangle;
         unsafe {
@@ -1939,6 +1986,13 @@ fn paint_manager(hwnd: HWND) {
         crate::theme_ui::fill(dc, &rect(0, 0, 980, 42), theme::chrome());
         crate::theme_ui::fill(dc, &rect(0, 42, 332, 472), theme::chrome());
         crate::theme_ui::fill(dc, &rect(0, 514, 980, 57), theme::chrome());
+        crate::theme_ui::rounded(
+            dc,
+            rect(16, 106, 302, 375),
+            scaled(16, dpi),
+            theme::control_surface(),
+            theme::divider(),
+        );
         let kind = EDITOR.with(|c| {
             let s = c.borrow();
             let s = s.as_ref().unwrap();
@@ -1957,15 +2011,35 @@ fn paint_manager(hwnd: HWND) {
                         164
                     },
                 ),
-                scaled(8, dpi),
+                scaled(16, dpi),
+                theme::control_surface(),
+                theme::divider(),
+            );
+            crate::theme_ui::rounded(
+                dc,
+                rect(373, 153, 565, 37),
+                scaled(14, dpi),
                 theme::paper(),
-                theme::muted(),
+                theme::border(),
             );
         }
+        for line in [
+            rect(0, 42, 980, 1),
+            rect(332, 42, 1, 472),
+            rect(0, 513, 980, 1),
+            rect(17, 136, 300, 1),
+        ] {
+            crate::theme_ui::fill(dc, &line, theme::divider());
+        }
+        let mark = rect(16, 12, 18, 18);
+        crate::theme_ui::rounded(dc, mark, scaled(10, dpi), theme::accent(), theme::accent());
+        let old = SelectObject(dc, font);
+        crate::theme_ui::line_text(dc, mark, ">_", theme::on_accent(), DT_CENTER);
+        SelectObject(dc, old);
         SetBkMode(dc, TRANSPARENT as i32);
         SetTextColor(dc, theme::text());
         SelectObject(dc, font);
-        let mut caption = rect(16, 0, 900, 42);
+        let mut caption = rect(44, 0, 900, 42);
         DrawTextW(
             dc,
             ui("ALTRun · 管理快捷项").as_ptr(),
@@ -1981,17 +2055,40 @@ fn paint_manager(hwnd: HWND) {
             &mut library_title,
             DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
         );
-        let mut columns = rect(28, 106, 282, 31);
-        SetTextColor(dc, theme::muted());
-        DrawTextW(
+        crate::theme_ui::line_text(
             dc,
-            ui("快捷字                 名称").as_ptr(),
-            -1,
-            &mut columns,
-            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+            rect(28, 106, 115, 31),
+            &crate::localization::tr("快捷字"),
+            theme::muted(),
+            0,
+        );
+        crate::theme_ui::line_text(
+            dc,
+            rect(150, 106, 162, 31),
+            &crate::localization::tr("名称"),
+            theme::muted(),
+            0,
         );
         EndPaint(hwnd, &ps);
     }
+}
+
+unsafe extern "system" fn list_scrollbar_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    _: usize,
+) -> LRESULT {
+    let result = unsafe { DefSubclassProc(hwnd, msg, w, l) };
+    if matches!(
+        msg,
+        WM_NCPAINT | WM_PAINT | WM_VSCROLL | WM_NCMOUSEMOVE | WM_NCLBUTTONDOWN
+    ) {
+        crate::native::paint_scrollbar(hwnd);
+    }
+    result
 }
 
 fn kind_visibility() {

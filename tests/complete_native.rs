@@ -222,6 +222,17 @@ fn settings_design(hwnd: HWND) {
             SendMessageW(title, WM_KEYDOWN, 0x28, 0);
             assert_eq!(text(title), size.to_string());
             command(hwnd, 2343);
+            assert_eq!(IsWindowVisible(setting(hwnd, "TitleColor")), 0);
+            assert_ne!(IsWindowVisible(setting(hwnd, "UseCustomTextColor")), 0);
+            assert_ne!(
+                IsWindowVisible(GetDlgItem(
+                    hwnd,
+                    (2500 + setting_index("TitleColor")) as i32
+                )),
+                0
+            );
+            native_snapshot::save(hwnd, &format!("settings-colors-{theme}"));
+            command(hwnd, 2343);
             select_page(hwnd, 6);
             let format = GetDlgItem(hwnd, 2356);
             let raw = setting(hwnd, "ListFormat");
@@ -251,17 +262,6 @@ fn settings_design(hwnd: HWND) {
             assert_eq!(text(alpha), "100");
             set(raw, "%-25s| %s");
             command(hwnd, 2358);
-            assert_eq!(IsWindowVisible(setting(hwnd, "TitleColor")), 0);
-            assert_ne!(IsWindowVisible(setting(hwnd, "UseCustomTextColor")), 0);
-            assert_ne!(
-                IsWindowVisible(GetDlgItem(
-                    hwnd,
-                    (2500 + setting_index("TitleColor")) as i32
-                )),
-                0
-            );
-            native_snapshot::save(hwnd, &format!("settings-colors-{theme}"));
-            command(hwnd, 2343);
         }
         for (page, name) in pages.iter().enumerate() {
             select_page(hwnd, page);

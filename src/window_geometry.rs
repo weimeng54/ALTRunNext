@@ -70,7 +70,6 @@ pub fn fit(hwnd: HWND, width: i32, height: i32, remembered: Option<(i32, i32, i3
 pub struct Child {
     pub handle: usize,
     pub rectangle: RECT,
-    pub id: usize,
 }
 pub fn children(hwnd: HWND) -> Vec<Child> {
     struct Request {
@@ -95,7 +94,6 @@ pub fn children(hwnd: HWND) -> Vec<Child> {
                 request.children.push(Child {
                     handle: hwnd as usize,
                     rectangle: rect,
-                    id: GetDlgCtrlID(hwnd) as usize,
                 });
             }
         }

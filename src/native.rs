@@ -2967,7 +2967,7 @@ unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     result
 }
 
-fn paint_scrollbar(hwnd: HWND) {
+pub(crate) fn paint_scrollbar(hwnd: HWND) {
     let mut bar = SCROLLBARINFO {
         cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
         ..Default::default()
