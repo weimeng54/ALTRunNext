@@ -219,6 +219,10 @@ fn pending_status(message: &str) {
     let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty());
     status(if dirty { message } else { "" }, false);
 }
+fn can_test(entry: &Entry) -> bool {
+    entry.kind == library::EntryKind::Command && !entry.command.trim().is_empty()
+}
+
 fn sync_fields() {
     let (alias, name, command, kind, save, delete, entry, dirty) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
@@ -267,6 +271,10 @@ fn sync_fields() {
         SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
         let index = entry.as_ref().map_or(0, |e| e.param_type as usize);
         SendMessageW(kind, CB_SETCURSEL, index, 0);
+        EnableWindow(
+            GetDlgItem(hwnd, TEST as i32),
+            i32::from(entry.as_ref().is_some_and(can_test)),
+        );
         EnableWindow(save, i32::from(dirty));
     }
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
@@ -347,13 +355,25 @@ fn update_draft() {
         if *entry == previous {
             return None;
         }
-        Some((s.list, s.selected, s.save, s.is_dirty(), row_changed))
+        let testable = can_test(entry);
+        Some((
+            s.list,
+            s.selected,
+            s.save,
+            s.is_dirty(),
+            row_changed,
+            testable,
+        ))
     });
-    let Some((list, selected, save, dirty, row_changed)) = change else {
+    let Some((list, selected, save, dirty, row_changed, testable)) = change else {
         return;
     };
     unsafe {
         EnableWindow(save, i32::from(dirty));
+        EnableWindow(
+            GetDlgItem(GetParent(command), TEST as i32),
+            i32::from(testable),
+        );
         if row_changed {
             let mut row = RECT::default();
             if SendMessageW(list, LB_GETITEMRECT, selected, &mut row as *mut _ as LPARAM)
@@ -582,11 +602,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         }
                     }
                     SAVE => save(),
+                    TEST => test_selected(hwnd),
                     CLOSE => unsafe {
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
                     ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | UNDO | SORT_ALIAS
-                    | SORT_NAME | MOVE_UP | MOVE_DOWN | TEST => tool(hwnd, id),
+                    | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
                     _ => {}
                 }
             }
@@ -615,7 +636,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi),
                     );
                 } else {
-                    let background = if [DELETE, CLOSE, SAVE].contains(&(d.CtlID as usize)) {
+                    let background = if [DELETE, CLOSE, TEST, SAVE].contains(&(d.CtlID as usize)) {
                         theme::chrome()
                     } else {
                         theme::surface()
@@ -816,7 +837,8 @@ fn run(
                 TOOLS_MENU => (RAIL - 94, 62, 78, 32),
                 LIST => (17, LIST_TOP, RAIL - 34, 0),
                 DELETE => (17, FOOTER_TOP + 13, 86, 37),
-                CLOSE => (WIDTH - 220, FOOTER_TOP + 13, 65, 37),
+                CLOSE => (WIDTH - 338, FOOTER_TOP + 13, 65, 37),
+                TEST => (WIDTH - 265, FOOTER_TOP + 13, 110, 37),
                 SAVE => (WIDTH - 147, FOOTER_TOP + 13, 130, 37),
                 NOTE_LABEL => (FIELD_LEFT, 128, FIELD_WIDTH, 21),
                 EMPTY_HELP => (FIELD_LEFT, 128, FIELD_WIDTH, 40),
@@ -990,6 +1012,8 @@ fn run(
         SetWindowTextW(status, wide("").as_ptr());
 
         let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
+        control("BUTTON", "关闭", WS_TABSTOP, 0, 0, 0, 0, CLOSE);
+        control("BUTTON", "测试打开", WS_TABSTOP, 0, 0, 0, 0, TEST);
         let save = control(
             "BUTTON",
             "保存",
@@ -1000,7 +1024,6 @@ fn run(
             30,
             SAVE,
         );
-        control("BUTTON", "关闭", WS_TABSTOP, 656, 374, 88, 30, CLOSE);
         let draft = file.entries.clone();
         let paper = CreateSolidBrush(theme::paper());
         let selection = CreateSolidBrush(theme::selection());
@@ -1376,10 +1399,6 @@ pub(crate) fn pick_path_filtered(
     }
 }
 fn tool(hwnd: HWND, id: usize) {
-    if id == TEST {
-        test_selected(hwnd);
-        return;
-    }
     if matches!(id, SORT_ALIAS | SORT_NAME | MOVE_UP | MOVE_DOWN) {
         remember();
         EDITOR.with(|c| {
@@ -1592,7 +1611,7 @@ fn test_selected(hwnd: HWND) {
     let Some(entry) = entry else {
         return;
     };
-    if entry.kind != library::EntryKind::Command || entry.command.trim().is_empty() {
+    if !can_test(&entry) {
         status("所选项没有可测试的启动命令。", true);
         return;
     }
@@ -1612,7 +1631,7 @@ fn test_selected(hwnd: HWND) {
     } else {
         None
     };
-    status("已发出测试启动请求。草稿尚未保存。", false);
+    status("已发出测试打开请求。", false);
     std::thread::spawn(move || {
         if entry.open_target.is_none()
             && altrun_probe::launch::has_context(&entry.command)
@@ -1723,10 +1742,6 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     append(menu, id, label, false, false);
                 }
             } else {
-                let can_test = rows.get(selected).is_some_and(|row| {
-                    row.kind == library::EntryKind::Command && !row.command.trim().is_empty()
-                });
-                append(menu, TEST, "测试打开所选项", false, !can_test);
                 append(menu, VALIDATE, "检查失效路径…", false, rows.is_empty());
                 append(menu, 0, "", false, true);
                 let sort = CreatePopupMenu();
