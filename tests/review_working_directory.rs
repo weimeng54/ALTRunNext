@@ -5,7 +5,8 @@ use altrun_probe::{
 fn fixture() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
     let root = std::env::current_dir()
         .unwrap()
-        .join("target/review-working-directory");
+        .join("target")
+        .join("review-working-directory");
     let data = root.join("data");
     let default = root.join("default-run");
     let explicit = root.join("entry-run");
