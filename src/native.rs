@@ -1860,9 +1860,7 @@ pub fn run() -> Result<(), String> {
     let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
         altrun_probe::library::Snapshot::open(&data_path)?.entries
     } else {
-        parse_entries(
-            "notepad\t记事本\tnotepad.exe\t7\nCalc\t计算器\tcalc\t5\nExplorer\t资源管理器\texplorer.exe\t4\ncmd\t命令提示符\tcmd /k %p\t6\nb\t百度搜索\thttps://www.baidu.com/s?wd=%p\t12\n",
-        )?
+        parse_entries(include_str!("../assets/shortcuts.tsv"))?
     };
     let index = SearchIndex::new(&entries);
     let (settings_file, settings_text) =

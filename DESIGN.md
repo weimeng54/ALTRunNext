@@ -20,7 +20,7 @@ Parameter commands request a value in the same input field. Esc returns to searc
 
 ## Shortcut manager
 
-Alt+S or the tray opens the shortcut manager. It uses the General settings page's 1102 × 683 DIP client size, caption, rounded corners and footer proportions. The title bar supports moving the window, and the saved position and selection are restored. New creates commands and separators. Existing notes can be edited. Tools lists checks, sorting and shortcut import and export with simple separators. The check dialog summarizes results and uses a scrollable table for missing targets. Draft editing, validation and confirmations follow UX-CONTRACT.md. The manager runs on a separate UI thread.
+Alt+S or the tray opens the shortcut manager. It shares the settings window's fixed 1102 × 721 DIP client size, caption, rounded corners and footer proportions. The title bar supports moving the window, and the saved position and selection are restored. New creates commands and separators. Existing notes can be edited. Tools lists checks, sorting and shortcut import and export with simple separators. The check dialog summarizes results and uses a scrollable table for missing targets. Draft editing, validation and confirmations follow UX-CONTRACT.md. The manager runs on a separate UI thread.
 
 Cloud native interaction regression for input focus, empty state, parameter cancellation and composition; pure launch parsing tests; cloud synthetic UI screenshots at 100% and 150% DPI, including long Chinese labels and no results. No personal content in screenshots or CI. User judges actual feel; screenshot timing is not an acceptance gate.
 

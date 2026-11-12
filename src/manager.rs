@@ -23,7 +23,7 @@ use windows_sys::Win32::{
 
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
 const WIDTH: i32 = crate::settings_layout::WIDTH;
-const HEIGHT: i32 = crate::settings_layout::page_height(0);
+const HEIGHT: i32 = crate::settings_layout::HEIGHT;
 const RAIL: i32 = 376;
 const CAPTION: i32 = crate::settings_layout::CAPTION;
 const FOOTER_TOP: i32 = HEIGHT - crate::settings_layout::FOOTER;
@@ -135,7 +135,6 @@ struct Editor {
     file: Snapshot,
     draft: Vec<Entry>,
     selected: usize,
-    dirty: bool,
     loading: bool,
     laid_out_kind: Option<(Option<library::EntryKind>, bool, bool)>,
     list: HWND,
@@ -156,6 +155,11 @@ struct Editor {
     error: bool,
     parent: usize,
     sender: altrun_probe::library_updates::LibraryWriter,
+}
+impl Editor {
+    fn is_dirty(&self) -> bool {
+        self.draft != self.file.entries
+    }
 }
 thread_local! { static EDITOR: RefCell<Option<Editor>> = const { RefCell::new(None) }; }
 
@@ -225,6 +229,10 @@ fn status(message: &str, error: bool) {
         }
     }
 }
+fn pending_status(message: &str) {
+    let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty());
+    status(if dirty { message } else { "" }, false);
+}
 fn sync_fields() {
     let (alias, name, command, kind, save, delete, entry, dirty) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
@@ -238,7 +246,7 @@ fn sync_fields() {
             s.save,
             s.delete,
             s.draft.get(s.selected).cloned(),
-            s.dirty,
+            s.is_dirty(),
         )
     });
     unsafe {
@@ -343,6 +351,7 @@ fn update_draft() {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         let entry = s.draft.get_mut(s.selected)?;
+        let previous = entry.clone();
         let row_changed = entry.alias != values.0 || entry.name != values.1;
         entry.enabled = enabled;
         entry.kind = match entry_kind {
@@ -367,17 +376,16 @@ fn update_draft() {
             4 => ParamType::Utf8Url,
             _ => ParamType::Auto,
         };
-        let first_edit = !s.dirty;
-        s.dirty = true;
-        Some((s.list, s.selected, s.save, first_edit, row_changed))
+        if *entry == previous {
+            return None;
+        }
+        Some((s.list, s.selected, s.save, s.is_dirty(), row_changed))
     });
-    let Some((list, selected, save, first_edit, row_changed)) = change else {
+    let Some((list, selected, save, dirty, row_changed)) = change else {
         return;
     };
     unsafe {
-        if first_edit {
-            EnableWindow(save, 1);
-        }
+        EnableWindow(save, i32::from(dirty));
         if row_changed {
             let mut row = RECT::default();
             if SendMessageW(list, LB_GETITEMRECT, selected, &mut row as *mut _ as LPARAM)
@@ -388,9 +396,19 @@ fn update_draft() {
         }
     }
     sync_kind_layout();
-    status("尚未保存。保存后立即更新启动面板。", false);
+    status(
+        if dirty {
+            "尚未保存。保存后立即更新启动面板。"
+        } else {
+            ""
+        },
+        false,
+    );
 }
 fn save() {
+    if !EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty()) {
+        return;
+    }
     let duplicates = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -422,10 +440,7 @@ fn save() {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         match s.file.save(&s.draft) {
-            Ok(()) => {
-                s.dirty = false;
-                Ok((s.sender.clone(), s.draft.clone(), s.parent))
-            }
+            Ok(()) => Ok((s.sender.clone(), s.draft.clone(), s.parent)),
             Err(error) => Err(error),
         }
     });
@@ -470,7 +485,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return 0;
     }
     if msg == WM_CLOSE {
-        let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| s.dirty));
+        let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
         if !dirty || confirm(hwnd, "有尚未保存的修改。放弃修改并关闭？") {
             publish_geometry(hwnd);
             unsafe {
@@ -572,7 +587,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 kind: library::EntryKind::Command,
                             });
                             s.selected = s.draft.len() - 1;
-                            s.dirty = true;
                         });
                         refresh_list();
                         status("新增项尚未保存，请填写快捷字和命令。", false);
@@ -601,10 +615,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 }
                                 s.draft.remove(s.selected);
                                 s.selected = s.selected.min(s.draft.len().saturating_sub(1));
-                                s.dirty = true;
                             });
                             refresh_list();
-                            status("已从草稿删除，尚未保存。", false);
+                            pending_status("已从草稿删除，尚未保存。");
                         }
                     }
                     SAVE => save(),
@@ -1135,7 +1148,6 @@ fn run(
                 file,
                 draft,
                 selected: 0,
-                dirty: false,
                 loading: false,
                 laid_out_kind: None,
                 list,
@@ -1340,7 +1352,7 @@ fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
         PostMessageW(parent as HWND, UPDATED, 0, 0);
     }
     refresh_list();
-    let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().dirty);
+    let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty());
     status(
         if dirty {
             "已添加快捷项。管理窗口仍有未保存的修改。"
@@ -1378,12 +1390,11 @@ fn change_open_with(hwnd: HWND, use_default: bool) {
             return false;
         }
         *current = program;
-        s.dirty = true;
         true
     });
     if changed {
         sync_fields();
-        status("尚未保存。保存后立即更新启动面板。", false);
+        pending_status("尚未保存。保存后立即更新启动面板。");
     }
 }
 pub fn drop_paths(handle: windows_sys::Win32::UI::Shell::HDROP) -> Vec<PathBuf> {
@@ -1434,7 +1445,6 @@ fn add_paths(paths: Vec<PathBuf>) {
         let s = s.as_mut().unwrap();
         s.selected = s.draft.len();
         s.draft.extend(entries);
-        s.dirty = true;
     });
     refresh_list();
     status("已添加到草稿。请调整快捷字后保存。", false);
@@ -1536,10 +1546,9 @@ fn tool(hwnd: HWND, id: usize) {
             {
                 s.selected = index;
             }
-            s.dirty = true;
         });
         refresh_list();
-        status("顺序已更新，保存后生效。", false);
+        pending_status("顺序已更新，保存后生效。");
         return;
     }
     if id == ADD_FILE || id == ADD_FOLDER {
@@ -1567,7 +1576,6 @@ fn tool(hwnd: HWND, id: usize) {
                 kind: library::EntryKind::Separator,
             });
             s.selected = s.draft.len() - 1;
-            s.dirty = true;
         });
         refresh_list();
         return;
@@ -1591,11 +1599,10 @@ fn tool(hwnd: HWND, id: usize) {
                 if let Some(rows) = s.undo.pop() {
                     s.draft = rows;
                     s.selected = s.selected.min(s.draft.len().saturating_sub(1));
-                    s.dirty = true;
                 }
             });
             refresh_list();
-            status("已撤销上一次批量操作，保存后生效。", false);
+            pending_status("已撤销上一次批量操作，保存后生效。");
         }
         VALIDATE | CLEAN_MISSING => {
             use crate::localization::tr;
@@ -1642,7 +1649,6 @@ fn tool(hwnd: HWND, id: usize) {
                         s.draft.remove(i);
                     }
                     s.selected = 0;
-                    s.dirty = true;
                 });
                 refresh_list();
                 status("已移除缺失项，保存后生效。", false);
@@ -1664,7 +1670,6 @@ fn tool(hwnd: HWND, id: usize) {
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
                 s.draft = updated;
-                s.dirty |= changed > 0;
             });
             refresh_list();
             status(
@@ -1709,7 +1714,6 @@ fn tool(hwnd: HWND, id: usize) {
                                 let s = s.as_mut().unwrap();
                                 s.draft = snapshot.entries;
                                 s.selected = 0;
-                                s.dirty = true;
                             });
                             refresh_list();
                         }
@@ -1719,7 +1723,7 @@ fn tool(hwnd: HWND, id: usize) {
             }
         }
         EDIT_TEXT => {
-            if EDITOR.with(|c| c.borrow().as_ref().unwrap().dirty) {
+            if EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty()) {
                 status("请先保存或关闭草稿，再用文本编辑器修改文件。", true);
             } else if let Ok(notepad) = altrun_probe::safe_notepad_path() {
                 match std::process::Command::new(notepad).arg(&path).spawn() {
@@ -1729,7 +1733,7 @@ fn tool(hwnd: HWND, id: usize) {
             }
         }
         RELOAD => {
-            if EDITOR.with(|c| c.borrow().as_ref().unwrap().dirty) {
+            if EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty()) {
                 status("请先保存或关闭草稿，再重新读取文件。", true);
                 return;
             }

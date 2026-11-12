@@ -424,6 +424,18 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             );
         }
         assert_eq!(IsWindowVisible(setting(dialog, "WorkingDirectory")), 0);
+        let region = CreateRectRgn(0, 0, 1, 1);
+        assert_ne!(GetWindowRgn(dialog, region), 0);
+        assert_eq!(PtInRegion(region, 0, 0), 0);
+        assert_ne!(PtInRegion(region, 60, 20), 0);
+        DeleteObject(region);
+        command(dialog, 2314);
+        wait(|| IsWindow(dialog) == 0);
+        command(launcher, 18005);
+        wait(|| {
+            dialog = window("ALTRun.Native.Settings", pid);
+            !dialog.is_null() && IsWindowVisible(dialog) != 0
+        });
         select_page(dialog, 0);
         click_tab_and_wait_for_pixels(dialog, 2, "NumberKey", "settings-live-search");
         click_tab_and_wait_for_pixels(dialog, 3, "ShowCommandLine", "settings-live-appearance");

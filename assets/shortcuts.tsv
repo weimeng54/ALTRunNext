@@ -3,3 +3,14 @@ calc	计算器	calc.exe	5	none
 explorer	资源管理器	explorer.exe	4	none
 cmd	命令提示符	cmd.exe /k {%p}	6	raw
 b	百度搜索	https://www.baidu.com/s?wd={%p}	12	utf8_query
+settings	Windows 设置	ms-settings:	0	none
+control	控制面板	control.exe	0	none
+taskmgr	任务管理器	taskmgr.exe	0	none
+paint	画图	mspaint.exe	0	none
+snip	截图工具	SnippingTool.exe	0	none
+sysinfo	系统信息	msinfo32.exe	0	none
+desktop	桌面	shell:Desktop	0	none
+downloads	下载	shell:Downloads	0	none
+docs	文档	shell:Personal	0	none
+recent	最近使用的文件	shell:Recent	0	none
+recycle	回收站	shell:RecycleBinFolder	0	none

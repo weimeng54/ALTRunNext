@@ -7,7 +7,9 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     Graphics::Gdi::*,
-    UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::*},
+    UI::{
+        HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::IsWindowEnabled, WindowsAndMessaging::*,
+    },
 };
 #[path = "native_snapshot/mod.rs"]
 mod native_snapshot;
@@ -145,18 +147,44 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         let work = monitor.rcWork;
         let dpi = (GetDpiForWindow(manager).max(96) as i32)
             .min((work.right - work.left - 48) * 96 / 1102)
-            .min((work.bottom - work.top - 80) * 96 / 683)
+            .min((work.bottom - work.top - 80) * 96 / 721)
             .max(48);
         let mut client = RECT::default();
         GetClientRect(manager, &mut client);
         assert_eq!(
             (client.right, client.bottom),
-            ((1102 * dpi + 48) / 96, (683 * dpi + 48) / 96),
+            ((1102 * dpi + 48) / 96, (721 * dpi + 48) / 96),
             "stale size from the profile must not shrink the editor"
         );
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2140)), 0);
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2141)), 0);
         let editor_list = GetDlgItem(manager, 2101);
+        let save = GetDlgItem(manager, 2113);
+        let alias = GetDlgItem(manager, 2102);
+        let select_row = |row| {
+            SendMessageW(editor_list, LB_SETCURSEL, row, 0);
+            SendMessageW(
+                manager,
+                WM_COMMAND,
+                (LBN_SELCHANGE as usize) << 16 | 2101,
+                editor_list as isize,
+            );
+        };
+        select_row(1);
+        SendMessageW(
+            manager,
+            WM_COMMAND,
+            (EN_CHANGE as usize) << 16 | 2102,
+            alias as isize,
+        );
+        assert_eq!(IsWindowEnabled(save), 0);
+        select_row(0);
+        let saved_alias = std::fs::read_to_string(&path).unwrap();
+        let first_alias = saved_alias.split('\t').next().unwrap();
+        set(alias, "temporary-test-edit");
+        assert_ne!(IsWindowEnabled(save), 0);
+        set(alias, first_alias);
+        assert_eq!(IsWindowEnabled(save), 0);
         let row = SendMessageW(editor_list, LB_GETITEMHEIGHT, 0, 0) as i32;
         GetClientRect(editor_list, &mut client);
         assert!(row > 0 && client.bottom % row == 0);

@@ -2562,6 +2562,12 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 WINDOW.store(hwnd as usize, Ordering::Release);
                 theme::frame(hwnd);
                 let dpi = crate::window_geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT, None);
+                theme_ui::round_panel(
+                    hwnd,
+                    scaled(layout::WIDTH, dpi),
+                    scaled(layout::HEIGHT, dpi),
+                    dpi,
+                );
                 let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
                 let heading_font = make_font(27, 700, "Microsoft YaHei UI", dpi);
                 let section_font = make_font(14, 650, "Microsoft YaHei UI", dpi);
