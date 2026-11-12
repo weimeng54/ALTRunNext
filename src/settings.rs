@@ -686,20 +686,17 @@ fn layout_page() {
             px(25),
             0,
         );
+        let tab_height = px(if advanced { 39 } else { 45 });
         MoveWindow(
             tabs,
             px(if advanced { 11 } else { 13 }),
             px(if advanced { 62 } else { 67 }),
             px(if advanced { 134 } else { 160 }),
-            px(if advanced { 273 } else { 315 }),
+            tab_height * PAGES.len() as i32,
             0,
         );
-        SendMessageW(
-            tabs,
-            LB_SETITEMHEIGHT,
-            0,
-            px(if advanced { 39 } else { 45 }) as isize,
-        );
+        SendMessageW(tabs, LB_SETITEMHEIGHT, 0, tab_height as isize);
+        SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
         MoveWindow(
             title,
             px(if advanced { 177 } else { 214 }),
@@ -2712,17 +2709,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     (0, "结果显示样式", 189, 225, 367, 22),
                     (
                         ADVANCED_NOTE,
-                        "可留空。只在程序或脚本需要从指定文件夹查找相对文件时填写。",
-                        593,
-                        170,
-                        352,
-                        42,
-                    ),
-                    (
-                        ADVANCED_NOTE,
                         "让输入参数或上下文决定打开哪个程序或路径。普通快捷项保持关闭。",
                         593,
-                        290,
+                        171,
                         352,
                         40,
                     ),
@@ -2730,9 +2719,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         ADVANCED_NOTE,
                         "在快捷项数据文件旁记录启动成功或失败。",
                         593,
-                        409,
+                        290,
                         352,
-                        22,
+                        29,
                     ),
                     (ALPHA_HELP, "100% 完全不透明。", 189, 448, 242, 24),
                     (RADIUS_HELP, "0 为直角，数值越大角越圆。", 189, 511, 255, 24),

@@ -418,6 +418,10 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         for page in 1..=6 {
             select_page(dialog, page);
             assert_eq!(size(bounds(dialog)), initial_size, "settings page {page}");
+            assert_eq!(
+                SendMessageW(GetDlgItem(dialog, 2301), LB_GETTOPINDEX, 0, 0),
+                0
+            );
         }
         assert_eq!(IsWindowVisible(setting(dialog, "WorkingDirectory")), 0);
         select_page(dialog, 0);

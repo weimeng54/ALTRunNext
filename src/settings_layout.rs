@@ -105,8 +105,8 @@ pub const CARDS: &[Card] = &[
     card(5, "管理窗口", BoxRect::new(CONTENT, 407, 859, 90), &[45]),
     card(6, "搜索与结果", BoxRect::new(177, 135, 391, 246), &[80]),
     card(6, "启动面板外观", BoxRect::new(177, 419, 391, 124), &[61]),
-    card(6, "命令执行", BoxRect::new(581, 135, 376, 82), &[]),
-    card(6, "诊断", BoxRect::new(581, 255, 376, 63), &[]),
+    card(6, "命令执行", BoxRect::new(581, 135, 376, 87), &[]),
+    card(6, "诊断", BoxRect::new(581, 255, 376, 68), &[]),
 ];
 
 pub const fn page_height(page: usize) -> i32 {
