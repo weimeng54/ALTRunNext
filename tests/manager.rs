@@ -154,6 +154,10 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2140)), 0);
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2141)), 0);
+        let editor_list = GetDlgItem(manager, 2101);
+        let row = SendMessageW(editor_list, LB_GETITEMHEIGHT, 0, 0) as i32;
+        GetClientRect(editor_list, &mut client);
+        assert!(row > 0 && client.bottom % row == 0);
         SendMessageW(manager, WM_COMMAND, 2152, 0);
         assert_eq!(IsWindowVisible(GetDlgItem(manager, 2104)), 0);
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2103)), 0);

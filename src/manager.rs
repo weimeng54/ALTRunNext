@@ -37,6 +37,14 @@ const FIELD_LEFT: i32 = RAIL + 41;
 const FIELD_RIGHT: i32 = WIDTH - 45;
 const FIELD_WIDTH: i32 = FIELD_RIGHT - FIELD_LEFT;
 const HALF_FIELD: i32 = (FIELD_WIDTH - 14) / 2;
+const LIST_TOP: i32 = 137;
+const ROW_HEIGHT: i32 = 31;
+
+fn list_height(dpi: i32) -> i32 {
+    let row = scaled(ROW_HEIGHT, dpi);
+    scaled(FOOTER_TOP - LIST_TOP - 33, dpi) / row * row
+}
+
 const FOCUS: u32 = WM_APP + 1;
 pub const UPDATED: u32 = WM_APP + 6;
 pub const GEOMETRY_CHANGED: u32 = WM_APP + 16;
@@ -839,7 +847,7 @@ fn run(
                 CAPTION_CLOSE => (WIDTH - 46, 0, 46, CAPTION),
                 NEW_MENU => (RAIL - 180, 62, 78, 32),
                 TOOLS_MENU => (RAIL - 94, 62, 78, 32),
-                LIST => (17, 137, RAIL - 34, FOOTER_TOP - 170),
+                LIST => (17, LIST_TOP, RAIL - 34, 0),
                 DELETE => (16, FOOTER_TOP + 14, 72, 34),
                 CLOSE => (WIDTH - 176, FOOTER_TOP + 14, 72, 34),
                 SAVE => (WIDTH - 96, FOOTER_TOP + 14, 80, 34),
@@ -886,7 +894,11 @@ fn run(
                 scaled(x, dpi),
                 scaled(y, dpi),
                 scaled(width, dpi),
-                scaled(height, dpi),
+                if id == LIST {
+                    list_height(dpi)
+                } else {
+                    scaled(height, dpi)
+                },
                 hwnd,
                 id as HMENU,
                 instance,
@@ -937,7 +949,7 @@ fn run(
             304,
             LIST,
         );
-        SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(31, dpi) as LPARAM);
+        SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(ROW_HEIGHT, dpi) as LPARAM);
         SetWindowSubclass(list, Some(list_scrollbar_proc), 1, 0);
         control("STATIC", "快捷字", 0, 280, 52, 210, 20, 0);
         control("STATIC", "名称", 0, 512, 52, 232, 20, 0);
@@ -1933,9 +1945,11 @@ fn paint_manager(hwnd: HWND) {
             &rect(0, FOOTER_TOP, WIDTH, HEIGHT - FOOTER_TOP),
             theme::chrome(),
         );
+        let mut list_card = rect(16, 106, RAIL - 32, 0);
+        list_card.bottom = scaled(LIST_TOP, dpi) + list_height(dpi) + scaled(2, dpi);
         crate::theme_ui::rounded(
             dc,
-            rect(16, 106, RAIL - 32, FOOTER_TOP - 138),
+            list_card,
             scaled(16, dpi),
             theme::control_surface(),
             theme::divider(),
