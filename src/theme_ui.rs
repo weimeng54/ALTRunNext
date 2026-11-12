@@ -857,12 +857,8 @@ pub fn slider(item: &NMCUSTOMDRAW) -> LRESULT {
     CDRF_DODEFAULT as isize
 }
 
-pub fn switch(hwnd: HWND, dpi: i32) {
-    unsafe { SetWindowSubclass(hwnd, Some(switch_proc), 1, dpi as usize) };
-}
-
-pub fn settings_switch(hwnd: HWND, dpi: i32, description: bool) {
-    let mode = 0x10000 | if description { 0x20000 } else { 0 };
+pub fn switch(hwnd: HWND, dpi: i32, description: bool) {
+    let mode = if description { 0x20000 } else { 0 };
     unsafe { SetWindowSubclass(hwnd, Some(switch_proc), 1, mode | dpi as usize) };
 }
 
@@ -884,33 +880,24 @@ unsafe extern "system" fn switch_proc(
             };
             let mut bounds: RECT = std::mem::zeroed();
             GetClientRect(hwnd, &mut bounds);
-            let settings = dpi & 0x10000 != 0;
             let description = dpi & 0x20000 != 0;
             let dpi = (dpi & 0xffff) as i32;
-            let px = |n| {
-                if settings {
-                    crate::settings_layout::scale(n, dpi)
-                } else {
-                    scaled(n, dpi)
-                }
-            };
+            let px = |n| crate::settings_layout::scale(n, dpi);
             let checked = DefSubclassProc(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
             let enabled =
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(hwnd) != 0;
             let focused = GetFocus() == hwnd;
-            let h = px(if settings { 20 } else { 18 });
-            let right = bounds.right - px(if settings { 9 } else { 8 });
+            let h = px(20);
+            let right = bounds.right - px(9);
             let top = (bounds.bottom - h) / 2;
             let track = RECT {
-                left: right - px(if settings { 35 } else { 34 }),
+                left: right - px(35),
                 top,
                 right,
                 bottom: top + h,
             };
             fill(dc, &bounds, theme::control_surface());
-            if settings
-                && focused
-                && DefSubclassProc(hwnd, WM_QUERYUISTATE, 0, 0) as u32 & UISF_HIDEFOCUS == 0
+            if focused && DefSubclassProc(hwnd, WM_QUERYUISTATE, 0, 0) as u32 & UISF_HIDEFOCUS == 0
             {
                 let mut outline = track;
                 InflateRect(&mut outline, px(5), px(5));
@@ -933,15 +920,15 @@ unsafe extern "system" fn switch_proc(
                 } else {
                     theme::paper()
                 },
-                if focused || (settings && checked && enabled) {
+                if focused || (checked && enabled) {
                     theme::accent()
                 } else {
                     theme::border()
                 },
             );
-            let diameter = if settings { px(12) } else { h - scaled(6, dpi) };
+            let diameter = px(12);
             let inset = (h - diameter) / 2;
-            let side = if settings { px(3) } else { inset };
+            let side = px(3);
             let left = if checked {
                 track.right - side - diameter
             } else {
@@ -961,7 +948,7 @@ unsafe extern "system" fn switch_proc(
             rounded(dc, knob, diameter, ink, ink);
             let font = DefSubclassProc(hwnd, WM_GETFONT, 0, 0) as HFONT;
             let old = SelectObject(dc, font);
-            bounds.left += px(if settings { 9 } else { 10 });
+            bounds.left += px(9);
             bounds.right = track.left - px(7);
             if description {
                 bounds.bottom = px(30);
@@ -994,9 +981,6 @@ unsafe extern "system" fn switch_proc(
                 );
             }
             SelectObject(dc, old);
-            if focused && !settings {
-                DrawFocusRect(dc, &bounds);
-            }
             if msg == WM_PAINT {
                 EndPaint(hwnd, &paint);
             }

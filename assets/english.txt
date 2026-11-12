@@ -317,6 +317,7 @@ ALTRun 管理快捷项=ALTRun Manage shortcuts
 快捷项数据文件所在的文件夹=Folder containing the shortcuts file
 让输入参数或上下文决定打开哪个程序或路径。普通快捷项保持关闭。=Lets input or context choose the program or path. Leave off for ordinary shortcuts.
 在快捷项数据文件旁记录启动成功或失败，用于排查启动问题。=Records launch successes and failures beside the shortcuts file.
+在快捷项数据文件旁记录启动成功或失败。=Logs successful and failed launches beside the shortcuts file.
 100% 完全不透明。=100% is fully opaque.
 0 为直角，数值越大角越圆。=0 gives square corners. Larger values round the corners.
 第一个 %s 显示快捷字，第二个显示名称。\n%-25s 左对齐并补足到 25 字符。宽度可填 0–256。\n%% 显示一个百分号。可填写 1–2 个占位符。=The first %s is the alias, and the second is the name.\n%-25s pads on the right to 25 characters. Width can be 0–256.\n%% shows a percent sign. Use one or two placeholders.

@@ -862,16 +862,16 @@ fn run(
             };
             let (x, y, width, height) = match id {
                 CAPTION_CLOSE => (932, 0, 46, 42),
-                NEW_MENU => (158, 62, 72, 32),
-                TOOLS_MENU => (238, 62, 78, 32),
+                NEW_MENU => (177, 62, 67, 32),
+                TOOLS_MENU => (251, 62, 67, 32),
                 LIST => (17, 137, 298, 343),
                 DELETE => (16, 524, 64, 34),
                 TEST => (706, 524, 72, 34),
-                CLOSE => (795, 524, 72, 34),
-                SAVE => (883, 524, 72, 34),
-                TYPE_COMMAND => (376, 153, 184, 31),
-                TYPE_SEPARATOR => (563, 153, 184, 31),
-                TYPE_REMARK => (750, 153, 184, 31),
+                CLOSE => (827, 524, 64, 34),
+                SAVE => (900, 524, 64, 34),
+                TYPE_COMMAND => (377, 157, 184, 29),
+                TYPE_SEPARATOR => (564, 157, 184, 29),
+                TYPE_REMARK => (751, 157, 184, 29),
                 TYPE_LABEL => (373, 126, 562, 21),
                 NOTE_LABEL => (373, 201, 562, 21),
                 SEPARATOR_HELP | EMPTY_HELP => (373, 201, 562, 40),
@@ -912,6 +912,13 @@ fn run(
             );
             SendMessageW(child, WM_SETFONT, font as WPARAM, 0);
             if class == "COMBOBOX" {
+                SendMessageW(
+                    child,
+                    CB_SETITEMHEIGHT,
+                    usize::MAX,
+                    scaled(28, dpi) as isize,
+                );
+                SendMessageW(child, CB_SETITEMHEIGHT, 0, scaled(34, dpi) as isize);
                 crate::theme_ui::style_combo(child, dpi);
             } else if class == "EDIT" {
                 crate::theme_ui::style_edit(child, dpi, true);
@@ -1038,7 +1045,7 @@ fn run(
             24,
             ENABLED,
         );
-        crate::theme_ui::switch(enabled, dpi);
+        crate::theme_ui::switch(enabled, dpi, false);
         let entry_kind = control(
             "COMBOBOX",
             "",
@@ -1088,6 +1095,7 @@ fn run(
             control("BUTTON", label, WS_TABSTOP, 0, 0, 0, 0, id);
         }
         let status = control("STATIC", "修改后点击保存。", 0, 280, 318, 464, 40, 0);
+        SetWindowTextW(status, wide("").as_ptr());
 
         let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
         let save = control(
@@ -2042,7 +2050,7 @@ fn paint_manager(hwnd: HWND) {
         let mut caption = rect(44, 0, 900, 42);
         DrawTextW(
             dc,
-            ui("ALTRun · 管理快捷项").as_ptr(),
+            ui("ALTRun 管理快捷项").as_ptr(),
             -1,
             &mut caption,
             DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,

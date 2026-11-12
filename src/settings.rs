@@ -711,11 +711,17 @@ fn layout_page() {
         );
         MoveWindow(
             tabs,
-            px(13),
-            px(67),
-            px(if advanced { 130 } else { 160 }),
-            px(315),
+            px(if advanced { 11 } else { 13 }),
+            px(if advanced { 62 } else { 67 }),
+            px(if advanced { 134 } else { 160 }),
+            px(if advanced { 273 } else { 315 }),
             0,
+        );
+        SendMessageW(
+            tabs,
+            LB_SETITEMHEIGHT,
+            0,
+            px(if advanced { 39 } else { 45 }) as isize,
         );
         MoveWindow(
             title,
@@ -1782,7 +1788,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
                     theme::accent(),
                 );
             }
-            bounds.left += scaled(15, s.dpi);
+            bounds.left += scaled(if s.page == 6 { 10 } else { 15 }, s.dpi);
             unsafe {
                 let old = SelectObject(item.hDC, if selected { s.section_font } else { s.font });
                 theme_ui::line_text(
@@ -2741,7 +2747,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         367,
                         42,
                     ),
-                    (ADVANCED_NOTE, "结果显示样式", 189, 225, 367, 22),
+                    (0, "结果显示样式", 189, 225, 367, 22),
                     (
                         ADVANCED_NOTE,
                         "快捷项没有单独指定目录时使用。留空则使用快捷项数据文件所在的文件夹。",
@@ -2760,7 +2766,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     ),
                     (
                         ADVANCED_NOTE,
-                        "在快捷项数据文件旁记录启动成功或失败，用于排查启动问题。",
+                        "在快捷项数据文件旁记录启动成功或失败。",
                         593,
                         409,
                         352,
@@ -2940,11 +2946,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 (h - 1).max(1),
                                 FIELD + index,
                             );
-                            theme_ui::settings_switch(
-                                field.value,
-                                dpi,
-                                !placement.description.is_empty(),
-                            );
+                            theme_ui::switch(field.value, dpi, !placement.description.is_empty());
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
