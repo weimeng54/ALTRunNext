@@ -9,6 +9,8 @@ mod localization;
 #[cfg(windows)]
 mod manager;
 #[cfg(windows)]
+mod manager_menu;
+#[cfg(windows)]
 mod native;
 #[cfg(windows)]
 mod search_ime;

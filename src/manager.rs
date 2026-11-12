@@ -583,8 +583,19 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             0
         }
-        WM_DRAWITEM => {
+        WM_MEASUREITEM if l != 0 => {
+            let item = unsafe { &mut *(l as *mut MEASUREITEMSTRUCT) };
+            if crate::manager_menu::measure(item) {
+                1
+            } else {
+                unsafe { DefWindowProcW(hwnd, msg, w, l) }
+            }
+        }
+        WM_DRAWITEM if l != 0 => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+            if crate::manager_menu::draw(d) {
+                return 1;
+            }
             if d.CtlType == ODT_BUTTON {
                 if d.CtlID as usize == CAPTION_CLOSE {
                     crate::theme_ui::caption_close(
@@ -1792,15 +1803,19 @@ fn test_selected(hwnd: HWND) {
 fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
     unsafe {
         let menu = CreatePopupMenu();
-        let append = |menu, id, label: &str, checked: bool, disabled: bool| {
-            AppendMenuW(
-                menu,
-                MF_STRING
-                    | if checked { MF_CHECKED } else { 0 }
-                    | if disabled { MF_GRAYED } else { 0 },
-                id,
-                ui(label).as_ptr(),
-            );
+        let (dpi, font) = EDITOR.with(|c| {
+            let state = c.borrow();
+            let s = state.as_ref().unwrap();
+            (s.dpi, s.font)
+        });
+        let style = crate::manager_menu::PopupStyle::new(dpi, font);
+        let append = |target, id, label: &str, checked: bool, disabled: bool| {
+            let width = if target != menu || position.is_some() || group == NEW_MENU {
+                136
+            } else {
+                183
+            };
+            style.add(target, id, label, width, checked, disabled);
         };
         let (rows, selected, can_undo, list) = EDITOR.with(|c| {
             let s = c.borrow();
@@ -1877,7 +1892,7 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     (REMARK, "备注"),
                 ] {
                     if id == SEPARATOR {
-                        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                        append(menu, 0, "", false, true);
                     }
                     append(menu, id, label, false, false);
                 }
@@ -1885,7 +1900,7 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 append(menu, 0, "检查", false, true);
                 append(menu, TEST, "测试当前快捷项…", false, rows.is_empty());
                 append(menu, VALIDATE, "检查快捷项…", false, rows.is_empty());
-                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                append(menu, 0, "", false, true);
                 append(menu, 0, "整理", false, true);
                 let sort = CreatePopupMenu();
                 let choices = [
@@ -1922,7 +1937,7 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                         rows.is_empty(),
                     );
                 }
-                AppendMenuW(menu, MF_POPUP, sort as usize, ui("排序").as_ptr());
+                style.submenu(menu, sort, "排序");
                 let paths = CreatePopupMenu();
                 let paths_in_rows: Vec<_> = rows
                     .iter()
@@ -1947,16 +1962,17 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                         .all(|p| !std::path::Path::new(p).is_absolute() && !p.contains('%'));
                 append(paths, RELATIVE, "转为相对路径", relative, rows.is_empty());
                 append(paths, ABSOLUTE, "转为绝对路径", absolute, rows.is_empty());
-                AppendMenuW(menu, MF_POPUP, paths as usize, ui("路径格式").as_ptr());
-                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                style.submenu(menu, paths, "路径格式");
+                append(menu, 0, "", false, true);
                 append(menu, UNDO, "撤销上次批量操作", false, !can_undo);
-                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                append(menu, 0, "", false, true);
                 append(menu, 0, "备份", false, true);
                 append(menu, EXPORT, "导出备份…", false, false);
                 append(menu, RESTORE, "从备份恢复…", false, false);
-                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                append(menu, 0, "", false, true);
             }
         }
+        style.background(menu);
         let command = TrackPopupMenu(
             menu,
             TPM_RETURNCMD | TPM_RIGHTBUTTON,
