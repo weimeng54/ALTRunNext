@@ -1,7 +1,7 @@
 //! Native settings pages, created only while the settings window is open.
 use crate::{
-    native::{make_font, ui, wide},
-    settings_layout::{self as layout, BoxRect, scale as scaled},
+    native::{make_font, scaled, ui, wide},
+    settings_layout::{self as layout, BoxRect},
     settings_preview::Preview,
     theme, theme_ui,
 };
