@@ -7,7 +7,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 #[test]
 fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
-    let root = std::env::current_dir().unwrap().join("target/send-to-ui");
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join("send-to-ui");
     std::fs::create_dir_all(&root).unwrap();
     let data = root.join("shortcuts.tsv");
     let original = "已有\tExisting\tnotepad.exe\t0\n";

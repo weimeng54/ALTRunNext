@@ -640,9 +640,7 @@ fn layout_page() {
         };
         let height = px(layout::HEIGHT).min(available);
         let foot = height - px(layout::FOOTER);
-        let scroll_max = if page == 3 && expanded {
-            (px(target) - height).max(0)
-        } else if advanced && format_expanded {
+        let scroll_max = if (page == 3 && expanded) || (advanced && format_expanded) {
             (px(target) - height).max(0)
         } else {
             0

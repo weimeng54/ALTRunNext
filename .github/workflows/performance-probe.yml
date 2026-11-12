@@ -30,12 +30,21 @@ jobs:
           [source.rsproxy-sparse]
           registry = 'sparse+https://rsproxy.cn/index/'
           '@ | Set-Content "$env:USERPROFILE/.cargo/config.toml"
-          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
-          if ($LASTEXITCODE -ne 0) {
+          function Invoke-Mirror([string]$Program, [string[]]$Arguments) {
+            $process = Start-Process -FilePath $Program -ArgumentList $Arguments -PassThru -NoNewWindow
+            if (!$process.WaitForExit(90000)) {
+              $process.Kill($true)
+              $process.WaitForExit()
+              return $false
+            }
+            return $process.ExitCode -eq 0
+          }
+          $toolchain = @('toolchain', 'install', '1.99.1', '--profile', 'minimal', '--component', 'rustfmt,clippy')
+          if (!(Invoke-Mirror 'rustup' $toolchain)) {
             Write-Warning 'Mirror failed; retrying the same pinned version from the official distribution.'
             $env:RUSTUP_DIST_SERVER='https://static.rust-lang.org'
             $env:RUSTUP_UPDATE_ROOT='https://static.rust-lang.org/rustup'
-            rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+            rustup @toolchain
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           rustc -Vv
@@ -47,9 +56,8 @@ jobs:
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
           }
-          cargo fetch --locked
-          if ($LASTEXITCODE -ne 0) {
-            Remove-Item "$env:USERPROFILE/.cargo/config.toml"
+          if (!(Invoke-Mirror 'cargo' @('fetch', '--locked'))) {
+            Remove-Item "$env:USERPROFILE/.cargo/config.toml" -ErrorAction SilentlyContinue
             cargo fetch --locked
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
