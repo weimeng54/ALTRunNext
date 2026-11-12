@@ -18,6 +18,12 @@ struct Input {
     composing: bool,
     background: HBRUSH,
     paper: HBRUSH,
+    report: Option<Report>,
+}
+
+pub struct Report {
+    pub summary: String,
+    pub rows: Vec<(String, String)>,
 }
 
 unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -57,8 +63,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 FillRect(w as HDC, &rect, (*state).background);
                 return 1;
             },
-            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => unsafe {
-                let (color, brush) = if msg == WM_CTLCOLOREDIT {
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => unsafe {
+                let control = l as HWND;
+                let read_only_edit = GetDlgCtrlID(control) == 10
+                    && GetWindowLongW(control, GWL_STYLE) as u32 & ES_READONLY as u32 != 0;
+                let (color, brush) = if msg != WM_CTLCOLORSTATIC || read_only_edit {
                     (theme::paper(), (*state).paper)
                 } else {
                     (theme::surface(), (*state).background)
@@ -69,9 +78,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             },
             WM_DRAWITEM if l != 0 => {
                 let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-                theme_ui::button_on(item, item.CtlID == 1, theme::surface(), unsafe {
-                    (*state).dpi
-                });
+                let state = unsafe { &*state };
+                if item.CtlType == ODT_LISTBOX {
+                    draw_report_row(item, state);
+                } else {
+                    theme_ui::button_on(item, item.CtlID == 1, theme::surface(), state.dpi);
+                }
                 return 1;
             }
             _ => {}
@@ -95,14 +107,65 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
 pub fn ask(owner: HWND, title: &str) -> Option<String> {
-    open(owner, title, None)
+    open(owner, title, None, None)
 }
 
 pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
-    open(owner, title, Some(message)).is_some()
+    open(owner, title, Some(message), None).is_some()
 }
 
-fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
+pub fn report(owner: HWND, title: &str, report: Report) -> bool {
+    open(owner, title, Some(""), Some(report)).is_some()
+}
+
+fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
+    let rect = item.rcItem;
+    let selected = item.itemState & ODS_SELECTED != 0;
+    theme_ui::fill(
+        item.hDC,
+        &rect,
+        if selected {
+            theme::selection()
+        } else {
+            theme::paper()
+        },
+    );
+    let Some((alias, name)) = state
+        .report
+        .as_ref()
+        .and_then(|r| r.rows.get(item.itemID as usize))
+    else {
+        return;
+    };
+    let inset = scaled(10, state.dpi);
+    let split = scaled(190, state.dpi);
+    unsafe {
+        let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
+        let previous = SelectObject(item.hDC, font);
+        for (value, left, right) in [
+            (alias, rect.left + inset, rect.left + split - inset),
+            (name, rect.left + split + inset, rect.right - inset),
+        ] {
+            theme_ui::line_text(
+                item.hDC,
+                RECT {
+                    left,
+                    right,
+                    ..rect
+                },
+                value,
+                theme::text(),
+                0,
+            );
+        }
+        SelectObject(item.hDC, previous);
+        if item.itemState & ODS_FOCUS != 0 {
+            DrawFocusRect(item.hDC, &rect);
+        }
+    }
+}
+
+fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>) -> Option<String> {
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide(if message.is_some() {
@@ -127,12 +190,13 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
             composing: false,
             background,
             paper,
+            report,
         }));
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
             ui(title).as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             420,
@@ -152,23 +216,41 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
         theme::frame(hwnd);
         let long =
             message.is_some_and(|message| message.chars().count() > 84 || message.contains('\n'));
-        let (height, content_height, action_y) = if long {
+        let report = (*state).report.as_ref();
+        let has_rows = report.is_some_and(|r| !r.rows.is_empty());
+        let width = if report.is_some() { 600 } else { 420 };
+        let (height, content_height, action_y) = if has_rows {
+            (408, 78, 360)
+        } else if report.is_some() {
+            (168, 96, 120)
+        } else if long {
             (278, 203, 230)
         } else if message.is_some() {
             (135, 55, 88)
         } else {
             (110, 28, 66)
         };
-        let dpi = crate::window_geometry::fit(hwnd, 420, height, None);
+        let dpi = crate::window_geometry::fit(hwnd, width, height, None);
         (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
         let content_style = if long {
-            WS_TABSTOP | WS_VSCROLL | WS_BORDER | (ES_MULTILINE | ES_READONLY) as u32
+            WS_TABSTOP
+                | WS_VSCROLL
+                | WS_BORDER
+                | WS_CLIPSIBLINGS
+                | (ES_MULTILINE | ES_READONLY) as u32
         } else if message.is_none() {
             WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32
         } else {
             0
         };
+        let content_text = report
+            .map_or_else(
+                || crate::localization::tr(message.unwrap_or("")),
+                |r| r.summary.clone(),
+            )
+            .replace("\r\n", "\n")
+            .replace('\n', "\r\n");
         let content = CreateWindowExW(
             0,
             wide(if message.is_some() && !long {
@@ -177,11 +259,11 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
                 "EDIT"
             })
             .as_ptr(),
-            ui(message.unwrap_or("")).as_ptr(),
+            wide(&content_text).as_ptr(),
             WS_CHILD | WS_VISIBLE | content_style,
             scaled(16, dpi),
             scaled(16, dpi),
-            scaled(388, dpi),
+            scaled(width - 32, dpi),
             scaled(content_height, dpi),
             hwnd,
             10usize as HMENU,
@@ -204,13 +286,77 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
                 SetWindowLongPtrW(content, GWLP_WNDPROC, edit_procedure as *const () as isize);
         }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
+        if long {
+            let inset = scaled(8, dpi) as isize;
+            SendMessageW(
+                content,
+                EM_SETMARGINS,
+                (EC_LEFTMARGIN | EC_RIGHTMARGIN) as usize,
+                inset | (inset << 16),
+            );
+            theme_ui::style_vertical_scrollbar(content, 12, dpi);
+        }
+        if let Some(report) = report.filter(|r| !r.rows.is_empty()) {
+            for (label, x, w) in [("快捷字", 26, 170), ("名称", 216, 350)] {
+                let header = CreateWindowExW(
+                    0,
+                    wide("STATIC").as_ptr(),
+                    ui(label).as_ptr(),
+                    WS_CHILD | WS_VISIBLE,
+                    scaled(x, dpi),
+                    scaled(105, dpi),
+                    scaled(w, dpi),
+                    scaled(22, dpi),
+                    hwnd,
+                    null_mut(),
+                    instance,
+                    std::ptr::null(),
+                );
+                SendMessageW(header, WM_SETFONT, font as usize, 0);
+            }
+            let table = CreateWindowExW(
+                0,
+                wide("LISTBOX").as_ptr(),
+                std::ptr::null(),
+                WS_CHILD
+                    | WS_VISIBLE
+                    | WS_TABSTOP
+                    | WS_VSCROLL
+                    | WS_CLIPSIBLINGS
+                    | WS_BORDER
+                    | (LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS) as u32,
+                scaled(16, dpi),
+                scaled(132, dpi),
+                scaled(width - 32, dpi),
+                7 * scaled(29, dpi) + 2,
+                hwnd,
+                11usize as HMENU,
+                instance,
+                std::ptr::null(),
+            );
+            SendMessageW(table, WM_SETFONT, font as usize, 0);
+            SendMessageW(table, LB_SETITEMHEIGHT, 0, scaled(29, dpi) as isize);
+            for (alias, name) in &report.rows {
+                SendMessageW(
+                    table,
+                    LB_ADDSTRING,
+                    0,
+                    wide(&format!("{alias} · {name}")).as_ptr() as LPARAM,
+                );
+            }
+            theme_ui::style_vertical_scrollbar(table, 12, dpi);
+        }
         let mut focus = content;
-        let actions = if title == "关闭设置" {
-            [("放弃并关闭", 1, 156, 120), ("继续编辑", 2, 284, 120)]
+        let actions: &[(&str, usize, i32, i32)] = if has_rows {
+            &[("移除缺失项", 1, 372, 120), ("取消", 2, 500, 84)]
+        } else if report.is_some() {
+            &[("关闭", 1, 500, 84)]
+        } else if title == "关闭设置" {
+            &[("放弃并关闭", 1, 156, 120), ("继续编辑", 2, 284, 120)]
         } else {
-            [("确定", 1, 224, 84), ("取消", 2, 320, 84)]
+            &[("确定", 1, 224, 84), ("取消", 2, 320, 84)]
         };
-        for (text, id, x, width) in actions {
+        for &(text, id, x, width) in actions {
             let button = CreateWindowExW(
                 0,
                 wide("BUTTON").as_ptr(),
@@ -226,7 +372,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>) -> Option<String> {
                 std::ptr::null(),
             );
             SendMessageW(button, WM_SETFONT, font as usize, 0);
-            if message.is_some() && id == 2 {
+            if message.is_some() && (id == 2 || actions.len() == 1) {
                 focus = button;
             }
         }

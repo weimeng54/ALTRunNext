@@ -26,6 +26,7 @@ pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
 pub enum Chevron {
     Right,
     Down,
+    Up,
 }
 
 pub fn chevron(dc: HDC, center: POINT, direction: Chevron, dpi: i32, ink: u32) {
@@ -33,6 +34,7 @@ pub fn chevron(dc: HDC, center: POINT, direction: Chevron, dpi: i32, ink: u32) {
         let (x, y) = match direction {
             Chevron::Right => (x, y),
             Chevron::Down => (-y, x),
+            Chevron::Up => (y, -x),
         };
         POINT {
             x: center.x + scaled(x, dpi),
@@ -77,7 +79,138 @@ pub fn draw_scrollbar(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32) {
     }
 }
 
-pub fn caption_mark(dc: HDC, dpi: i32) {
+pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
+    unsafe {
+        let scrollbar = CreateWindowExW(
+            0,
+            wide("STATIC").as_ptr(),
+            std::ptr::null(),
+            WS_CHILD | WS_CLIPSIBLINGS,
+            0,
+            0,
+            0,
+            0,
+            GetParent(control),
+            id as HMENU,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        );
+        if !scrollbar.is_null()
+            && SetWindowSubclass(
+                scrollbar,
+                Some(scrollbar_proc),
+                dpi as usize,
+                control as usize,
+            ) != 0
+        {
+            SetWindowSubclass(control, Some(scroll_control_proc), 1, scrollbar as usize);
+        }
+    }
+}
+
+unsafe extern "system" fn scroll_control_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    scrollbar: usize,
+) -> LRESULT {
+    let result = unsafe { DefSubclassProc(hwnd, msg, w, l) };
+    if matches!(
+        msg,
+        WM_NCPAINT
+            | WM_PAINT
+            | WM_VSCROLL
+            | WM_MOUSEWHEEL
+            | WM_KEYDOWN
+            | WM_NCLBUTTONDOWN
+            | WM_SIZE
+            | LB_SETTOPINDEX
+            | LB_SETCURSEL
+            | EM_LINESCROLL
+            | EM_SCROLL
+            | WM_SETTEXT
+    ) {
+        update_scrollbar(hwnd, scrollbar as HWND);
+    }
+    result
+}
+
+fn update_scrollbar(list: HWND, scrollbar: HWND) {
+    unsafe {
+        let visible = GetWindowLongW(scrollbar, GWL_STYLE) as u32 & WS_VISIBLE != 0;
+        let Some(bar) = vertical_scrollbar(list) else {
+            if visible {
+                ShowWindow(scrollbar, SW_HIDE);
+            }
+            return;
+        };
+        let mut bounds = RECT::default();
+        GetWindowRect(scrollbar, &mut bounds);
+        let track = bar.rcScrollBar;
+        if !visible || EqualRect(&bounds, &track) == 0 {
+            let mut origin = POINT {
+                x: track.left,
+                y: track.top,
+            };
+            ScreenToClient(GetParent(scrollbar), &mut origin);
+            SetWindowPos(
+                scrollbar,
+                HWND_TOP,
+                origin.x,
+                origin.y,
+                track.right - track.left,
+                track.bottom - track.top,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+        // Native scrollbar tracking can draw directly into its list window.
+        // A separate, clipped sibling keeps our colors visible during that loop.
+        RedrawWindow(
+            scrollbar,
+            std::ptr::null(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_UPDATENOW,
+        );
+    }
+}
+
+unsafe extern "system" fn scrollbar_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    dpi: usize,
+    list: usize,
+) -> LRESULT {
+    match msg {
+        WM_NCHITTEST => HTTRANSPARENT as isize,
+        WM_ERASEBKGND => 1,
+        WM_PAINT | WM_PRINTCLIENT => unsafe {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = if msg == WM_PAINT {
+                BeginPaint(hwnd, &mut paint)
+            } else {
+                w as HDC
+            };
+            let mut track = RECT::default();
+            GetClientRect(hwnd, &mut track);
+            if let Some(bar) = vertical_scrollbar(list as HWND) {
+                draw_scrollbar(dc, track, &bar, dpi as i32);
+            } else {
+                fill(dc, &track, theme::paper());
+            }
+            if msg == WM_PAINT {
+                EndPaint(hwnd, &paint);
+            }
+            0
+        },
+        _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
+    }
+}
+
+fn caption_mark(dc: HDC, dpi: i32) {
     let px = |value| scaled(value, dpi);
     let bounds = RECT {
         left: px(16),
@@ -99,6 +232,36 @@ pub fn caption_mark(dc: HDC, dpi: i32) {
         Polyline(dc, baseline.as_ptr(), baseline.len() as i32);
         SelectObject(dc, old);
         DeleteObject(pen);
+    }
+}
+
+pub fn panel_caption(dc: HDC, dpi: i32, font: HFONT, title: &str) {
+    caption_mark(dc, dpi);
+    unsafe {
+        let old = SelectObject(dc, font);
+        line_text(
+            dc,
+            RECT {
+                left: scaled(44, dpi),
+                top: 0,
+                right: scaled(334, dpi),
+                bottom: scaled(crate::settings_layout::CAPTION, dpi),
+            },
+            &crate::localization::tr(title),
+            theme::text(),
+            0,
+        );
+        SelectObject(dc, old);
+    }
+}
+
+pub fn round_panel(hwnd: HWND, width: i32, height: i32, dpi: i32) {
+    unsafe {
+        let radius = scaled(22, dpi);
+        let region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius);
+        if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
+            DeleteObject(region);
+        }
     }
 }
 
@@ -343,6 +506,14 @@ fn smooth_round(dc: HDC, rect: RECT, diameter: i32, colour: u32, border: u32) ->
 }
 
 pub fn button_on(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32) {
+    draw_button(item, primary, backdrop, dpi, false);
+}
+
+pub fn menu_button(item: &DRAWITEMSTRUCT, dpi: i32) {
+    draw_button(item, false, theme::chrome(), dpi, true);
+}
+
+fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, menu: bool) {
     let dc = item.hDC;
     let rect = item.rcItem;
     let pressed = item.itemState & ODS_SELECTED != 0;
@@ -378,7 +549,21 @@ pub fn button_on(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32) 
     unsafe {
         let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
         let old = SelectObject(dc, font);
-        line_text(dc, rect, &window_text(item.hwndItem), text, DT_CENTER);
+        let mut label = rect;
+        if menu {
+            label.right -= scaled(16, dpi);
+            chevron(
+                dc,
+                POINT {
+                    x: rect.right - scaled(13, dpi),
+                    y: (rect.top + rect.bottom) / 2,
+                },
+                Chevron::Down,
+                dpi,
+                text,
+            );
+        }
+        line_text(dc, label, &window_text(item.hwndItem), text, DT_CENTER);
         SelectObject(dc, old);
     }
 }
@@ -460,32 +645,12 @@ fn draw_arrows(dc: HDC, rect: RECT, dpi: i32) {
     let well = number_arrow(rect, dpi);
     let center = (well.left + well.right) / 2;
     let middle = (well.top + well.bottom) / 2;
-    let radius = scaled(3, dpi).max(2);
-    let gap = scaled(2, dpi).max(1);
-    unsafe {
-        let brush = CreateSolidBrush(theme::muted());
-        let old_brush = SelectObject(dc, brush);
-        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
-        for (base, direction) in [(middle - gap, -1), (middle + gap, 1)] {
-            let points = [
-                POINT {
-                    x: center - radius,
-                    y: base,
-                },
-                POINT {
-                    x: center,
-                    y: base + direction * radius,
-                },
-                POINT {
-                    x: center + radius,
-                    y: base,
-                },
-            ];
-            Polygon(dc, points.as_ptr(), points.len() as i32);
-        }
-        SelectObject(dc, old_pen);
-        SelectObject(dc, old_brush);
-        DeleteObject(brush);
+    let offset = scaled(4, dpi);
+    for (y, direction) in [
+        (middle - offset, Chevron::Up),
+        (middle + offset, Chevron::Down),
+    ] {
+        chevron(dc, POINT { x: center, y }, direction, dpi, theme::muted());
     }
 }
 

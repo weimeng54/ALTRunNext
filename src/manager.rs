@@ -18,14 +18,7 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{
-        Controls::Dialogs::*,
-        Controls::*,
-        HiDpi::GetDpiForWindow,
-        Input::KeyboardAndMouse::*,
-        Shell::{DefSubclassProc, SetWindowSubclass},
-        WindowsAndMessaging::*,
-    },
+    UI::{Controls::Dialogs::*, Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
@@ -87,7 +80,6 @@ const ENTRY_KIND: usize = 2117;
 const ADD_FILE: usize = 2120;
 const ADD_FOLDER: usize = 2121;
 const SEPARATOR: usize = 2122;
-const REMARK: usize = 2123;
 const VALIDATE: usize = 2124;
 const CLEAN_MISSING: usize = 2125;
 const RELATIVE: usize = 2126;
@@ -155,6 +147,7 @@ struct Editor {
     delete: HWND,
     font: HFONT,
     heading: HFONT,
+    caption: HFONT,
     background: HBRUSH,
     paper: HBRUSH,
     selection: HBRUSH,
@@ -591,11 +584,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     CLOSE => unsafe {
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
-                    ADD_FILE | ADD_FOLDER | SEPARATOR | REMARK | VALIDATE | CLEAN_MISSING
-                    | RELATIVE | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO | SORT_ALIAS
-                    | SORT_NAME | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | RELOAD => {
-                        tool(hwnd, id)
-                    }
+                    ADD_FILE | ADD_FOLDER | SEPARATOR | VALIDATE | CLEAN_MISSING | RELATIVE
+                    | ABSOLUTE | EXPORT | RESTORE | EDIT_TEXT | UNDO | SORT_ALIAS | SORT_NAME
+                    | SORT_FREQUENCY | MOVE_UP | MOVE_DOWN | TEST | RELOAD => tool(hwnd, id),
                     _ => {}
                 }
             }
@@ -615,7 +606,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 return 1;
             }
             if d.CtlType == ODT_BUTTON {
-                if d.CtlID as usize == CAPTION_CLOSE {
+                if matches!(d.CtlID as usize, NEW_MENU | TOOLS_MENU) {
+                    let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+                    crate::theme_ui::menu_button(d, dpi);
+                } else if d.CtlID as usize == CAPTION_CLOSE {
                     crate::theme_ui::caption_close(
                         d,
                         EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi),
@@ -665,9 +659,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             SelectObject(d.hDC, old);
                         }
                     } else {
-                        let background = if [DELETE, CLOSE, SAVE, NEW_MENU, TOOLS_MENU]
-                            .contains(&(d.CtlID as usize))
-                        {
+                        let background = if [DELETE, CLOSE, SAVE].contains(&(d.CtlID as usize)) {
                             theme::chrome()
                         } else {
                             theme::surface()
@@ -838,8 +830,10 @@ fn run(
                 .then_some((x, y))
         });
         let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT, position);
+        crate::theme_ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
-        let heading = make_font(27, 600, "Microsoft YaHei UI", dpi);
+        let heading = make_font(27, 700, "Microsoft YaHei UI", dpi);
+        let caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
             let id = if class == "STATIC" && id == 0 {
                 match label {
@@ -863,13 +857,13 @@ fn run(
                 style
             };
             let (x, y, width, height) = match id {
-                CAPTION_CLOSE => (WIDTH - 46, 0, 46, CAPTION),
+                CAPTION_CLOSE => (WIDTH - 47, 1, 46, CAPTION - 1),
                 NEW_MENU => (RAIL - 180, 62, 78, 32),
                 TOOLS_MENU => (RAIL - 94, 62, 78, 32),
                 LIST => (17, LIST_TOP, RAIL - 34, 0),
-                DELETE => (16, FOOTER_TOP + 14, 72, 34),
-                CLOSE => (WIDTH - 176, FOOTER_TOP + 14, 72, 34),
-                SAVE => (WIDTH - 96, FOOTER_TOP + 14, 80, 34),
+                DELETE => (17, FOOTER_TOP + 13, 86, 37),
+                CLOSE => (WIDTH - 182, FOOTER_TOP + 13, 56, 37),
+                SAVE => (WIDTH - 118, FOOTER_TOP + 13, 101, 37),
                 TYPE_COMMAND | TYPE_SEPARATOR | TYPE_REMARK => {
                     let index = match id {
                         TYPE_COMMAND => 0,
@@ -889,7 +883,7 @@ fn run(
                 ENABLED => (FIELD_RIGHT - 128, 401, 128, 36),
                 WORKDIR => (FIELD_LEFT, 485, FIELD_WIDTH, 36),
                 ENTRY_KIND => (FIELD_LEFT, 153, FIELD_WIDTH, 120),
-                _ if label == "修改后点击保存。" => (100, FOOTER_TOP + 19, 600, 24),
+                _ if label == "修改后点击保存。" => (112, FOOTER_TOP + 17, 600, 25),
                 _ if label == "管理快捷项" => (RAIL + 25, 60, FIELD_WIDTH, 41),
                 _ if label == "快捷字" => (FIELD_LEFT, 207, HALF_FIELD, 21),
                 _ if label == "名称" => (FIELD_RIGHT - HALF_FIELD, 207, HALF_FIELD, 21),
@@ -949,8 +943,8 @@ fn run(
         let close_caption = control("BUTTON", "关闭", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
         crate::theme_ui::style_caption_close(close_caption);
         let title = control("STATIC", "管理快捷项", 0, 280, 12, 300, 25, 0);
-        control("BUTTON", "新增 ▾", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
-        control("BUTTON", "工具 ▾", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU);
+        control("BUTTON", "新增", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
+        control("BUTTON", "工具", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU);
         SetWindowTextW(title, ui("编辑快捷项").as_ptr());
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
         let list = control(
@@ -970,25 +964,7 @@ fn run(
             LIST,
         );
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(ROW_HEIGHT, dpi) as LPARAM);
-        let scrollbar = CreateWindowExW(
-            0,
-            wide("STATIC").as_ptr(),
-            std::ptr::null(),
-            WS_CHILD | WS_CLIPSIBLINGS,
-            0,
-            0,
-            0,
-            0,
-            hwnd,
-            LIST_SCROLLBAR as HMENU,
-            instance,
-            std::ptr::null(),
-        );
-        if !scrollbar.is_null()
-            && SetWindowSubclass(scrollbar, Some(scrollbar_proc), 1, list as usize) != 0
-        {
-            SetWindowSubclass(list, Some(list_scrollbar_proc), 1, scrollbar as usize);
-        }
+        crate::theme_ui::style_vertical_scrollbar(list, LIST_SCROLLBAR, dpi);
         control("STATIC", "快捷字", 0, 280, 52, 210, 20, 0);
         control("STATIC", "名称", 0, 512, 52, 232, 20, 0);
         let alias = control(
@@ -1168,6 +1144,7 @@ fn run(
                 delete,
                 font,
                 heading,
+                caption,
                 background,
                 paper,
                 selection,
@@ -1212,7 +1189,7 @@ fn run(
                         }
                         VK_F1 => {
                             crate::native::show_error(
-                                "选择快捷项后在右侧修改。工具菜单支持验证、路径转换、备份、恢复和测试。保存后更新启动面板。",
+                                "选择快捷项后在右侧修改。工具菜单可检查、排序或导入导出快捷项。保存后更新启动面板。",
                             );
                             continue;
                         }
@@ -1242,7 +1219,14 @@ fn run(
         }
         EDITOR.with(|c| {
             if let Some(s) = c.borrow_mut().take() {
-                for object in [s.font, s.heading, s.background, s.paper, s.selection] {
+                for object in [
+                    s.font,
+                    s.heading,
+                    s.caption,
+                    s.background,
+                    s.paper,
+                    s.selection,
+                ] {
                     DeleteObject(object);
                 }
             }
@@ -1451,18 +1435,14 @@ fn tool(hwnd: HWND, id: usize) {
         }
         return;
     }
-    if id == SEPARATOR || id == REMARK {
+    if id == SEPARATOR {
         remember();
         EDITOR.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
             let identity = library::new_id();
             s.draft.push(Entry {
-                alias: if id == SEPARATOR {
-                    "---".into()
-                } else {
-                    "备注".into()
-                },
+                alias: "---".into(),
                 name: String::new(),
                 command: String::new(),
                 frequency: 0,
@@ -1470,11 +1450,7 @@ fn tool(hwnd: HWND, id: usize) {
                 id: identity,
                 working_directory: String::new(),
                 enabled: false,
-                kind: if id == SEPARATOR {
-                    library::EntryKind::Separator
-                } else {
-                    library::EntryKind::Remark
-                },
+                kind: library::EntryKind::Separator,
             });
             s.selected = s.draft.len() - 1;
             s.dirty = true;
@@ -1508,49 +1484,42 @@ fn tool(hwnd: HWND, id: usize) {
             status("已撤销上一次批量操作，保存后生效。", false);
         }
         VALIDATE | CLEAN_MISSING => {
+            use crate::localization::tr;
+            use altrun_probe::management::Validation;
             let mut missing = Vec::new();
-            let mut unconfirmed = Vec::new();
-            for (i, e) in rows.iter().enumerate() {
-                match altrun_probe::management::validate(e, base) {
-                    altrun_probe::management::Validation::Missing => missing.push(i),
-                    altrun_probe::management::Validation::Unconfirmed(reason) => {
-                        unconfirmed.push(format!("{}：{}", e.alias, reason))
-                    }
-                    _ => {}
+            let mut present = 0;
+            let mut skipped = 0;
+            for (i, entry) in rows.iter().enumerate() {
+                match altrun_probe::management::validate(entry, base) {
+                    Validation::Missing => missing.push(i),
+                    Validation::Present => present += 1,
+                    Validation::Unconfirmed(_) => skipped += 1,
+                    Validation::NonCommand => {}
                 }
             }
-            let names = missing
-                .iter()
-                .map(|i| rows[*i].alias.as_str())
-                .collect::<Vec<_>>()
-                .join("、");
-            let message = format!(
-                "确认缺失 {} 项：{}\n\n未确认 {} 项（网络 / 系统 / 搜索路径 / 模板不会自动删除）：\n{}",
+            let summary = format!(
+                "{} {}     {} {}     {} {}\n{}\n{}",
+                tr("正常"),
+                present,
+                tr("缺失"),
                 missing.len(),
-                names,
-                unconfirmed.len(),
-                unconfirmed
-                    .iter()
-                    .take(15)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                tr("未检查"),
+                skipped,
+                tr("网址、系统入口及依赖 Windows 搜索的命令会保留。"),
+                tr(if missing.is_empty() {
+                    "未发现缺失的本地目标。"
+                } else {
+                    "下面是缺失项。移除后点击「保存」生效。"
+                }),
             );
-            if missing.is_empty() {
-                unsafe {
-                    MessageBoxW(
-                        hwnd,
-                        wide(&message).as_ptr(),
-                        ui("验证结果").as_ptr(),
-                        MB_OK | MB_ICONINFORMATION,
-                    );
-                }
-            } else if !missing.is_empty()
-                && confirm(
-                    hwnd,
-                    &format!("{message}\n\n从草稿中删除确认缺失项？可通过工具菜单撤销。"),
-                )
-            {
+            let report = crate::input_dialog::Report {
+                summary,
+                rows: missing
+                    .iter()
+                    .map(|&i| (rows[i].alias.clone(), rows[i].name.clone()))
+                    .collect(),
+            };
+            if crate::input_dialog::report(hwnd, "检查快捷项", report) && !missing.is_empty() {
                 remember();
                 EDITOR.with(|c| {
                     let mut s = c.borrow_mut();
@@ -1562,6 +1531,7 @@ fn tool(hwnd: HWND, id: usize) {
                     s.dirty = true;
                 });
                 refresh_list();
+                status("已移除缺失项，保存后生效。", false);
             }
         }
         RELATIVE | ABSOLUTE => {
@@ -1603,7 +1573,7 @@ fn tool(hwnd: HWND, id: usize) {
                         .and_then(|(mut file, _)| file.save(&text))
                 });
                 match result {
-                    Ok(()) => status("草稿已导出 / 备份。", false),
+                    Ok(()) => status("快捷项草稿已导出。", false),
                     Err(e) => status(&e, true),
                 }
             }
@@ -1615,7 +1585,7 @@ fn tool(hwnd: HWND, id: usize) {
                         if confirm(
                             hwnd,
                             &format!(
-                                "从备份载入 {} 项并替换草稿？保存前数据文件不变。",
+                                "导入 {} 条快捷项并替换当前草稿？点击「保存」后生效。",
                                 snapshot.entries.len()
                             ),
                         ) {
@@ -1855,7 +1825,6 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     (ADD_FILE, "从文件添加…"),
                     (ADD_FOLDER, "从文件夹添加…"),
                     (SEPARATOR, "分隔行"),
-                    (REMARK, "备注"),
                 ] {
                     if id == SEPARATOR {
                         append(menu, 0, "", false, true);
@@ -1863,11 +1832,9 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     append(menu, id, label, false, false);
                 }
             } else {
-                append(menu, 0, "检查", false, true);
                 append(menu, TEST, "测试当前快捷项…", false, rows.is_empty());
                 append(menu, VALIDATE, "检查快捷项…", false, rows.is_empty());
                 append(menu, 0, "", false, true);
-                append(menu, 0, "整理", false, true);
                 let sort = CreatePopupMenu();
                 let choices = [
                     (
@@ -1904,38 +1871,10 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     );
                 }
                 style.submenu(menu, sort, "排序");
-                let paths = CreatePopupMenu();
-                let paths_in_rows: Vec<_> = rows
-                    .iter()
-                    .filter(|e| e.kind == library::EntryKind::Command)
-                    .map(|e| {
-                        e.command
-                            .trim()
-                            .trim_start_matches('"')
-                            .split('"')
-                            .next()
-                            .unwrap_or("")
-                    })
-                    .filter(|s| s.contains('\\') || s.starts_with("./"))
-                    .collect();
-                let absolute = !paths_in_rows.is_empty()
-                    && paths_in_rows
-                        .iter()
-                        .all(|p| std::path::Path::new(p).is_absolute());
-                let relative = !paths_in_rows.is_empty()
-                    && paths_in_rows
-                        .iter()
-                        .all(|p| !std::path::Path::new(p).is_absolute() && !p.contains('%'));
-                append(paths, RELATIVE, "转为相对路径", relative, rows.is_empty());
-                append(paths, ABSOLUTE, "转为绝对路径", absolute, rows.is_empty());
-                style.submenu(menu, paths, "路径格式");
-                append(menu, 0, "", false, true);
                 append(menu, UNDO, "撤销上次批量操作", false, !can_undo);
                 append(menu, 0, "", false, true);
-                append(menu, 0, "备份", false, true);
-                append(menu, EXPORT, "导出备份…", false, false);
-                append(menu, RESTORE, "从备份恢复…", false, false);
-                append(menu, 0, "", false, true);
+                append(menu, EXPORT, "导出快捷项…", false, false);
+                append(menu, RESTORE, "导入快捷项…", false, false);
             }
         }
         style.background(menu);
@@ -1961,10 +1900,10 @@ fn paint_manager(hwnd: HWND) {
         let dc = BeginPaint(hwnd, &mut ps);
         let mut bounds: RECT = zeroed();
         GetClientRect(hwnd, &mut bounds);
-        let (dpi, font) = EDITOR.with(|c| {
+        let (dpi, font, caption) = EDITOR.with(|c| {
             let s = c.borrow();
             let s = s.as_ref().unwrap();
-            (s.dpi, s.font)
+            (s.dpi, s.font, s.caption)
         });
         let rect = |x, y, w, h| RECT {
             left: scaled(x, dpi),
@@ -2031,18 +1970,10 @@ fn paint_manager(hwnd: HWND) {
         ] {
             crate::theme_ui::fill(dc, &line, theme::divider());
         }
-        crate::theme_ui::caption_mark(dc, dpi);
+        crate::theme_ui::panel_caption(dc, dpi, caption, "ALTRun 管理快捷项");
         SetBkMode(dc, TRANSPARENT as i32);
         SetTextColor(dc, theme::text());
         SelectObject(dc, font);
-        let mut caption = rect(44, 0, WIDTH - 90, CAPTION);
-        DrawTextW(
-            dc,
-            ui("ALTRun 管理快捷项").as_ptr(),
-            -1,
-            &mut caption,
-            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
-        );
         let mut library_title = rect(17, 62, 120, 32);
         DrawTextW(
             dc,
@@ -2066,114 +1997,6 @@ fn paint_manager(hwnd: HWND) {
             0,
         );
         EndPaint(hwnd, &ps);
-    }
-}
-
-unsafe extern "system" fn list_scrollbar_proc(
-    hwnd: HWND,
-    msg: u32,
-    w: WPARAM,
-    l: LPARAM,
-    _: usize,
-    scrollbar: usize,
-) -> LRESULT {
-    let result = unsafe { DefSubclassProc(hwnd, msg, w, l) };
-    if matches!(
-        msg,
-        WM_NCPAINT
-            | WM_PAINT
-            | WM_VSCROLL
-            | WM_MOUSEWHEEL
-            | WM_KEYDOWN
-            | WM_NCLBUTTONDOWN
-            | WM_SIZE
-            | LB_SETTOPINDEX
-            | LB_SETCURSEL
-    ) {
-        update_scrollbar(hwnd, scrollbar as HWND);
-    }
-    result
-}
-
-fn update_scrollbar(list: HWND, scrollbar: HWND) {
-    unsafe {
-        let visible = GetWindowLongW(scrollbar, GWL_STYLE) as u32 & WS_VISIBLE != 0;
-        let Some(bar) = crate::theme_ui::vertical_scrollbar(list) else {
-            if visible {
-                ShowWindow(scrollbar, SW_HIDE);
-            }
-            return;
-        };
-        let mut bounds = RECT::default();
-        GetWindowRect(scrollbar, &mut bounds);
-        let track = bar.rcScrollBar;
-        if !visible || EqualRect(&bounds, &track) == 0 {
-            let mut origin = POINT {
-                x: track.left,
-                y: track.top,
-            };
-            ScreenToClient(GetParent(scrollbar), &mut origin);
-            SetWindowPos(
-                scrollbar,
-                HWND_TOP,
-                origin.x,
-                origin.y,
-                track.right - track.left,
-                track.bottom - track.top,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        }
-        // Native scrollbar tracking can draw directly into its list window.
-        // A separate, clipped sibling keeps our colors visible during that loop.
-        RedrawWindow(
-            scrollbar,
-            std::ptr::null(),
-            null_mut(),
-            RDW_INVALIDATE | RDW_UPDATENOW,
-        );
-    }
-}
-
-unsafe extern "system" fn scrollbar_proc(
-    hwnd: HWND,
-    msg: u32,
-    w: WPARAM,
-    l: LPARAM,
-    _: usize,
-    list: usize,
-) -> LRESULT {
-    match msg {
-        WM_NCHITTEST => HTTRANSPARENT as isize,
-        WM_ERASEBKGND => 1,
-        WM_PAINT | WM_PRINTCLIENT => unsafe {
-            let mut paint = PAINTSTRUCT::default();
-            let dc = if msg == WM_PAINT {
-                BeginPaint(hwnd, &mut paint)
-            } else {
-                w as HDC
-            };
-            let mut track = RECT::default();
-            GetClientRect(hwnd, &mut track);
-            if let Some(bar) = crate::theme_ui::vertical_scrollbar(list as HWND) {
-                crate::theme_ui::draw_scrollbar(
-                    dc,
-                    track,
-                    &bar,
-                    EDITOR.with(|c| {
-                        c.borrow()
-                            .as_ref()
-                            .map_or_else(|| GetDpiForWindow(hwnd).max(96) as i32, |s| s.dpi)
-                    }),
-                );
-            } else {
-                crate::theme_ui::fill(dc, &track, theme::paper());
-            }
-            if msg == WM_PAINT {
-                EndPaint(hwnd, &paint);
-            }
-            0
-        },
-        _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
     }
 }
 
@@ -2204,11 +2027,34 @@ fn sync_kind_layout() {
                 },
             );
         }
-        for id in [TYPE_COMMAND, TYPE_SEPARATOR, TYPE_REMARK, TYPE_LABEL] {
+        let legacy_note = kind == Some(library::EntryKind::Remark);
+        let count = if legacy_note { 3 } else { 2 };
+        for (index, id) in [TYPE_COMMAND, TYPE_SEPARATOR, TYPE_REMARK]
+            .into_iter()
+            .enumerate()
+        {
             let child = GetDlgItem(hwnd, id as i32);
-            ShowWindow(child, if kind.is_some() { SW_SHOW } else { SW_HIDE });
+            if kind.is_none() || (id == TYPE_REMARK && !legacy_note) {
+                ShowWindow(child, SW_HIDE);
+                continue;
+            }
+            let step = (FIELD_WIDTH - 5) / count;
+            let left = FIELD_LEFT + 4 + index as i32 * step;
+            SetWindowPos(
+                child,
+                null_mut(),
+                scaled(left, dpi),
+                scaled(157, dpi),
+                scaled(left + step - 3, dpi) - scaled(left, dpi),
+                scaled(29, dpi),
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
             InvalidateRect(child, std::ptr::null(), 1);
         }
+        ShowWindow(
+            GetDlgItem(hwnd, TYPE_LABEL as i32),
+            if kind.is_some() { SW_SHOW } else { SW_HIDE },
+        );
         ShowWindow(
             GetDlgItem(hwnd, NOTE_LABEL as i32),
             if kind == Some(library::EntryKind::Remark) {

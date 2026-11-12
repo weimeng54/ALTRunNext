@@ -121,17 +121,20 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/altrun-probe.exe dist/ALTRun.exe
           Copy-Item assets/shortcuts.tsv dist/
-          Copy-Item assets/README-portable.txt dist/README.txt
-          Copy-Item Cargo.lock dist/
           $metadata = cargo metadata --format-version 1 --locked --offline | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $notices = 'dist/THIRD-PARTY-NOTICES.txt'
+          'ALTRun third-party notices' | Set-Content -Encoding utf8 $notices
           foreach ($package in $metadata.packages | Where-Object { $_.source }) {
             $source = Split-Path $package.manifest_path
-            $destination = "dist/licenses/$($package.name)-$($package.version)"
-            New-Item -ItemType Directory -Force $destination | Out-Null
-            Get-ChildItem $source -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)([-.]|$)' } | Copy-Item -Destination $destination
-            if (-not (Get-ChildItem $destination -File)) { throw "Missing dependency license: $($package.name)" }
+            $licenses = @(Get-ChildItem $source -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)([-.]|$)' })
+            if ($licenses.Count -eq 0) { throw "Missing dependency license: $($package.name)" }
+            foreach ($license in $licenses) {
+              Add-Content -Encoding utf8 $notices "`n$($package.name) $($package.version) — $($license.Name)`n"
+              Get-Content -Raw -LiteralPath $license.FullName | Add-Content -Encoding utf8 $notices
+            }
           }
+          Compress-Archive -LiteralPath @('dist/ALTRun.exe', 'dist/shortcuts.tsv', $notices) -DestinationPath target/ALTRun-Win11-x64.zip
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
           @(Get-ChildItem dist -Recurse -File | ForEach-Object { @{Name=[IO.Path]::GetRelativePath((Join-Path $PWD dist),$_.FullName);Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -140,6 +143,7 @@ jobs:
           name: altrun-probe-${{ github.sha }}
           path: |
             dist/
+            target/ALTRun-Win11-x64.zip
             Cargo.lock
             rustfmt.patch
             target/ui/

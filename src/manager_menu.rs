@@ -16,7 +16,6 @@ struct Item {
     width: i32,
     height: i32,
     child: bool,
-    heading: bool,
     rule: bool,
 }
 
@@ -78,7 +77,6 @@ impl PopupStyle {
 
     fn insert(&self, menu: HMENU, id: usize, label: &str, width: i32, state: u32, child: HMENU) {
         let rule = label.is_empty();
-        let heading = id == 0 && child.is_null() && !rule;
         let label = crate::localization::tr(label);
         let mut text = wide(&label);
         let data = CURRENT.with(|current| {
@@ -87,15 +85,8 @@ impl PopupStyle {
             skin.items.push(Item {
                 label,
                 width,
-                height: if rule {
-                    7
-                } else if heading {
-                    22
-                } else {
-                    29
-                },
+                height: if rule { 7 } else { 29 },
                 child: !child.is_null(),
-                heading,
                 rule,
             });
             skin.items.len()
@@ -189,7 +180,7 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
             };
             theme_ui::rounded(dc, hover, px(8), theme::selection(), theme::selection());
         }
-        let ink = if disabled || item.heading {
+        let ink = if disabled {
             theme::muted()
         } else {
             theme::text()

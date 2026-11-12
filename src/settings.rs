@@ -670,10 +670,7 @@ fn layout_page() {
         let old_width = rect.right - rect.left;
         let old_height = rect.bottom - rect.top;
         if old_width != px(width) || old_height != height {
-            let region = CreateRoundRectRgn(0, 0, px(width) + 1, height + 1, px(22), px(22));
-            if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
-                DeleteObject(region);
-            }
+            theme_ui::round_panel(hwnd, px(width), height, dpi);
         }
         for (i, h) in footer.into_iter().enumerate() {
             ShowWindow(
@@ -687,7 +684,7 @@ fn layout_page() {
             let (x, w) = if advanced {
                 [(17, 86), (111, 68), (187, 68), (797, 64), (870, 94)][i]
             } else {
-                [(17, 86), (111, 68), (187, 68), (920, 56), (984, 101)][i]
+                [(17, 86), (111, 96), (215, 96), (920, 56), (984, 101)][i]
             };
             MoveWindow(
                 h,
@@ -700,9 +697,9 @@ fn layout_page() {
         }
         MoveWindow(
             status,
-            px(if advanced { 17 } else { 267 }),
+            px(if advanced { 17 } else { 323 }),
             foot + px(17),
-            px(650),
+            px(if advanced { 650 } else { 585 }),
             px(25),
             0,
         );
@@ -1905,17 +1902,8 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     ] {
         theme_ui::fill(dc, &line, divider);
     }
-    theme_ui::caption_mark(dc, dpi);
+    theme_ui::panel_caption(dc, dpi, caption, "ALTRun 设置");
     unsafe {
-        let old = SelectObject(dc, caption);
-        theme_ui::line_text(
-            dc,
-            BoxRect::new(44, 0, 290, 42).pixels(dpi),
-            &crate::localization::tr("ALTRun 设置"),
-            theme::text(),
-            0,
-        );
-        SelectObject(dc, old);
         let clip = SaveDC(dc);
         if clip != 0 {
             IntersectClipRect(
@@ -3158,8 +3146,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 }
                 let footer_controls = [
                     ("恢复默认", 2311),
-                    ("导入…", 2312),
-                    ("导出…", 2313),
+                    ("导入设置…", 2312),
+                    ("导出设置…", 2313),
                     ("关闭", 2314),
                     ("保存并应用", 2310),
                 ]
