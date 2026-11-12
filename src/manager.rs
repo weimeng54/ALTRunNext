@@ -862,8 +862,8 @@ fn run(
                 TOOLS_MENU => (RAIL - 94, 62, 78, 32),
                 LIST => (17, LIST_TOP, RAIL - 34, 0),
                 DELETE => (17, FOOTER_TOP + 13, 86, 37),
-                CLOSE => (WIDTH - 182, FOOTER_TOP + 13, 56, 37),
-                SAVE => (WIDTH - 118, FOOTER_TOP + 13, 101, 37),
+                CLOSE => (WIDTH - 220, FOOTER_TOP + 13, 65, 37),
+                SAVE => (WIDTH - 147, FOOTER_TOP + 13, 130, 37),
                 TYPE_COMMAND | TYPE_SEPARATOR | TYPE_REMARK => {
                     let index = match id {
                         TYPE_COMMAND => 0,
@@ -1746,7 +1746,7 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
         });
         let style = crate::manager_menu::PopupStyle::new(dpi, font);
         let append = |target, id, label: &str, checked: bool, disabled: bool| {
-            let width = if target != menu || position.is_some() || group == NEW_MENU {
+            let width = if target != menu || position.is_some() {
                 136
             } else {
                 183

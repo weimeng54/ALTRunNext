@@ -682,9 +682,9 @@ fn layout_page() {
                 },
             );
             let (x, w) = if advanced {
-                [(17, 86), (111, 68), (187, 68), (797, 64), (870, 94)][i]
+                [(17, 132), (157, 136), (301, 136), (770, 65), (843, 121)][i]
             } else {
-                [(17, 86), (111, 96), (215, 96), (920, 56), (984, 101)][i]
+                [(17, 132), (157, 136), (301, 136), (882, 65), (955, 130)][i]
             };
             MoveWindow(
                 h,
@@ -697,9 +697,9 @@ fn layout_page() {
         }
         MoveWindow(
             status,
-            px(if advanced { 17 } else { 323 }),
+            px(if advanced { 17 } else { 449 }),
             foot + px(17),
-            px(if advanced { 650 } else { 585 }),
+            px(if advanced { 650 } else { 425 }),
             px(25),
             0,
         );

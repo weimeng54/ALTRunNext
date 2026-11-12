@@ -398,10 +398,14 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
                     DispatchMessageW(&msg);
                     continue;
                 }
+                let focused = GetDlgCtrlID(GetFocus());
+                if has_rows && msg.wParam as u16 == VK_RETURN && focused != 1 && focused != 2 {
+                    continue;
+                }
                 SendMessageW(
                     hwnd,
                     WM_COMMAND,
-                    if msg.wParam as u16 == VK_RETURN && GetDlgCtrlID(GetFocus()) != 2 {
+                    if msg.wParam as u16 == VK_RETURN && focused != 2 {
                         1
                     } else {
                         2
