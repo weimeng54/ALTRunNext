@@ -1,8 +1,9 @@
 #![cfg(windows)]
 mod review_native_support;
 use review_native_support::*;
+use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_COMMAND};
 #[test]
-fn manager_conversion_honors_the_configured_default_directory() {
+fn missing_path_check_honors_the_configured_default_directory() {
     let root = std::env::current_dir()
         .unwrap()
         .join("target/review-manager-directory");
@@ -20,16 +21,11 @@ fn manager_conversion_honors_the_configured_default_directory() {
     .unwrap();
     let (process, launcher) = start(&data, Some("--safe-mode"));
     let dialog = manager(launcher, process.0.id());
-    command(dialog, 2127);
-    command(dialog, 2113);
-    let rows = altrun_probe::library::Snapshot::open(&data)
-        .unwrap()
-        .entries;
-    let target = altrun_probe::launch::resolve_typed(&rows[0].command, None, rows[0].param_type)
-        .unwrap()
-        .file;
-    assert_eq!(
-        std::fs::canonicalize(target).unwrap(),
-        std::fs::canonicalize(working.join("bin/app.exe")).unwrap()
-    );
+    unsafe { PostMessageW(dialog, WM_COMMAND, 2124, 0) };
+    let mut report = std::ptr::null_mut();
+    wait(|| {
+        report = window("ALTRun.Native.Confirmation", process.0.id());
+        !report.is_null() && has_text(report, "正常 1")
+    });
+    command(report, 1);
 }

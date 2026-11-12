@@ -128,7 +128,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
             && unsafe { IsWindowVisible(manager) != 0 && !GetDlgItem(manager, 2102).is_null() }
     });
     unsafe {
-        // In-window toolbar and type segments keep the existing draft controls usable.
+        // In-window toolbar and the command form stay available at the shared size.
         assert!(GetMenu(manager).is_null());
         let style = GetWindowLongW(manager, GWL_STYLE) as u32;
         assert_eq!(style & WS_THICKFRAME, 0);
@@ -188,17 +188,8 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         let row = SendMessageW(editor_list, LB_GETITEMHEIGHT, 0, 0) as i32;
         GetClientRect(editor_list, &mut client);
         assert!(row > 0 && client.bottom % row == 0);
-        SendMessageW(manager, WM_COMMAND, 2152, 0);
-        assert_eq!(IsWindowVisible(GetDlgItem(manager, 2104)), 0);
-        assert_ne!(IsWindowVisible(GetDlgItem(manager, 2103)), 0);
-        assert_eq!(
-            SendMessageW(GetDlgItem(manager, 2117), CB_GETCURSEL, 0, 0),
-            2
-        );
-        SendMessageW(manager, WM_COMMAND, 2151, 0);
-        assert_eq!(IsWindowVisible(GetDlgItem(manager, 2103)), 0);
-        assert_ne!(IsWindowVisible(GetDlgItem(manager, 2162)), 0);
-        SendMessageW(manager, WM_COMMAND, 2150, 0);
+        assert!(GetDlgItem(manager, 2117).is_null());
+        assert!(GetDlgItem(manager, 2151).is_null());
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2104)), 0);
         let alias = GetDlgItem(manager, 2102);
         let name = GetDlgItem(manager, 2103);

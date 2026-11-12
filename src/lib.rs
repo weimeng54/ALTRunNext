@@ -53,7 +53,24 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
             })
         })
         .collect::<Result<Vec<_>, _>>()
-        .and_then(|rows| {
+        .and_then(|mut rows| {
+            rows.retain_mut(|entry| {
+                if entry.kind != library::EntryKind::Separator {
+                    return true;
+                }
+                // Old versions could turn a command into an invisible separator.
+                // Keep its contents, but require an explicit re-enable.
+                entry.enabled = false;
+                if !entry.command.trim().is_empty() {
+                    entry.kind = library::EntryKind::Command;
+                    true
+                } else if !entry.name.trim().is_empty() {
+                    entry.kind = library::EntryKind::Remark;
+                    true
+                } else {
+                    false
+                }
+            });
             for entry in &rows {
                 library::validate(entry)?;
             }

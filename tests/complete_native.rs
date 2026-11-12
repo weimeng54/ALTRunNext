@@ -563,16 +563,9 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         command(manager, 2122);
         assert_eq!(
             SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
-            4
+            3
         );
-        command(manager, 2113);
-        assert_eq!(
-            altrun_probe::library::Snapshot::open(&data)
-                .unwrap()
-                .entries[3]
-                .kind,
-            altrun_probe::library::EntryKind::Separator
-        );
+        assert!(GetDlgItem(manager, 2151).is_null());
         command(manager, 2114);
         wait(|| IsWindow(manager) == 0);
         for i in 0..100 {
