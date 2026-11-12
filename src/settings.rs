@@ -55,8 +55,17 @@ const TBM_GETPOS: u32 = WM_USER;
 const FIELD: usize = 2400;
 const PICK: usize = 2500;
 const CLEAR: usize = 2600;
-const FONT_UP: usize = 2700;
-const FONT_DOWN: usize = 2800;
+const STRENGTH_UNIT: usize = 2355;
+const FORMAT_MODE: usize = 2356;
+const FORMAT_PREVIEW: usize = 2357;
+const FORMAT_DISCLOSE: usize = 2358;
+const FORMAT_GUIDE: usize = 2359;
+const ADVANCED_NOTE: usize = 2360;
+const ALPHA_UNIT: usize = 2361;
+const RADIUS_UNIT: usize = 2362;
+const ALPHA_HELP: usize = 2363;
+const RADIUS_HELP: usize = 2364;
+const FORMAT_PRESETS: [&str; 3] = ["%-25s| %s", "%s — %s", "%s"];
 const OWNER_STATIC: u32 = 0x0d;
 
 pub enum Change {
@@ -206,6 +215,7 @@ struct Editor {
     height: i32,
     more_panel: bool,
     more_colors: bool,
+    format_expanded: bool,
     scroll: i32,
     preview: Preview,
     preview_controls: [HWND; 3],
@@ -312,7 +322,7 @@ fn extra_color(key: &str) -> bool {
 fn image_control(id: usize) -> bool {
     matches!(
         id,
-        IMAGE_THUMB | STRENGTH_LABEL | STRENGTH_VALUE | CROP_LABEL
+        IMAGE_THUMB | STRENGTH_LABEL | STRENGTH_VALUE | STRENGTH_UNIT | CROP_LABEL
     ) || [FIELD, PICK].iter().any(|start| {
         id.checked_sub(*start)
             .and_then(|i| SPECS.get(i))
@@ -484,21 +494,23 @@ fn show_page(page: usize) {
         return;
     };
     cancel_capture();
-    let (window, tabs, title, hint, sections, extras, preview, more_colors) = EDITOR.with(|c| {
-        let mut editor = c.borrow_mut();
-        let editor = editor.as_mut().unwrap();
-        editor.page = page;
-        (
-            editor.hwnd,
-            editor.tabs,
-            editor.title,
-            editor.hint,
-            editor.sections.clone(),
-            editor.extra_controls.clone(),
-            editor.preview_controls,
-            editor.more_colors,
-        )
-    });
+    let (window, tabs, title, hint, sections, extras, preview, more_colors, format_expanded) =
+        EDITOR.with(|c| {
+            let mut editor = c.borrow_mut();
+            let editor = editor.as_mut().unwrap();
+            editor.page = page;
+            (
+                editor.hwnd,
+                editor.tabs,
+                editor.title,
+                editor.hint,
+                editor.sections.clone(),
+                editor.extra_controls.clone(),
+                editor.preview_controls,
+                editor.more_colors,
+                editor.format_expanded,
+            )
+        });
     let shown = unsafe { IsWindowVisible(window) != 0 };
     unsafe {
         if shown {
@@ -507,9 +519,11 @@ fn show_page(page: usize) {
         SendMessageW(tabs, LB_SETCURSEL, page, 0);
         SetWindowTextW(title, ui(design.name).as_ptr());
         SetWindowTextW(hint, ui(design.hint).as_ptr());
+        ShowWindow(hint, if page == 6 { SW_HIDE } else { SW_SHOWNA });
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visibility = if field.page == page
                 && !hidden_field(spec.key)
+                && (spec.key != "ListFormat" || format_expanded)
                 && (!extra_color(spec.key) || more_colors)
             {
                 SW_SHOWNA
@@ -536,7 +550,15 @@ fn show_page(page: usize) {
             ShowWindow(hwnd, if group == page { SW_SHOWNA } else { SW_HIDE });
         }
         for (group, hwnd) in extras {
-            ShowWindow(hwnd, if group == page { SW_SHOWNA } else { SW_HIDE });
+            let format_hidden = GetDlgCtrlID(hwnd) == FORMAT_GUIDE as i32 && !format_expanded;
+            ShowWindow(
+                hwnd,
+                if group == page && !format_hidden {
+                    SW_SHOWNA
+                } else {
+                    SW_HIDE
+                },
+            );
         }
         for hwnd in preview {
             ShowWindow(
@@ -550,6 +572,9 @@ fn show_page(page: usize) {
         }
     }
     layout_page();
+    if page == 6 {
+        refresh_format(window);
+    }
     update_preview();
     unsafe {
         if shown {
@@ -583,6 +608,23 @@ fn layout_page() {
         });
     let px = |value| scaled(value, dpi);
     let image = page == 3 && background_image();
+    let advanced = page == 6;
+    let width = if advanced {
+        layout::ADVANCED_WIDTH
+    } else {
+        layout::WIDTH
+    };
+    let (tabs, title, format_expanded, sections, extras) = EDITOR.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (
+            s.tabs,
+            s.title,
+            s.format_expanded,
+            s.sections.clone(),
+            s.extra_controls.clone(),
+        )
+    });
     unsafe {
         let mut rect: RECT = std::mem::zeroed();
         GetWindowRect(hwnd, &mut rect);
@@ -598,13 +640,17 @@ fn layout_page() {
             936
         } else if page == 4 && more_colors {
             721
+        } else if advanced && format_expanded {
+            layout::page_height(page) + layout::ADVANCED_EXPANSION
         } else {
             layout::page_height(page)
         };
         let height = px(target).min(available);
-        let foot = height - px(layout::FOOTER);
+        let foot = height - px(if advanced { 57 } else { layout::FOOTER });
         let scroll_max = if page == 3 && expanded {
             (px(936) - height).max(0)
+        } else if advanced && format_expanded {
+            (px(target) - height).max(0)
         } else {
             0
         };
@@ -618,26 +664,112 @@ fn layout_page() {
         SetWindowPos(
             hwnd,
             null_mut(),
-            rect.left,
+            rect.left.min(work.right - px(width)).max(work.left),
             rect.top.min(work.bottom - height).max(work.top),
-            px(layout::WIDTH),
+            px(width),
             height,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let old_width = rect.right - rect.left;
         let old_height = rect.bottom - rect.top;
-        if old_width != px(layout::WIDTH) || old_height != height {
-            let region =
-                CreateRoundRectRgn(0, 0, px(layout::WIDTH) + 1, height + 1, px(22), px(22));
+        if old_width != px(width) || old_height != height {
+            let region = CreateRoundRectRgn(0, 0, px(width) + 1, height + 1, px(22), px(22));
             if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
                 DeleteObject(region);
             }
         }
         for (i, h) in footer.into_iter().enumerate() {
-            let (x, w) = [(17, 86), (111, 68), (187, 68), (920, 56), (984, 101)][i];
-            MoveWindow(h, px(x), foot + px(13), px(w), px(37), 0);
+            ShowWindow(
+                h,
+                if advanced && i < 3 {
+                    SW_HIDE
+                } else {
+                    SW_SHOWNA
+                },
+            );
+            let (x, w) = if advanced {
+                [(17, 86), (111, 68), (187, 68), (797, 64), (870, 94)][i]
+            } else {
+                [(17, 86), (111, 68), (187, 68), (920, 56), (984, 101)][i]
+            };
+            MoveWindow(
+                h,
+                px(x),
+                foot + px(if advanced { 11 } else { 13 }),
+                px(w),
+                px(if advanced { 34 } else { 37 }),
+                0,
+            );
         }
-        MoveWindow(status, px(267), foot + px(17), px(650), px(25), 0);
+        MoveWindow(
+            status,
+            px(if advanced { 17 } else { 267 }),
+            foot + px(17),
+            px(650),
+            px(25),
+            0,
+        );
+        MoveWindow(
+            tabs,
+            px(13),
+            px(67),
+            px(if advanced { 130 } else { 160 }),
+            px(315),
+            0,
+        );
+        MoveWindow(
+            title,
+            px(if advanced { 177 } else { 214 }),
+            px(if advanced { 61 } else { 68 }),
+            px(if advanced { 780 } else { 859 }),
+            px(38),
+            0,
+        );
+        MoveWindow(
+            GetDlgItem(hwnd, TITLE_CLOSE as i32),
+            px(width - 47),
+            px(1),
+            px(46),
+            px(41),
+            0,
+        );
+        if advanced {
+            let shift = if format_expanded {
+                layout::ADVANCED_EXPANSION
+            } else {
+                0
+            };
+            let position = |child, x, y, w, h, shown| {
+                position_appearance_child(
+                    child,
+                    BoxRect::new(x, y, w, h).pixels(dpi),
+                    scroll,
+                    dpi,
+                    foot,
+                    shown,
+                );
+            };
+            for (key, x, y) in [("Alpha", 469, 433), ("RoundBorderRadius", 458, 495)] {
+                let f = field(key);
+                position(f.value, x, y + shift, 66, 34, true);
+                position(f.label, 189, y - 7 + shift, 236, 21, true);
+            }
+            if let Some((_, child)) = sections.iter().filter(|(group, _)| *group == 6).nth(1) {
+                position(*child, 177, 393 + shift, 391, 21, true);
+            }
+            for (id, x, y, w, h) in [
+                (ALPHA_UNIT, 544, 438 + shift, 18, 22),
+                (RADIUS_UNIT, 533, 501 + shift, 31, 22),
+                (ALPHA_HELP, 189, 448 + shift, 242, 24),
+                (RADIUS_HELP, 189, 511 + shift, 255, 24),
+                (FORMAT_GUIDE, 189, 442, 367, 59),
+            ] {
+                if let Some((_, child)) = extras.iter().find(|(_, h)| GetDlgCtrlID(*h) == id as i32)
+                {
+                    position(*child, x, y, w, h, id != FORMAT_GUIDE || format_expanded);
+                }
+            }
+        }
         if page == 3 {
             for (child, base, needs_expansion) in children {
                 let id = GetDlgCtrlID(child) as usize;
@@ -839,6 +971,41 @@ fn load_form(prefs: &Preferences) {
     }
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading_form = false);
     update_background_mode();
+    refresh_format(window);
+}
+
+fn refresh_format(window: HWND) {
+    let format = text(field("ListFormat").value);
+    let mode = FORMAT_PRESETS
+        .iter()
+        .position(|preset| *preset == format)
+        .unwrap_or(3);
+    unsafe {
+        SendMessageW(
+            GetDlgItem(window, FORMAT_MODE as i32),
+            CB_SETCURSEL,
+            mode,
+            0,
+        );
+        InvalidateRect(
+            GetDlgItem(window, FORMAT_PREVIEW as i32),
+            std::ptr::null(),
+            0,
+        );
+    }
+}
+
+fn expand_format(expand: bool) {
+    let changed = EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        let changed = s.format_expanded != expand;
+        s.format_expanded = expand;
+        changed
+    });
+    if changed {
+        show_page(6);
+    }
 }
 
 fn sync_sound_picker(enabled: bool) {
@@ -870,7 +1037,7 @@ fn read_form() -> Result<Preferences, (usize, String)> {
             }
             .to_string()
         } else if spec.key == "BGStrength" {
-            unsafe { SendMessageW(field.value, TBM_GETPOS, 0, 0) }.to_string()
+            text(unsafe { GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32) })
         } else if matches!(spec.kind, Kind::Bool) {
             let checked = unsafe { SendMessageW(field.value, BM_GETCHECK, 0, 0) != 0 };
             if checked { "1" } else { "0" }.to_owned()
@@ -908,8 +1075,10 @@ fn validated_form() -> Option<Preferences> {
 fn strength_label(field: Field, strength: i32) {
     unsafe {
         let value = GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32);
-        SetWindowTextW(value, wide(&format!("{strength}%")).as_ptr());
-        InvalidateRect(value, std::ptr::null(), 0);
+        let formatted = strength.to_string();
+        if text(value) != formatted {
+            SetWindowTextW(value, wide(&formatted).as_ptr());
+        }
     }
 }
 
@@ -1122,23 +1291,50 @@ unsafe extern "system" fn hotkey_proc(
     }
 }
 
-fn adjust_font(index: usize, delta: i32) {
-    let field = fields()[index];
-    let fallback = EDITOR.with(|c| {
-        let s = c.borrow();
-        altrun_probe::preferences::Font::parse(&s.as_ref().unwrap().draft.get(SPECS[index].key))
-            .map_or(13, |font| font.size_dip())
-    });
-    let size = (text(field.value)
+fn adjust_number(hwnd: HWND, id: usize, delta: i32) {
+    let (control, fallback, min, max) = if id == STRENGTH_VALUE {
+        let slider = field("BGStrength").value;
+        let value = unsafe { SendMessageW(slider, TBM_GETPOS, 0, 0) } as i32;
+        (unsafe { GetDlgItem(hwnd, id as i32) }, value, 0, 100)
+    } else {
+        let Some(index) = id.checked_sub(FIELD) else {
+            return;
+        };
+        let Some(spec) = SPECS.get(index) else { return };
+        let value = EDITOR.with(|state| state.borrow().as_ref().unwrap().draft.get(spec.key));
+        let (fallback, min, max) = match spec.kind {
+            Kind::Font => (
+                altrun_probe::preferences::Font::parse(&value).map_or(13, |font| font.size_dip()),
+                6,
+                128,
+            ),
+            Kind::Number(min, max) if spec.key != "Alpha" => {
+                (value.parse().unwrap_or(min as i32), min as i32, max as i32)
+            }
+            Kind::Number(..) => (
+                (value.parse::<i32>().unwrap_or(255) * 100 + 127) / 255,
+                0,
+                100,
+            ),
+            _ => return,
+        };
+        (fields()[index].value, fallback, min, max)
+    };
+    let old = text(control);
+    let value = old
+        .trim()
         .parse::<i32>()
         .unwrap_or(fallback)
-        .clamp(6, 128)
-        + delta)
-        .clamp(6, 128);
-    unsafe {
-        SetWindowTextW(field.value, wide(&size.to_string()).as_ptr());
+        .saturating_add(delta)
+        .clamp(min, max)
+        .to_string();
+    if old != value {
+        unsafe {
+            SetWindowTextW(control, wide(&value).as_ptr());
+        }
     }
 }
+
 fn apply() {
     let Some(prefs) = validated_form() else {
         return;
@@ -1330,39 +1526,6 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 theme_ui::line_text(item.hDC, rect, &label, theme::text(), DT_CENTER);
                 SelectObject(item.hDC, old);
             }
-        } else if (FONT_UP..FONT_DOWN + SPECS.len()).contains(&id) {
-            let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-            let rect = item.rcItem;
-            let pressed = item.itemState & ODS_SELECTED != 0;
-            theme_ui::fill(item.hDC, &rect, theme::control_surface());
-            theme_ui::rounded(
-                item.hDC,
-                rect,
-                scaled(6, dpi),
-                if pressed {
-                    theme::selection()
-                } else {
-                    theme::paper()
-                },
-                if item.itemState & ODS_FOCUS != 0 {
-                    theme::accent()
-                } else {
-                    theme::border()
-                },
-            );
-            let direction = if id < FONT_DOWN { -1 } else { 1 };
-            let x = (rect.left + rect.right) / 2;
-            let y = (rect.top + rect.bottom) / 2;
-            let r = scaled(3, dpi).max(2);
-            draw_lines(
-                item.hDC,
-                dpi,
-                theme::text(),
-                &[
-                    [(x - r, y), (x, y + direction * r)],
-                    [(x, y + direction * r), (x + r, y)],
-                ],
-            );
         } else if id == FONT_FAMILY {
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |e| e.dpi));
             let rect = item.rcItem;
@@ -1392,7 +1555,33 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 theme::text(),
                 0,
             );
-        } else if matches!(id, TITLE_CLOSE | MORE_PANEL | MORE_COLORS) {
+        } else if id == TITLE_CLOSE {
+            theme_ui::caption_close(item, EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi));
+        } else if id == FORMAT_DISCLOSE {
+            let (dpi, expanded) = EDITOR.with(|c| {
+                let state = c.borrow();
+                let s = state.as_ref().unwrap();
+                (s.dpi, s.format_expanded)
+            });
+            theme_ui::fill(item.hDC, &item.rcItem, theme::control_surface());
+            let mut rect = item.rcItem;
+            rect.left += scaled(14, dpi);
+            draw_button_text(item, rect, theme::muted(), 0);
+            rect.left -= scaled(13, dpi);
+            rect.right = rect.left + scaled(12, dpi);
+            theme_ui::line_text(
+                item.hDC,
+                rect,
+                if expanded { "⌄" } else { "›" },
+                theme::muted(),
+                0,
+            );
+            if item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0 {
+                unsafe {
+                    DrawFocusRect(item.hDC, &item.rcItem);
+                }
+            }
+        } else if matches!(id, MORE_PANEL | MORE_COLORS) {
             let state = EDITOR.with(|c| {
                 c.borrow()
                     .as_ref()
@@ -1406,27 +1595,11 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 &item.rcItem,
                 if item.itemState & ODS_SELECTED != 0 {
                     theme::selection()
-                } else if id == TITLE_CLOSE {
-                    theme::chrome()
                 } else {
                     theme::control_surface()
                 },
             );
-            if id == TITLE_CLOSE {
-                let rect = item.rcItem;
-                let x = (rect.left + rect.right) / 2;
-                let y = (rect.top + rect.bottom) / 2;
-                let r = scaled(4, dpi).max(3);
-                draw_lines(
-                    item.hDC,
-                    dpi,
-                    theme::text(),
-                    &[
-                        [(x - r, y - r), (x + r, y + r)],
-                        [(x + r, y - r), (x - r, y + r)],
-                    ],
-                );
-            } else {
+            {
                 let mut label = item.rcItem;
                 label.left += scaled(31, dpi);
                 draw_button_text(item, label, theme::text(), 0);
@@ -1465,6 +1638,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
         theme_ui::combo(item);
         return;
     }
+    let format = (item.CtlID as usize == FORMAT_PREVIEW).then(|| text(field("ListFormat").value));
     let query = if item.CtlID as usize == PREVIEW {
         let input = EDITOR.with(|c| c.borrow().as_ref().map(|e| e.preview_controls[2]));
         input.map(text).unwrap_or_default()
@@ -1476,7 +1650,53 @@ fn draw(item: &DRAWITEMSTRUCT) {
         let Some(s) = state.as_ref() else {
             return;
         };
-        if item.CtlID as usize == PREVIEW {
+        if let Some(format) = format.as_deref() {
+            let dc = item.hDC;
+            let px = |value| scaled(value, s.dpi);
+            let rect = item.rcItem;
+            theme_ui::fill(dc, &rect, theme::control_surface());
+            theme_ui::rounded(dc, rect, px(10), theme::paper(), theme::divider());
+            let row = |x, y| RECT {
+                left: rect.left + px(x),
+                top: rect.top + px(y),
+                right: rect.right - px(8),
+                bottom: rect.top + px(y + 18),
+            };
+            unsafe {
+                let old = SelectObject(dc, s.small_font);
+                theme_ui::line_text(
+                    dc,
+                    row(8, 5),
+                    &crate::localization::tr("启动面板预览"),
+                    theme::muted(),
+                    0,
+                );
+                SelectObject(dc, s.filename_font);
+                if format == FORMAT_PRESETS[0] {
+                    theme_ui::line_text(dc, row(8, 26), "doubao", theme::text(), 0);
+                    theme_ui::line_text(
+                        dc,
+                        row(144, 26),
+                        &crate::localization::tr("豆包"),
+                        theme::text(),
+                        0,
+                    );
+                } else {
+                    let name = crate::localization::tr("豆包");
+                    match altrun_probe::list_format::render(format, "doubao", &name) {
+                        Ok(line) => theme_ui::line_text(dc, row(8, 26), &line, theme::text(), 0),
+                        Err(error) => theme_ui::line_text(
+                            dc,
+                            row(8, 26),
+                            &crate::localization::tr(&error),
+                            theme::error(),
+                            0,
+                        ),
+                    }
+                }
+                SelectObject(dc, old);
+            }
+        } else if item.CtlID as usize == PREVIEW {
             unsafe {
                 let input = s.preview_controls[2];
                 let mut input_rect: RECT = std::mem::zeroed();
@@ -1504,7 +1724,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
                     RestoreDC(item.hDC, clip);
                 }
             }
-        } else if matches!(item.CtlID as usize, STATUS | STRENGTH_VALUE)
+        } else if item.CtlID as usize == STATUS
             || item.CtlID as usize == FIELD + spec_index("BGFileName")
         {
             let id = item.CtlID as usize;
@@ -1528,13 +1748,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
             };
             unsafe {
                 let old = SelectObject(item.hDC, s.small_font);
-                theme_ui::line_text(
-                    item.hDC,
-                    item.rcItem,
-                    &value,
-                    theme::muted(),
-                    if id == STRENGTH_VALUE { DT_RIGHT } else { 0 },
-                );
+                theme_ui::line_text(item.hDC, item.rcItem, &value, theme::muted(), 0);
                 SelectObject(item.hDC, old);
             }
         } else if item.CtlID as usize == IMAGE_THUMB {
@@ -1584,20 +1798,6 @@ fn draw(item: &DRAWITEMSTRUCT) {
     });
 }
 
-fn draw_lines(dc: HDC, dpi: i32, color: u32, segments: &[[(i32, i32); 2]]) {
-    unsafe {
-        let pen = CreatePen(PS_SOLID, scaled(1, dpi).max(1), color);
-        let old = SelectObject(dc, pen);
-        for &[(x, y), (end_x, end_y)] in segments {
-            MoveToEx(dc, x, y, null_mut());
-            LineTo(dc, end_x, end_y);
-            SetPixelV(dc, end_x, end_y, color);
-        }
-        SelectObject(dc, old);
-        DeleteObject(pen);
-    }
-}
-
 fn draw_button_text(item: &DRAWITEMSTRUCT, rect: RECT, color: u32, flags: u32) {
     unsafe {
         let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
@@ -1617,6 +1817,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                 s.page,
                 s.more_panel,
                 s.more_colors,
+                s.format_expanded,
                 s.scroll,
                 s.caption_font,
                 s.glyph_font,
@@ -1627,15 +1828,31 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     unsafe {
         GetClientRect(hwnd, &mut rect);
     }
-    let Some((background, dpi, height, page, more_panel, more_colors, scroll, caption, glyph)) =
-        state
+    let Some((
+        background,
+        dpi,
+        height,
+        page,
+        more_panel,
+        more_colors,
+        format_expanded,
+        scroll,
+        caption,
+        glyph,
+    )) = state
     else {
         theme_ui::fill(dc, &rect, theme::surface());
         return;
     };
     let px = |v| scaled(v, dpi);
     let divider = theme::divider();
-    let foot = height - px(layout::FOOTER);
+    let advanced = page == 6;
+    let foot = height - px(if advanced { 57 } else { layout::FOOTER });
+    let rail = px(if advanced {
+        layout::ADVANCED_RAIL
+    } else {
+        layout::RAIL
+    });
     unsafe {
         FillRect(dc, &rect, background);
     }
@@ -1651,7 +1868,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
         dc,
         &RECT {
             top: px(layout::CAPTION),
-            right: px(layout::RAIL),
+            right: rail,
             bottom: foot,
             ..rect
         },
@@ -1670,8 +1887,8 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
             ..rect
         },
         RECT {
-            left: px(layout::RAIL) - 1,
-            right: px(layout::RAIL),
+            left: rail - 1,
+            right: rail,
             top: px(layout::CAPTION),
             bottom: foot,
         },
@@ -1694,10 +1911,23 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
         SelectObject(dc, old);
         let clip = SaveDC(dc);
         if clip != 0 {
-            IntersectClipRect(dc, px(layout::CONTENT) - 1, px(150), rect.right, foot);
+            IntersectClipRect(
+                dc,
+                px(if advanced { 176 } else { layout::CONTENT }) - 1,
+                px(if advanced { 133 } else { 150 }),
+                rect.right,
+                foot,
+            );
         }
         for card in layout::CARDS.iter().filter(|card| card.page == page) {
             let mut bounds = card.bounds;
+            if advanced && format_expanded && bounds.x == 177 {
+                if bounds.y == 135 {
+                    bounds.h += layout::ADVANCED_EXPANSION;
+                } else {
+                    bounds.y += layout::ADVANCED_EXPANSION;
+                }
+            }
             if page == 3 && bounds.y == 284 && !background_image() {
                 bounds.h = 120;
             }
@@ -1705,7 +1935,12 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                 bounds.h += 215;
             }
             let mut r = bounds.pixels(dpi);
-            OffsetRect(&mut r, 0, -scroll);
+            let card_scroll = if !advanced || card.bounds.y == 419 {
+                scroll
+            } else {
+                0
+            };
+            OffsetRect(&mut r, 0, -card_scroll);
             theme_ui::rounded(dc, r, px(16), theme::control_surface(), divider);
             for &y in
                 card.rules
@@ -1716,7 +1951,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                         &[]
                     })
             {
-                let top = px(bounds.y + y) - scroll;
+                let top = px(bounds.y + y) - card_scroll;
                 theme_ui::fill(
                     dc,
                     &RECT {
@@ -1810,7 +2045,18 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             1
         }
         WM_NCHITTEST => {
-            let Some(dpi) = EDITOR.with(|c| c.borrow().as_ref().map(|s| s.dpi)) else {
+            let Some((dpi, width)) = EDITOR.with(|c| {
+                c.borrow().as_ref().map(|s| {
+                    (
+                        s.dpi,
+                        if s.page == 6 {
+                            layout::ADVANCED_WIDTH
+                        } else {
+                            layout::WIDTH
+                        },
+                    )
+                })
+            }) else {
                 return HTCLIENT as isize;
             };
             let mut point = POINT {
@@ -1821,7 +2067,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 ScreenToClient(hwnd, &mut point);
             }
             if (0..scaled(layout::CAPTION, dpi)).contains(&point.y)
-                && point.x < scaled(layout::WIDTH - 46, dpi)
+                && point.x < scaled(width - 46, dpi)
             {
                 HTCAPTION as isize
             } else {
@@ -1835,7 +2081,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let Some(s) = editor.as_mut() else {
                     return false;
                 };
-                if s.page != 3 || !s.more_panel {
+                if !((s.page == 3 && s.more_panel) || (s.page == 6 && s.format_expanded)) {
                     return false;
                 }
                 s.scroll -= scaled(55, s.dpi) * delta / 120;
@@ -1891,7 +2137,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         if l as HWND == s.hint
                             || l as HWND == s.status
                             || filename
-                            || matches!(control_id, APPEARANCE_NOTE | STRENGTH_VALUE)
+                            || matches!(
+                                control_id,
+                                APPEARANCE_NOTE
+                                    | ADVANCED_NOTE
+                                    | ALPHA_HELP
+                                    | RADIUS_HELP
+                                    | FORMAT_GUIDE
+                            )
                             || IsWindowEnabled(l as HWND) == 0
                         {
                             theme::muted()
@@ -1960,13 +2213,37 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         {
             0
         }
-        WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
-            cancel_capture();
-            0
+        WM_ACTIVATE => {
+            if w & 65535 == WA_INACTIVE as usize {
+                cancel_capture();
+            }
+            unsafe {
+                InvalidateRect(GetDlgItem(hwnd, TITLE_CLOSE as i32), std::ptr::null(), 0);
+                DefWindowProcW(hwnd, msg, w, l)
+            }
         }
         WM_COMMAND => {
             let id = w & 65535;
             let code = (w >> 16) as u32;
+            if id == FORMAT_MODE && code == CBN_SELCHANGE {
+                let selected = unsafe { SendMessageW(l as HWND, CB_GETCURSEL, 0, 0) } as usize;
+                if let Some(value) = FORMAT_PRESETS.get(selected) {
+                    unsafe {
+                        SetWindowTextW(field("ListFormat").value, wide(value).as_ptr());
+                    }
+                } else if selected == FORMAT_PRESETS.len() {
+                    expand_format(true);
+                    unsafe {
+                        SetFocus(field("ListFormat").value);
+                    }
+                }
+                return 0;
+            }
+            if id == FORMAT_DISCLOSE && code == BN_CLICKED {
+                let expanded = EDITOR.with(|c| c.borrow().as_ref().unwrap().format_expanded);
+                expand_format(!expanded);
+                return 0;
+            }
             if (SEGMENT..SEGMENT + 5).contains(&id) && code == BN_CLICKED {
                 unsafe {
                     if id < SEGMENT + 3 {
@@ -2003,17 +2280,24 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
                 return 0;
             }
-            if code == BN_CLICKED {
-                for (base, delta) in [(FONT_UP, 1), (FONT_DOWN, -1)] {
-                    if let Some(index) = id.checked_sub(base).filter(|&i| {
-                        SPECS
-                            .get(i)
-                            .is_some_and(|spec| matches!(spec.kind, Kind::Font))
-                    }) {
-                        adjust_font(index, delta);
-                        return 0;
+            if code == theme_ui::NUMBER_STEP {
+                adjust_number(hwnd, id, l as i32);
+                return 0;
+            }
+            if id == STRENGTH_VALUE && code == EN_CHANGE {
+                if EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form))
+                    && let Ok(value) = text(l as HWND).parse::<i32>()
+                    && (0..=100).contains(&value)
+                {
+                    let slider = field("BGStrength").value;
+                    unsafe {
+                        if SendMessageW(slider, TBM_GETPOS, 0, 0) != value as isize {
+                            SendMessageW(slider, TBM_SETPOS, 1, value as isize);
+                            update_preview();
+                        }
                     }
                 }
+                return 0;
             }
             if matches!(id, MORE_PANEL | MORE_COLORS) && code == BN_CLICKED {
                 let page = EDITOR.with(|c| {
@@ -2096,11 +2380,17 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             if let Some(index) = id.checked_sub(FIELD).filter(|i| *i < SPECS.len()) {
                 let spec = &SPECS[index];
+                if spec.key == "ListFormat" && code == EN_CHANGE {
+                    if EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form)) {
+                        refresh_format(hwnd);
+                    }
+                    return 0;
+                }
                 let changed = if matches!(spec.kind, Kind::Bool) {
                     code == BN_CLICKED
                 } else if !choices(spec.key).is_empty() {
                     code == CBN_SELCHANGE
-                } else if matches!(spec.kind, Kind::Font) {
+                } else if matches!(spec.kind, Kind::Font | Kind::Number(..)) {
                     code == EN_CHANGE
                 } else {
                     code == EN_KILLFOCUS
@@ -2364,7 +2654,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 SendMessageW(hint, WM_SETFONT, small_font as usize, 0);
                 let status = control("STATIC", "", OWNER_STATIC, 267, 610, 650, 24, STATUS);
                 SendMessageW(status, WM_SETFONT, small_font as usize, 0);
-                control("BUTTON", "关闭", WS_TABSTOP, 1055, 1, 46, 41, TITLE_CLOSE);
+                let close = control("BUTTON", "关闭", WS_TABSTOP, 1055, 1, 46, 41, TITLE_CLOSE);
+                theme_ui::style_caption_close(close);
                 let preview = layout::PREVIEW;
                 let preview_controls = [
                     control("STATIC", "启动面板预览", 0, layout::RIGHT, 152, 220, 23, 0),
@@ -2441,6 +2732,113 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     }
                     extra_controls.push((page, control));
                 }
+                for (id, caption, x, y, w, h) in [
+                    (
+                        ADVANCED_NOTE,
+                        "仅在启用正则匹配时生效。开启后，匹配以 d 开头的快捷字可用 ^d.*；关闭时可直接输入 d*。",
+                        189,
+                        170,
+                        367,
+                        42,
+                    ),
+                    (ADVANCED_NOTE, "结果显示样式", 189, 225, 367, 22),
+                    (
+                        ADVANCED_NOTE,
+                        "快捷项没有单独指定目录时使用。留空则使用快捷项数据文件所在的文件夹。",
+                        593,
+                        170,
+                        352,
+                        42,
+                    ),
+                    (
+                        ADVANCED_NOTE,
+                        "让输入参数或上下文决定打开哪个程序或路径。普通快捷项保持关闭。",
+                        593,
+                        290,
+                        352,
+                        40,
+                    ),
+                    (
+                        ADVANCED_NOTE,
+                        "在快捷项数据文件旁记录启动成功或失败，用于排查启动问题。",
+                        593,
+                        409,
+                        352,
+                        22,
+                    ),
+                    (ALPHA_HELP, "100% 完全不透明。", 189, 448, 242, 24),
+                    (RADIUS_HELP, "0 为直角，数值越大角越圆。", 189, 511, 255, 24),
+                    (
+                        FORMAT_GUIDE,
+                        "第一个 %s 显示快捷字，第二个显示名称。\n%-25s 左对齐并补足到 25 字符。宽度可填 0–256。\n%% 显示一个百分号。可填写 1–2 个占位符。",
+                        189,
+                        442,
+                        367,
+                        59,
+                    ),
+                    (ALPHA_UNIT, "%", 544, 438, 18, 22),
+                    (RADIUS_UNIT, "DIP", 533, 501, 31, 22),
+                ] {
+                    let label = control("STATIC", caption, 0, x, y, w, h, id);
+                    if caption != "结果显示样式" && !matches!(id, ALPHA_UNIT | RADIUS_UNIT) {
+                        SendMessageW(label, WM_SETFONT, small_font as usize, 0);
+                    }
+                    extra_controls.push((6, label));
+                }
+                let format_mode = control(
+                    "COMBOBOX",
+                    "",
+                    WS_TABSTOP
+                        | WS_VSCROLL
+                        | (CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32,
+                    189,
+                    251,
+                    367,
+                    148,
+                    FORMAT_MODE,
+                );
+                SendMessageW(
+                    format_mode,
+                    CB_SETITEMHEIGHT,
+                    usize::MAX,
+                    scaled(28, dpi) as isize,
+                );
+                SendMessageW(format_mode, CB_SETITEMHEIGHT, 0, scaled(34, dpi) as isize);
+                theme_ui::style_combo(format_mode, dpi);
+                for caption in [
+                    "默认双列 · 快捷字　名称",
+                    "快捷字 — 名称",
+                    "仅显示快捷字",
+                    "自定义格式",
+                ] {
+                    SendMessageW(format_mode, CB_ADDSTRING, 0, ui(caption).as_ptr() as isize);
+                }
+                extra_controls.push((6, format_mode));
+                extra_controls.push((
+                    6,
+                    control(
+                        "STATIC",
+                        "",
+                        OWNER_STATIC,
+                        189,
+                        292,
+                        367,
+                        54,
+                        FORMAT_PREVIEW,
+                    ),
+                ));
+                let disclose = control(
+                    "BUTTON",
+                    "自定义写法",
+                    WS_TABSTOP,
+                    188,
+                    349,
+                    368,
+                    25,
+                    FORMAT_DISCLOSE,
+                );
+                SendMessageW(disclose, WM_SETFONT, small_font as usize, 0);
+                extra_controls.push((6, disclose));
                 for (id, label, x, y, w, h, page) in [
                     (SEGMENT, "跟随系统", 230, 195, 84, 30, 3),
                     (SEGMENT + 1, "浅色", 317, 195, 84, 30, 3),
@@ -2459,10 +2857,22 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 }
                 let thumbnail = control("STATIC", "", 0x0d, 227, 347, 29, 26, IMAGE_THUMB);
                 extra_controls.push((3, thumbnail));
-                let strength =
-                    control("STATIC", "", OWNER_STATIC, 449, 389, 43, 20, STRENGTH_VALUE);
-                SendMessageW(strength, WM_SETFONT, small_font as usize, 0);
+                let strength = control(
+                    "EDIT",
+                    "",
+                    WS_TABSTOP | ES_AUTOHSCROLL as u32,
+                    405,
+                    382,
+                    66,
+                    30,
+                    STRENGTH_VALUE,
+                );
+                theme_ui::style_number(strength, dpi);
                 extra_controls.push((3, strength));
+                extra_controls.push((
+                    3,
+                    control("STATIC", "%", 0, 479, 388, 15, 20, STRENGTH_UNIT),
+                ));
                 extra_controls.push((
                     3,
                     control("STATIC", "面板底色", 0, 227, 340, 140, 22, SOLID_LABEL),
@@ -2512,7 +2922,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                             clear: null_mut(),
                         };
                         let input_height = 34;
-                        let input_y = y + (h - input_height) / 2;
+                        let input_y = if *key == "WorkingDirectory" {
+                            212
+                        } else {
+                            y + (h - input_height) / 2
+                        };
                         let right = if *key == "BGCrop" { x + w } else { x + w - 13 };
                         let value_x = right - placement.value_width;
                         if matches!(spec.kind, Kind::Bool) {
@@ -2534,7 +2948,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
-                            let font_size = matches!(spec.kind, Kind::Font);
+                            let numeric = matches!(spec.kind, Kind::Font | Kind::Number(..));
                             let color = key.ends_with("Color");
                             let picker = color
                                 || matches!(
@@ -2544,7 +2958,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                             let options = choices(key);
                             let mut label_width = (value_x - x - 20).max(1);
                             if *key == "BGStrength" {
-                                label_width = w;
+                                label_width = w - 98;
+                            } else if matches!(*key, "WorkingDirectory" | "ListFormat") {
+                                label_width = 352;
                             }
                             if !matches!(*key, "Theme" | "BGFileName") {
                                 field.label = control(
@@ -2556,7 +2972,11 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     } else {
                                         x + 13
                                     },
-                                    if *key == "BGStrength" {
+                                    if *key == "WorkingDirectory" {
+                                        146
+                                    } else if *key == "ListFormat" {
+                                        379
+                                    } else if *key == "BGStrength" {
                                         y + 2
                                     } else {
                                         y + (h - 21) / 2
@@ -2653,8 +3073,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                 SendMessageW(handle, WM_SETFONT, filename_font as usize, 0);
                                 handle
                             } else {
-                                let buttons = if font_size {
-                                    26
+                                let buttons = if *key == "WorkingDirectory" {
+                                    69
                                 } else if picker {
                                     84
                                 } else {
@@ -2671,7 +3091,19 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     input_height,
                                     FIELD + index,
                                 );
-                                theme_ui::style_edit(handle, dpi, true);
+                                if numeric {
+                                    theme_ui::style_number(handle, dpi);
+                                } else {
+                                    theme_ui::style_edit(handle, dpi, true);
+                                }
+                                if *key == "WorkingDirectory" {
+                                    SendMessageW(
+                                        handle,
+                                        EM_SETCUEBANNER,
+                                        0,
+                                        ui("快捷项数据文件所在的文件夹").as_ptr() as isize,
+                                    );
+                                }
                                 handle
                             };
                             if hotkey {
@@ -2685,22 +3117,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     34,
                                     CLEAR + index,
                                 );
-                            } else if font_size {
-                                for (base, caption, offset) in
-                                    [(FONT_UP, "增大字号", 0), (FONT_DOWN, "减小字号", 18)]
-                                {
-                                    let arrow = control(
-                                        "BUTTON",
-                                        caption,
-                                        WS_TABSTOP,
-                                        right - 23,
-                                        input_y + offset,
-                                        23,
-                                        16,
-                                        base + index,
-                                    );
-                                    extra_controls.push((page, arrow));
-                                }
                             } else if picker {
                                 field.pick = control(
                                     "BUTTON",
@@ -2712,9 +3128,21 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                         "选择…"
                                     },
                                     WS_TABSTOP,
-                                    if color { right - 50 } else { right - 73 },
+                                    if *key == "WorkingDirectory" {
+                                        right - 63
+                                    } else if color {
+                                        right - 50
+                                    } else {
+                                        right - 73
+                                    },
                                     if color { y + (h - 27) / 2 } else { input_y },
-                                    if color { 50 } else { 73 },
+                                    if *key == "WorkingDirectory" {
+                                        63
+                                    } else if color {
+                                        50
+                                    } else {
+                                        73
+                                    },
                                     if color { 27 } else { 34 },
                                     PICK + index,
                                 );
@@ -2795,6 +3223,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         height: scaled(layout::HEIGHT, dpi),
                         more_panel: false,
                         more_colors: false,
+                        format_expanded: false,
                         scroll: 0,
                         preview: Preview::new(prefs.clone()),
                         preview_controls,
@@ -2822,16 +3251,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     if matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
                         && record_key(msg.wParam as u32, modifier_bits(|key| GetKeyState(key)))
                     {
-                        continue;
-                    }
-                    if msg.message == WM_KEYDOWN
-                        && matches!(msg.wParam as u16, VK_UP | VK_DOWN)
-                        && let Some(index) = (GetDlgCtrlID(msg.hwnd) as usize).checked_sub(FIELD)
-                        && SPECS
-                            .get(index)
-                            .is_some_and(|spec| matches!(spec.kind, Kind::Font))
-                    {
-                        adjust_font(index, if msg.wParam as u16 == VK_UP { 1 } else { -1 });
                         continue;
                     }
                     if msg.hwnd == preview_controls[2]

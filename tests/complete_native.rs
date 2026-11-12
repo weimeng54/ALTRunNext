@@ -217,11 +217,40 @@ fn settings_design(hwnd: HWND) {
             select_page(hwnd, 4);
             let title = setting(hwnd, "TitleFont");
             let size = text(title).parse::<i32>().unwrap();
-            command(hwnd, 2700 + setting_index("TitleFont"));
+            SendMessageW(title, WM_KEYDOWN, 0x26, 0);
             assert_eq!(text(title), (size + 1).to_string());
-            command(hwnd, 2800 + setting_index("TitleFont"));
+            SendMessageW(title, WM_KEYDOWN, 0x28, 0);
             assert_eq!(text(title), size.to_string());
             command(hwnd, 2343);
+            select_page(hwnd, 6);
+            let format = GetDlgItem(hwnd, 2356);
+            let raw = setting(hwnd, "ListFormat");
+            assert_eq!(IsWindowVisible(raw), 0);
+            SendMessageW(format, CB_SETCURSEL, 1, 0);
+            SendMessageW(
+                hwnd,
+                WM_COMMAND,
+                (CBN_SELCHANGE as usize) << 16 | 2356,
+                format as isize,
+            );
+            assert_eq!(text(raw), "%s — %s");
+            command(hwnd, 2358);
+            assert_ne!(IsWindowVisible(raw), 0);
+            let alpha = setting(hwnd, "Alpha");
+            let rect = bounds(alpha);
+            let x = rect.right - (rect.right - rect.left) / 5;
+            let y = rect.top + (rect.bottom - rect.top) * 2 / 3;
+            SendMessageW(
+                alpha,
+                WM_NCLBUTTONDOWN,
+                HTBORDER as usize,
+                ((x & 0xffff) | ((y & 0xffff) << 16)) as isize,
+            );
+            assert_eq!(text(alpha), "99");
+            SendMessageW(alpha, WM_KEYDOWN, 0x26, 0);
+            assert_eq!(text(alpha), "100");
+            set(raw, "%-25s| %s");
+            command(hwnd, 2358);
             assert_eq!(IsWindowVisible(setting(hwnd, "TitleColor")), 0);
             assert_ne!(IsWindowVisible(setting(hwnd, "UseCustomTextColor")), 0);
             assert_ne!(

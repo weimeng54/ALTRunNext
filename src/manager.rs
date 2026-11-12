@@ -78,6 +78,16 @@ const MOVE_UP: usize = 2135;
 const MOVE_DOWN: usize = 2136;
 const TEST: usize = 2137;
 const RELOAD: usize = 2139;
+const TYPE_LABEL: usize = 2160;
+const NOTE_LABEL: usize = 2161;
+const SEPARATOR_HELP: usize = 2162;
+const EMPTY_HELP: usize = 2163;
+const TYPE_COMMAND: usize = 2150;
+const TYPE_SEPARATOR: usize = 2151;
+const TYPE_REMARK: usize = 2152;
+const CAPTION_CLOSE: usize = 2142;
+const NEW_MENU: usize = 2140;
+const TOOLS_MENU: usize = 2141;
 static TEST_CONTEXT: std::sync::Mutex<altrun_probe::launch::LaunchContext> =
     std::sync::Mutex::new(altrun_probe::launch::LaunchContext {
         clipboard: None,
@@ -97,6 +107,7 @@ static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
 struct Editor {
     launch_enabled: bool,
+    preferred_sort: usize,
     layout: Vec<crate::window_geometry::Child>,
     client_size: (i32, i32),
     workdir: HWND,
@@ -245,6 +256,7 @@ fn sync_fields() {
         InvalidateRect(list, std::ptr::null(), 0);
     }
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
+    kind_visibility();
 }
 fn refresh_list() {
     let (list, labels, selected) = EDITOR.with(|c| {
@@ -326,6 +338,7 @@ fn update_draft() {
         EnableWindow(save, 1);
         InvalidateRect(list, std::ptr::null(), 0);
     }
+    kind_visibility();
     status("尚未保存。保存后立即更新启动面板。", false);
 }
 fn save() {
@@ -421,8 +434,36 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             1
         }
+        WM_ACTIVATE => {
+            unsafe {
+                InvalidateRect(GetDlgItem(hwnd, CAPTION_CLOSE as i32), std::ptr::null(), 1);
+            }
+            0
+        }
+        WM_NCHITTEST => {
+            let result = unsafe { DefWindowProcW(hwnd, msg, w, l) };
+            if result == HTCLIENT as isize {
+                let mut point = POINT {
+                    x: l as i16 as i32,
+                    y: (l >> 16) as i16 as i32,
+                };
+                unsafe {
+                    ScreenToClient(hwnd, &mut point);
+                }
+                let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
+                if point.y < scaled(42, dpi) {
+                    return HTCAPTION as isize;
+                }
+            }
+            result
+        }
+        WM_PAINT => {
+            paint_manager(hwnd);
+            0
+        }
         WM_SIZE => {
             resize(hwnd);
+            kind_visibility();
             0
         }
         WM_EXITSIZEMOVE => {
@@ -443,6 +484,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             add_paths(paths);
             0
         }
+        WM_CONTEXTMENU if w as HWND == EDITOR.with(|c| c.borrow().as_ref().unwrap().list) => {
+            popup(hwnd, LIST, Some(l));
+            0
+        }
         WM_COMMAND => {
             let id = w & 0xffff;
             let notification = (w >> 16) & 0xffff;
@@ -461,6 +506,22 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 update_draft();
             } else if notification == BN_CLICKED as usize {
                 match id {
+                    TYPE_COMMAND | TYPE_SEPARATOR | TYPE_REMARK => {
+                        let kind = EDITOR.with(|c| c.borrow().as_ref().unwrap().entry_kind);
+                        unsafe {
+                            SendMessageW(kind, CB_SETCURSEL, id - TYPE_COMMAND, 0);
+                        }
+                        update_draft();
+                        unsafe {
+                            for id in TYPE_COMMAND..=TYPE_REMARK {
+                                InvalidateRect(GetDlgItem(hwnd, id as i32), std::ptr::null(), 1);
+                            }
+                        }
+                    }
+                    CAPTION_CLOSE => unsafe {
+                        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                    },
+                    NEW_MENU | TOOLS_MENU => popup(hwnd, id, None),
                     ADD => {
                         EDITOR.with(|c| {
                             let mut state = c.borrow_mut();
@@ -529,7 +590,26 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         WM_DRAWITEM => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
             if d.CtlType == ODT_BUTTON {
-                crate::theme_ui::button(d, d.CtlID as usize == SAVE);
+                if d.CtlID as usize == CAPTION_CLOSE {
+                    crate::theme_ui::caption_close(
+                        d,
+                        EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi),
+                    );
+                } else {
+                    let selected_type = EDITOR.with(|c| {
+                        let state = c.borrow();
+                        let s = state.as_ref().unwrap();
+                        s.draft.get(s.selected).map(|e| match e.kind {
+                            library::EntryKind::Command => TYPE_COMMAND,
+                            library::EntryKind::Separator => TYPE_SEPARATOR,
+                            library::EntryKind::Remark => TYPE_REMARK,
+                        })
+                    });
+                    crate::theme_ui::button(
+                        d,
+                        d.CtlID as usize == SAVE || selected_type == Some(d.CtlID as usize),
+                    );
+                }
                 return 1;
             }
             if d.CtlType == ODT_COMBOBOX {
@@ -552,12 +632,24 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             s.paper
                         },
                     );
+                    if d.itemState & ODS_SELECTED != 0 {
+                        crate::theme_ui::fill(
+                            d.hDC,
+                            &RECT {
+                                left: d.rcItem.left + scaled(3, s.dpi),
+                                top: d.rcItem.top + scaled(5, s.dpi),
+                                right: d.rcItem.left + scaled(6, s.dpi),
+                                bottom: d.rcItem.bottom - scaled(5, s.dpi),
+                            },
+                            theme::accent(),
+                        );
+                    }
                     SetBkMode(d.hDC, TRANSPARENT as i32);
                     SetTextColor(d.hDC, theme::text());
                     SelectObject(d.hDC, s.font);
                     let mut rect = d.rcItem;
                     rect.left += scaled(8, s.dpi);
-                    rect.right = scaled(100, s.dpi);
+                    rect.right = d.rcItem.right * 42 / 100;
                     DrawTextW(
                         d.hDC,
                         wide(if entry.alias.is_empty() {
@@ -570,7 +662,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         &mut rect,
                         DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
                     );
-                    rect.left = scaled(106, s.dpi);
+                    rect.left = d.rcItem.right * 42 / 100 + scaled(6, s.dpi);
                     rect.right = d.rcItem.right - scaled(6, s.dpi);
                     SetTextColor(d.hDC, theme::muted());
                     DrawTextW(
@@ -588,6 +680,16 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             let state = c.borrow();
             let s = state.as_ref().unwrap();
             unsafe {
+                let id = GetDlgCtrlID(l as HWND) as usize;
+                let form = (2170..=2174).contains(&id)
+                    || [TYPE_LABEL, NOTE_LABEL, SEPARATOR_HELP].contains(&id);
+                let color = if msg != WM_CTLCOLORSTATIC || form {
+                    theme::paper()
+                } else if l as HWND == s.status {
+                    theme::chrome()
+                } else {
+                    theme::surface()
+                };
                 SetTextColor(
                     w as HDC,
                     if l as HWND == s.status && s.error {
@@ -596,19 +698,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         theme::text()
                     },
                 );
-                SetBkColor(
-                    w as HDC,
-                    if msg == WM_CTLCOLORSTATIC {
-                        theme::surface()
-                    } else {
-                        theme::paper()
-                    },
-                );
-            }
-            if msg == WM_CTLCOLORSTATIC {
-                s.background as LRESULT
-            } else {
-                s.paper as LRESULT
+                SetBkColor(w as HDC, color);
+                SetDCBrushColor(w as HDC, color);
+                GetStockObject(DC_BRUSH) as LRESULT
             }
         }),
         _ => unsafe { DefWindowProcW(hwnd, msg, w, l) },
@@ -691,12 +783,12 @@ fn run(
         let mut outer = RECT {
             left: 0,
             top: 0,
-            right: scaled(760, dpi),
-            bottom: scaled(420, dpi),
+            right: scaled(980, dpi),
+            bottom: scaled(571, dpi),
         };
         AdjustWindowRectEx(
             &mut outer,
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            WS_POPUP | WS_THICKFRAME | WS_SYSMENU,
             0,
             WS_EX_CONTROLPARENT,
         );
@@ -712,14 +804,57 @@ fn run(
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let font = make_font(13, 400, "Microsoft YaHei UI", dpi);
-        let heading = make_font(16, 600, "Microsoft YaHei UI", dpi);
+        let heading = make_font(27, 600, "Microsoft YaHei UI", dpi);
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
+            let id = if class == "STATIC" && id == 0 {
+                match label {
+                    "快捷字" => 2170,
+                    "名称" => 2171,
+                    "命令或路径" => 2172,
+                    "参数类型" => 2173,
+                    "工作目录（留空使用默认）" => 2174,
+                    _ => id,
+                }
+            } else {
+                id
+            };
             let style = if class == "BUTTON" && style & 15 != BS_AUTOCHECKBOX as u32 {
                 (style & !15) | BS_OWNERDRAW as u32
             } else if class == "COMBOBOX" {
                 style | (CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32
             } else {
                 style
+            };
+            let (x, y, width, height) = match id {
+                CAPTION_CLOSE => (932, 0, 46, 42),
+                NEW_MENU => (158, 62, 72, 32),
+                TOOLS_MENU => (238, 62, 78, 32),
+                LIST => (17, 137, 298, 343),
+                DELETE => (16, 524, 64, 34),
+                TEST => (706, 524, 72, 34),
+                CLOSE => (795, 524, 72, 34),
+                SAVE => (883, 524, 72, 34),
+                TYPE_COMMAND => (376, 153, 184, 31),
+                TYPE_SEPARATOR => (563, 153, 184, 31),
+                TYPE_REMARK => (750, 153, 184, 31),
+                TYPE_LABEL => (373, 126, 562, 21),
+                NOTE_LABEL => (373, 201, 562, 21),
+                SEPARATOR_HELP | EMPTY_HELP => (373, 201, 562, 40),
+                ALIAS => (373, 227, 274, 34),
+                NAME => (661, 227, 274, 34),
+                COMMAND => (373, 299, 562, 34),
+                KIND => (373, 371, 440, 220),
+                ENABLED => (830, 371, 105, 34),
+                WORKDIR => (373, 443, 562, 34),
+                ENTRY_KIND => (373, 153, 562, 120),
+                _ if label == "修改后点击保存。" => (92, 529, 600, 24),
+                _ if label == "管理快捷项" => (357, 62, 580, 34),
+                _ if label == "快捷字" => (373, 201, 274, 21),
+                _ if label == "名称" => (661, 201, 274, 21),
+                _ if label == "命令或路径" => (373, 273, 562, 21),
+                _ if label == "参数类型" => (373, 345, 440, 21),
+                _ if label == "工作目录（留空使用默认）" => (373, 417, 562, 21),
+                _ => (x, y, width, height),
             };
             let child = CreateWindowExW(
                 0,
@@ -738,10 +873,17 @@ fn run(
             SendMessageW(child, WM_SETFONT, font as WPARAM, 0);
             if class == "COMBOBOX" {
                 crate::theme_ui::style_combo(child, dpi);
+            } else if class == "EDIT" {
+                crate::theme_ui::style_edit(child, dpi, false);
             }
             child
         };
-        let title = control("STATIC", "管理快捷项", 0, 12, 12, 300, 25, 0);
+        let close_caption = control("BUTTON", "关闭", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
+        crate::theme_ui::style_caption_close(close_caption);
+        let title = control("STATIC", "管理快捷项", 0, 280, 12, 300, 25, 0);
+        control("BUTTON", "新增 ▾", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
+        control("BUTTON", "工具 ▾", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU);
+        SetWindowTextW(title, ui("编辑快捷项").as_ptr());
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
         let list = control(
             "LISTBOX",
@@ -759,7 +901,7 @@ fn run(
             304,
             LIST,
         );
-        SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(22, dpi) as LPARAM);
+        SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(31, dpi) as LPARAM);
         control("STATIC", "快捷字", 0, 280, 52, 210, 20, 0);
         control("STATIC", "名称", 0, 512, 52, 232, 20, 0);
         let alias = control(
@@ -867,8 +1009,38 @@ fn run(
                 wide(&crate::localization::tr(label)).as_ptr() as isize,
             );
         }
+        ShowWindow(entry_kind, SW_HIDE);
+        control("STATIC", "类型", 0, 0, 0, 0, 0, TYPE_LABEL);
+        control("STATIC", "备注内容", 0, 0, 0, 0, 0, NOTE_LABEL);
+        control(
+            "STATIC",
+            "在启动面板中分隔相邻的快捷项。",
+            0,
+            0,
+            0,
+            0,
+            0,
+            SEPARATOR_HELP,
+        );
+        control(
+            "STATIC",
+            "用「新增」创建第一个快捷项。",
+            0,
+            0,
+            0,
+            0,
+            0,
+            EMPTY_HELP,
+        );
+        for (id, label) in [
+            (TYPE_COMMAND, "启动命令"),
+            (TYPE_SEPARATOR, "分隔行"),
+            (TYPE_REMARK, "备注"),
+        ] {
+            control("BUTTON", label, WS_TABSTOP, 0, 0, 0, 0, id);
+        }
         let status = control("STATIC", "修改后点击保存。", 0, 280, 318, 464, 40, 0);
-        control("BUTTON", "新增", WS_TABSTOP, 12, 374, 72, 30, ADD);
+
         let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
         let save = control(
             "BUTTON",
@@ -887,8 +1059,9 @@ fn run(
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
                 launch_enabled,
+                preferred_sort: SORT_ALIAS,
                 layout: Vec::new(),
-                client_size: (scaled(760, dpi), scaled(420, dpi)),
+                client_size: (scaled(980, dpi), scaled(571, dpi)),
                 workdir,
                 enabled,
                 entry_kind,
@@ -918,49 +1091,6 @@ fn run(
             })
         });
         refresh_list();
-        let menu = CreateMenu();
-        let add = CreatePopupMenu();
-        let tools = CreatePopupMenu();
-        for (label, id) in [
-            ("添加文件…", ADD_FILE),
-            ("添加文件夹…", ADD_FOLDER),
-            ("添加分隔行", SEPARATOR),
-            ("添加备注", REMARK),
-        ] {
-            AppendMenuW(
-                add,
-                MF_STRING,
-                id,
-                wide(&crate::localization::tr(label)).as_ptr(),
-            );
-        }
-        for (label, id) in [
-            ("验证快捷项…", VALIDATE),
-            ("删除确认缺失的目标…", CLEAN_MISSING),
-            ("转为相对路径", RELATIVE),
-            ("转为绝对路径", ABSOLUTE),
-            ("导出 / 备份…", EXPORT),
-            ("从备份恢复草稿…", RESTORE),
-            ("用文本编辑器打开数据", EDIT_TEXT),
-            ("重新读取快捷项文件", RELOAD),
-            ("撤销上一次批量操作", UNDO),
-            ("按快捷字排序", SORT_ALIAS),
-            ("按名称排序", SORT_NAME),
-            ("按频率排序", SORT_FREQUENCY),
-            ("上移所选项", MOVE_UP),
-            ("下移所选项", MOVE_DOWN),
-            ("测试所选快捷项…", TEST),
-        ] {
-            AppendMenuW(
-                tools,
-                MF_STRING,
-                id,
-                wide(&crate::localization::tr(label)).as_ptr(),
-            );
-        }
-        AppendMenuW(menu, MF_POPUP, add as usize, ui("添加").as_ptr());
-        AppendMenuW(menu, MF_POPUP, tools as usize, ui("工具").as_ptr());
-        SetMenu(hwnd, menu);
         let remembered = window_state();
         let mut configured = RECT {
             left: 0,
@@ -971,7 +1101,7 @@ fn run(
         AdjustWindowRectExForDpi(
             &mut configured,
             GetWindowLongW(hwnd, GWL_STYLE) as u32,
-            1,
+            0,
             WS_EX_CONTROLPARENT,
             GetDpiForWindow(hwnd),
         );
@@ -981,9 +1111,8 @@ fn run(
             configured.right - configured.left,
             configured.bottom - configured.top,
         ));
-        // The menu is installed before fitting so the bottom command row retains
-        // the full client height at each monitor's non-client DPI.
-        crate::window_geometry::fit(hwnd, 760, 420, Some(desired));
+        // Fit the complete in-window toolbar, form and footer together.
+        crate::window_geometry::fit(hwnd, 980, 571, Some(desired));
         let layout = crate::window_geometry::children(hwnd);
         EDITOR.with(|c| {
             let mut s = c.borrow_mut();
@@ -1226,6 +1355,9 @@ fn tool(hwnd: HWND, id: usize) {
         EDITOR.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
+            if matches!(id, SORT_ALIAS | SORT_NAME | SORT_FREQUENCY) {
+                s.preferred_sort = id;
+            }
             let selected = s.draft.get(s.selected).map(|e| e.id.clone());
             match id {
                 SORT_ALIAS => s.draft.sort_by_key(|e| e.alias.to_lowercase()),
@@ -1343,7 +1475,7 @@ fn tool(hwnd: HWND, id: usize) {
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-            if id == VALIDATE {
+            if missing.is_empty() {
                 unsafe {
                     MessageBoxW(
                         hwnd,
@@ -1491,46 +1623,17 @@ fn resize(hwnd: HWND) {
         let s = s.as_ref().unwrap();
         (s.layout.clone(), s.dpi, s.client_size)
     });
-    let dw = client.right - base.0;
-    let dh = client.bottom - base.1;
+    let _ = dpi;
     for child in layout {
         let r = child.rectangle;
-        let mut x = r.left;
-        let mut y = r.top;
-        let mut width = r.right - r.left;
-        let mut height = r.bottom - r.top;
-        if child.id == LIST {
-            height += dh;
-        }
-        if dh < 0 && child.id != LIST {
-            y = r.top * client.bottom / base.1;
-            height = (r.bottom - r.top) * client.bottom / base.1;
-        } else if r.top >= scaled(318, dpi) {
-            y += dh;
-        }
-        if r.left >= scaled(560, dpi) {
-            x += dw;
-        } else if r.left >= scaled(512, dpi) {
-            x += dw / 2;
-            width += dw / 2;
-        } else if r.left >= scaled(280, dpi) {
-            width += if child.id == ALIAS { dw / 2 } else { dw };
-        }
-        if dw < 0 && child.id == KIND {
-            width = client.right - scaled(386, dpi);
-        }
-        if dw < 0 && child.id == ENABLED {
-            x = client.right - scaled(90, dpi);
-            width = scaled(72, dpi);
-        }
         unsafe {
             SetWindowPos(
                 child.handle as HWND,
                 null_mut(),
-                x,
-                y,
-                width.max(20),
-                height.max(20),
+                r.left * client.right / base.0,
+                r.top * client.bottom / base.1,
+                ((r.right - r.left) * client.right / base.0).max(1),
+                ((r.bottom - r.top) * client.bottom / base.1).max(1),
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
@@ -1628,4 +1731,361 @@ fn test_selected(hwnd: HWND) {
             crate::native::show_error(&error);
         }
     });
+}
+
+// Build transient native cascading menus from the current draft, never cached state.
+fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
+    unsafe {
+        let menu = CreatePopupMenu();
+        let append = |menu, id, label: &str, checked: bool, disabled: bool| {
+            AppendMenuW(
+                menu,
+                MF_STRING
+                    | if checked { MF_CHECKED } else { 0 }
+                    | if disabled { MF_GRAYED } else { 0 },
+                id,
+                ui(label).as_ptr(),
+            );
+        };
+        let (rows, selected, can_undo, list) = EDITOR.with(|c| {
+            let s = c.borrow();
+            let s = s.as_ref().unwrap();
+            (s.draft.clone(), s.selected, !s.undo.is_empty(), s.list)
+        });
+        let mut point = POINT { x: 0, y: 0 };
+        if let Some(p) = position {
+            if p == -1 {
+                let mut rect: RECT = zeroed();
+                SendMessageW(
+                    list,
+                    LB_GETITEMRECT,
+                    selected,
+                    &mut rect as *mut _ as LPARAM,
+                );
+                point = POINT {
+                    x: rect.left + 12,
+                    y: rect.bottom,
+                };
+                ClientToScreen(list, &mut point);
+            } else {
+                point = POINT {
+                    x: (p as u16) as i16 as i32,
+                    y: ((p >> 16) as u16) as i16 as i32,
+                };
+                let mut local = point;
+                ScreenToClient(list, &mut local);
+                let hit = SendMessageW(
+                    list,
+                    LB_ITEMFROMPOINT,
+                    0,
+                    ((local.y as u32) << 16 | (local.x as u32 & 65535)) as LPARAM,
+                );
+                if hit >> 16 != 0 {
+                    DestroyMenu(menu);
+                    return;
+                }
+                let index = (hit & 65535) as usize;
+                if index >= rows.len() {
+                    DestroyMenu(menu);
+                    return;
+                }
+                EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().selected = index);
+                SendMessageW(list, LB_SETCURSEL, index, 0);
+                sync_fields();
+            }
+            let selected = EDITOR.with(|c| c.borrow().as_ref().unwrap().selected);
+            append(
+                menu,
+                MOVE_UP,
+                "上移所选项",
+                false,
+                selected == 0 || rows.is_empty(),
+            );
+            append(
+                menu,
+                MOVE_DOWN,
+                "下移所选项",
+                false,
+                selected + 1 >= rows.len(),
+            );
+        } else {
+            let mut rect: RECT = zeroed();
+            GetWindowRect(GetDlgItem(hwnd, group as i32), &mut rect);
+            point.x = rect.left;
+            point.y = rect.bottom;
+            if group == NEW_MENU {
+                for (id, label) in [
+                    (ADD, "空白启动命令"),
+                    (ADD_FILE, "从文件添加…"),
+                    (ADD_FOLDER, "从文件夹添加…"),
+                    (SEPARATOR, "分隔行"),
+                    (REMARK, "备注"),
+                ] {
+                    if id == SEPARATOR {
+                        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                    }
+                    append(menu, id, label, false, false);
+                }
+            } else {
+                append(menu, 0, "检查", false, true);
+                append(menu, TEST, "测试当前快捷项…", false, rows.is_empty());
+                append(menu, VALIDATE, "检查快捷项…", false, rows.is_empty());
+                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                append(menu, 0, "整理", false, true);
+                let sort = CreatePopupMenu();
+                let choices = [
+                    (
+                        SORT_ALIAS,
+                        "按快捷字",
+                        rows.windows(2)
+                            .all(|p| p[0].alias.to_lowercase() <= p[1].alias.to_lowercase()),
+                    ),
+                    (
+                        SORT_NAME,
+                        "按名称",
+                        rows.windows(2)
+                            .all(|p| p[0].name.to_lowercase() <= p[1].name.to_lowercase()),
+                    ),
+                    (
+                        SORT_FREQUENCY,
+                        "按启动次数",
+                        rows.windows(2).all(|p| p[0].frequency >= p[1].frequency),
+                    ),
+                ];
+                let preferred = EDITOR.with(|c| c.borrow().as_ref().unwrap().preferred_sort);
+                let selected_sort = choices
+                    .iter()
+                    .find(|(id, _, ok)| *id == preferred && *ok)
+                    .or_else(|| choices.iter().find(|(_, _, ok)| *ok))
+                    .map(|(id, _, _)| *id);
+                for (id, label, _) in choices {
+                    append(
+                        sort,
+                        id,
+                        label,
+                        selected_sort == Some(id) && !rows.is_empty(),
+                        rows.is_empty(),
+                    );
+                }
+                AppendMenuW(menu, MF_POPUP, sort as usize, ui("排序").as_ptr());
+                let paths = CreatePopupMenu();
+                let paths_in_rows: Vec<_> = rows
+                    .iter()
+                    .filter(|e| e.kind == library::EntryKind::Command)
+                    .map(|e| {
+                        e.command
+                            .trim()
+                            .trim_start_matches('"')
+                            .split('"')
+                            .next()
+                            .unwrap_or("")
+                    })
+                    .filter(|s| s.contains('\\') || s.starts_with("./"))
+                    .collect();
+                let absolute = !paths_in_rows.is_empty()
+                    && paths_in_rows
+                        .iter()
+                        .all(|p| std::path::Path::new(p).is_absolute());
+                let relative = !paths_in_rows.is_empty()
+                    && paths_in_rows
+                        .iter()
+                        .all(|p| !std::path::Path::new(p).is_absolute() && !p.contains('%'));
+                append(paths, RELATIVE, "转为相对路径", relative, rows.is_empty());
+                append(paths, ABSOLUTE, "转为绝对路径", absolute, rows.is_empty());
+                AppendMenuW(menu, MF_POPUP, paths as usize, ui("路径格式").as_ptr());
+                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                append(menu, UNDO, "撤销上次批量操作", false, !can_undo);
+                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                append(menu, 0, "备份", false, true);
+                append(menu, EXPORT, "导出备份…", false, false);
+                append(menu, RESTORE, "从备份恢复…", false, false);
+                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            }
+        }
+        let command = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON,
+            point.x,
+            point.y,
+            0,
+            hwnd,
+            std::ptr::null(),
+        );
+        DestroyMenu(menu);
+        if command != 0 {
+            SendMessageW(hwnd, WM_COMMAND, command as WPARAM, 0);
+        }
+    }
+}
+
+fn paint_manager(hwnd: HWND) {
+    unsafe {
+        let mut ps: PAINTSTRUCT = zeroed();
+        let dc = BeginPaint(hwnd, &mut ps);
+        let mut bounds: RECT = zeroed();
+        GetClientRect(hwnd, &mut bounds);
+        let (dpi, font) = EDITOR.with(|c| {
+            let s = c.borrow();
+            let s = s.as_ref().unwrap();
+            (s.dpi, s.font)
+        });
+        let rect = |x, y, w, h| RECT {
+            left: x * bounds.right / 980,
+            top: y * bounds.bottom / 571,
+            right: (x + w) * bounds.right / 980,
+            bottom: (y + h) * bounds.bottom / 571,
+        };
+        crate::theme_ui::fill(dc, &bounds, theme::surface());
+        crate::theme_ui::fill(dc, &rect(0, 0, 980, 42), theme::chrome());
+        crate::theme_ui::fill(dc, &rect(0, 42, 332, 472), theme::chrome());
+        crate::theme_ui::fill(dc, &rect(0, 514, 980, 57), theme::chrome());
+        let kind = EDITOR.with(|c| {
+            let s = c.borrow();
+            let s = s.as_ref().unwrap();
+            s.draft.get(s.selected).map(|e| e.kind)
+        });
+        if let Some(kind) = kind {
+            crate::theme_ui::rounded(
+                dc,
+                rect(
+                    357,
+                    112,
+                    597,
+                    if kind == library::EntryKind::Command {
+                        379
+                    } else {
+                        164
+                    },
+                ),
+                scaled(8, dpi),
+                theme::paper(),
+                theme::muted(),
+            );
+        }
+        SetBkMode(dc, TRANSPARENT as i32);
+        SetTextColor(dc, theme::text());
+        SelectObject(dc, font);
+        let mut caption = rect(16, 0, 900, 42);
+        DrawTextW(
+            dc,
+            ui("ALTRun · 管理快捷项").as_ptr(),
+            -1,
+            &mut caption,
+            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+        );
+        let mut library_title = rect(17, 62, 120, 32);
+        DrawTextW(
+            dc,
+            ui("快捷项").as_ptr(),
+            -1,
+            &mut library_title,
+            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+        );
+        let mut columns = rect(28, 106, 282, 31);
+        SetTextColor(dc, theme::muted());
+        DrawTextW(
+            dc,
+            ui("快捷字                 名称").as_ptr(),
+            -1,
+            &mut columns,
+            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+        );
+        EndPaint(hwnd, &ps);
+    }
+}
+
+fn kind_visibility() {
+    let (hwnd, kind, name, alias) = EDITOR.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (
+            unsafe { GetParent(s.list) },
+            s.draft.get(s.selected).map(|e| e.kind),
+            s.name,
+            s.alias,
+        )
+    });
+    unsafe {
+        for id in [
+            ALIAS, COMMAND, KIND, ENABLED, WORKDIR, 2170, 2171, 2172, 2173, 2174,
+        ] {
+            ShowWindow(
+                GetDlgItem(hwnd, id as i32),
+                if kind == Some(library::EntryKind::Command) {
+                    SW_SHOW
+                } else {
+                    SW_HIDE
+                },
+            );
+        }
+        for id in [TYPE_COMMAND, TYPE_SEPARATOR, TYPE_REMARK, TYPE_LABEL] {
+            let child = GetDlgItem(hwnd, id as i32);
+            ShowWindow(child, if kind.is_some() { SW_SHOW } else { SW_HIDE });
+            InvalidateRect(child, std::ptr::null(), 1);
+        }
+        ShowWindow(
+            GetDlgItem(hwnd, NOTE_LABEL as i32),
+            if kind == Some(library::EntryKind::Remark) {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(
+            GetDlgItem(hwnd, SEPARATOR_HELP as i32),
+            if kind == Some(library::EntryKind::Separator) {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(
+            GetDlgItem(hwnd, EMPTY_HELP as i32),
+            if kind.is_none() { SW_SHOW } else { SW_HIDE },
+        );
+        ShowWindow(
+            name,
+            if matches!(
+                kind,
+                Some(library::EntryKind::Command | library::EntryKind::Remark)
+            ) {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        if kind == Some(library::EntryKind::Remark) {
+            let mut rect: RECT = zeroed();
+            GetWindowRect(alias, &mut rect);
+            let mut point = POINT {
+                x: rect.left,
+                y: rect.top,
+            };
+            ScreenToClient(hwnd, &mut point);
+            let mut client: RECT = zeroed();
+            GetClientRect(hwnd, &mut client);
+            SetWindowPos(
+                name,
+                null_mut(),
+                point.x,
+                point.y,
+                562 * client.right / 980,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        } else if kind == Some(library::EntryKind::Command) {
+            let mut client: RECT = zeroed();
+            GetClientRect(hwnd, &mut client);
+            SetWindowPos(
+                name,
+                null_mut(),
+                661 * client.right / 980,
+                227 * client.bottom / 571,
+                274 * client.right / 980,
+                34 * client.bottom / 571,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+        InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
 }

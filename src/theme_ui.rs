@@ -367,6 +367,54 @@ pub fn style_edit(hwnd: HWND, dpi: i32, card: bool) {
     set_edit_style(hwnd, dpi, mode);
 }
 
+pub const NUMBER_STEP: u32 = 0x670;
+
+pub fn style_number(hwnd: HWND, dpi: i32) {
+    set_edit_style(hwnd, dpi, 0x30000);
+}
+
+fn number_arrow(rect: RECT, dpi: i32) -> RECT {
+    RECT {
+        left: rect.right - scaled(25, dpi),
+        right: rect.right - scaled(6, dpi),
+        top: rect.top + scaled(5, dpi),
+        bottom: rect.bottom - scaled(5, dpi),
+    }
+}
+
+fn draw_arrows(dc: HDC, rect: RECT, dpi: i32) {
+    let well = number_arrow(rect, dpi);
+    let center = (well.left + well.right) / 2;
+    let middle = (well.top + well.bottom) / 2;
+    let radius = scaled(3, dpi).max(2);
+    let gap = scaled(2, dpi).max(1);
+    unsafe {
+        let brush = CreateSolidBrush(theme::muted());
+        let old_brush = SelectObject(dc, brush);
+        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+        for (base, direction) in [(middle - gap, -1), (middle + gap, 1)] {
+            let points = [
+                POINT {
+                    x: center - radius,
+                    y: base,
+                },
+                POINT {
+                    x: center,
+                    y: base + direction * radius,
+                },
+                POINT {
+                    x: center + radius,
+                    y: base,
+                },
+            ];
+            Polygon(dc, points.as_ptr(), points.len() as i32);
+        }
+        SelectObject(dc, old_pen);
+        SelectObject(dc, old_brush);
+        DeleteObject(brush);
+    }
+}
+
 fn set_edit_style(hwnd: HWND, dpi: i32, mode: usize) {
     unsafe {
         SetWindowSubclass(hwnd, Some(edit_proc), 1, mode | dpi as usize);
@@ -393,12 +441,59 @@ unsafe extern "system" fn edit_proc(
     let dpi = (mode & 0xffff) as i32;
     let inset_x = scaled(9, dpi);
     let inset_y = scaled(7, dpi);
+    let number = mode & 0x20000 != 0;
+    let inset_right = if number { scaled(27, dpi) } else { inset_x };
     unsafe {
+        if number {
+            let delta = if msg == WM_KEYDOWN && matches!(w as u16, 0x26 | 0x28) {
+                Some(if w as u16 == 0x26 { 1 } else { -1 })
+            } else if matches!(msg, WM_NCHITTEST | WM_NCLBUTTONDOWN | WM_NCLBUTTONDBLCLK) {
+                let mut rect = RECT::default();
+                GetWindowRect(hwnd, &mut rect);
+                let well = number_arrow(rect, dpi);
+                let point = POINT {
+                    x: l as i16 as i32,
+                    y: (l >> 16) as i16 as i32,
+                };
+                if PtInRect(&well, point) != 0 {
+                    if msg == WM_NCHITTEST {
+                        return HTBORDER as isize;
+                    }
+                    windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus(hwnd);
+                    Some(if point.y < (well.top + well.bottom) / 2 {
+                        1
+                    } else {
+                        -1
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(delta) = delta {
+                let id = GetDlgCtrlID(hwnd) as usize;
+                SendMessageW(
+                    GetParent(hwnd),
+                    WM_COMMAND,
+                    id | ((NUMBER_STEP as usize) << 16),
+                    delta,
+                );
+                return 0;
+            }
+            if msg == WM_GETDLGCODE {
+                return DefSubclassProc(hwnd, msg, w, l) | DLGC_WANTARROWS as isize;
+            }
+        }
         if msg == WM_NCCALCSIZE && l != 0 {
             let rect = &mut *(l as *mut RECT);
-            let x = inset_x.min((rect.right - rect.left - 1).max(0) / 2);
+            let available = (rect.right - rect.left - 1).max(0);
+            let x = inset_x.min(available / 2);
             let y = inset_y.min((rect.bottom - rect.top - 1).max(0) / 2);
-            InflateRect(rect, -x, -y);
+            rect.left += x;
+            rect.right -= inset_right.min(available - x);
+            rect.top += y;
+            rect.bottom -= y;
             return 0;
         }
         if msg == WM_NCPAINT {
@@ -411,7 +506,7 @@ unsafe extern "system" fn edit_proc(
                     dc,
                     inset_x,
                     inset_y,
-                    rect.right - inset_x,
+                    rect.right - inset_right,
                     rect.bottom - inset_y,
                 );
                 let (backdrop, paper) = if mode & 0x10000 != 0 {
@@ -431,6 +526,9 @@ unsafe extern "system" fn edit_proc(
                         theme::border()
                     },
                 );
+                if number {
+                    draw_arrows(dc, rect, dpi);
+                }
                 ReleaseDC(hwnd, dc);
             }
             return 0;
@@ -445,6 +543,87 @@ unsafe extern "system" fn edit_proc(
             );
         }
         result
+    }
+}
+
+pub fn style_caption_close(hwnd: HWND) {
+    unsafe { SetWindowSubclass(hwnd, Some(caption_close_proc), 1, 0) };
+}
+
+unsafe extern "system" fn caption_close_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    _: usize,
+) -> LRESULT {
+    unsafe {
+        if msg == WM_MOUSEMOVE {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+            TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            });
+        }
+        let result = DefSubclassProc(hwnd, msg, w, l);
+        if matches!(
+            msg,
+            WM_MOUSEMOVE | WM_MOUSELEAVE | WM_KILLFOCUS | WM_SETFOCUS | WM_UPDATEUISTATE
+        ) {
+            InvalidateRect(hwnd, std::ptr::null(), 0);
+        }
+        result
+    }
+}
+
+pub fn caption_close(item: &DRAWITEMSTRUCT, dpi: i32) {
+    let rect = item.rcItem;
+    unsafe {
+        let active = GetForegroundWindow() == GetParent(item.hwndItem);
+        let focused = active
+            && item.itemState & ODS_FOCUS != 0
+            && SendMessageW(item.hwndItem, WM_QUERYUISTATE, 0, 0) as u32 & UISF_HIDEFOCUS == 0;
+        let mut cursor = POINT::default();
+        let hovered =
+            active && GetCursorPos(&mut cursor) != 0 && WindowFromPoint(cursor) == item.hwndItem;
+        fill(
+            item.hDC,
+            &rect,
+            if hovered {
+                theme::selection()
+            } else {
+                theme::chrome()
+            },
+        );
+        if focused {
+            let mut bounds = rect;
+            InflateRect(&mut bounds, -scaled(4, dpi), -scaled(4, dpi));
+            rounded(
+                item.hDC,
+                bounds,
+                scaled(6, dpi),
+                if hovered {
+                    theme::selection()
+                } else {
+                    theme::chrome()
+                },
+                theme::accent(),
+            );
+        }
+        let x = (rect.left + rect.right) / 2;
+        let y = (rect.top + rect.bottom) / 2;
+        let r = scaled(5, dpi).max(3);
+        let pen = CreatePen(PS_SOLID, scaled(1, dpi).max(1), theme::text());
+        let old = SelectObject(item.hDC, pen);
+        for (from, to) in [(x - r, x + r), (x + r, x - r)] {
+            MoveToEx(item.hDC, from, y - r, std::ptr::null_mut());
+            LineTo(item.hDC, to, y + r);
+        }
+        SelectObject(item.hDC, old);
+        DeleteObject(pen);
     }
 }
 
