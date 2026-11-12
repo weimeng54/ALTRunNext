@@ -128,7 +128,9 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
     unsafe {
         // In-window toolbar and type segments keep the existing draft controls usable.
         assert!(GetMenu(manager).is_null());
-        assert_eq!(GetWindowLongW(manager, GWL_STYLE) as u32 & WS_THICKFRAME, 0);
+        let style = GetWindowLongW(manager, GWL_STYLE) as u32;
+        assert_eq!(style & WS_THICKFRAME, 0);
+        assert_ne!(style & WS_CLIPCHILDREN, 0);
         let mut monitor = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..std::mem::zeroed()

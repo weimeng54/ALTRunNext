@@ -37,6 +37,10 @@ const FIELD_LEFT: i32 = RAIL + 41;
 const FIELD_RIGHT: i32 = WIDTH - 45;
 const FIELD_WIDTH: i32 = FIELD_RIGHT - FIELD_LEFT;
 const HALF_FIELD: i32 = (FIELD_WIDTH - 14) / 2;
+const FORM_LEFT: i32 = RAIL + 25;
+const FORM_TOP: i32 = 112;
+const FORM_WIDTH: i32 = WIDTH - RAIL - 51;
+const COMMAND_FORM_HEIGHT: i32 = 432;
 const LIST_TOP: i32 = 137;
 const ROW_HEIGHT: i32 = 31;
 
@@ -137,6 +141,7 @@ struct Editor {
     selected: usize,
     dirty: bool,
     loading: bool,
+    laid_out_kind: Option<Option<library::EntryKind>>,
     list: HWND,
     alias: HWND,
     name: HWND,
@@ -203,24 +208,28 @@ fn text(hwnd: HWND) -> String {
     }
 }
 fn status(message: &str, error: bool) {
-    let hwnd = EDITOR.with(|c| {
+    let (hwnd, color_changed) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
+        let color_changed = s.error != error;
         s.error = error;
-        s.status
+        (s.status, color_changed)
     });
+    let message = crate::localization::tr(message);
     unsafe {
-        SetWindowTextW(hwnd, ui(message).as_ptr());
-        InvalidateRect(hwnd, std::ptr::null(), 1);
+        if text(hwnd) != message {
+            SetWindowTextW(hwnd, wide(&message).as_ptr());
+        } else if color_changed {
+            InvalidateRect(hwnd, std::ptr::null(), 1);
+        }
     }
 }
 fn sync_fields() {
-    let (list, alias, name, command, kind, save, delete, entry, dirty) = EDITOR.with(|c| {
+    let (alias, name, command, kind, save, delete, entry, dirty) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         s.loading = true;
         (
-            s.list,
             s.alias,
             s.name,
             s.command,
@@ -240,10 +249,19 @@ fn sync_fields() {
             let s = s.as_ref().unwrap();
             (s.workdir, s.enabled, s.entry_kind)
         });
-        SetWindowTextW(
-            workdir,
-            wide(entry.as_ref().map_or("", |e| e.working_directory.as_str())).as_ptr(),
-        );
+        for (field, value) in [
+            (
+                workdir,
+                entry.as_ref().map_or("", |e| e.working_directory.as_str()),
+            ),
+            (alias, entry.as_ref().map_or("", |e| e.alias.as_str())),
+            (name, entry.as_ref().map_or("", |e| e.name.as_str())),
+            (command, entry.as_ref().map_or("", |e| e.command.as_str())),
+        ] {
+            if text(field) != value {
+                SetWindowTextW(field, wide(value).as_ptr());
+            }
+        }
         SendMessageW(
             enabled,
             BM_SETCHECK,
@@ -256,25 +274,12 @@ fn sync_fields() {
             entry.as_ref().map_or(0, |e| e.kind as usize),
             0,
         );
-        SetWindowTextW(
-            alias,
-            wide(entry.as_ref().map_or("", |e| e.alias.as_str())).as_ptr(),
-        );
-        SetWindowTextW(
-            name,
-            wide(entry.as_ref().map_or("", |e| e.name.as_str())).as_ptr(),
-        );
-        SetWindowTextW(
-            command,
-            wide(entry.as_ref().map_or("", |e| e.command.as_str())).as_ptr(),
-        );
         let index = entry.map_or(0, |e| e.param_type as usize);
         SendMessageW(kind, CB_SETCURSEL, index, 0);
         EnableWindow(save, i32::from(dirty));
-        InvalidateRect(list, std::ptr::null(), 0);
     }
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
-    kind_visibility();
+    sync_kind_layout();
 }
 fn refresh_list() {
     let (list, labels, selected) = EDITOR.with(|c| {
@@ -299,6 +304,7 @@ fn refresh_list() {
         if !labels.is_empty() {
             SendMessageW(list, LB_SETCURSEL, selected, 0);
         }
+        InvalidateRect(list, std::ptr::null(), 0);
     }
     sync_fields();
 }
@@ -327,36 +333,49 @@ fn update_draft() {
             unsafe { SendMessageW(s.entry_kind, CB_GETCURSEL, 0, 0) },
         )
     });
-    let (list, save) = EDITOR.with(|c| {
+    let change = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
-        if let Some(entry) = s.draft.get_mut(s.selected) {
-            entry.working_directory = extra;
-            entry.enabled = enabled;
-            entry.kind = match entry_kind {
-                1 => library::EntryKind::Separator,
-                2 => library::EntryKind::Remark,
-                _ => library::EntryKind::Command,
-            };
-            entry.alias = values.0;
-            entry.name = values.1;
-            entry.command = values.2;
-            entry.param_type = match values.3 {
-                1 => ParamType::None,
-                2 => ParamType::Raw,
-                3 => ParamType::AnsiUrl,
-                4 => ParamType::Utf8Url,
-                _ => ParamType::Auto,
-            };
-            s.dirty = true;
-        }
-        (s.list, s.save)
+        let entry = s.draft.get_mut(s.selected)?;
+        let row_changed = entry.alias != values.0 || entry.name != values.1;
+        entry.working_directory = extra;
+        entry.enabled = enabled;
+        entry.kind = match entry_kind {
+            1 => library::EntryKind::Separator,
+            2 => library::EntryKind::Remark,
+            _ => library::EntryKind::Command,
+        };
+        entry.alias = values.0;
+        entry.name = values.1;
+        entry.command = values.2;
+        entry.param_type = match values.3 {
+            1 => ParamType::None,
+            2 => ParamType::Raw,
+            3 => ParamType::AnsiUrl,
+            4 => ParamType::Utf8Url,
+            _ => ParamType::Auto,
+        };
+        let first_edit = !s.dirty;
+        s.dirty = true;
+        Some((s.list, s.selected, s.save, first_edit, row_changed))
     });
+    let Some((list, selected, save, first_edit, row_changed)) = change else {
+        return;
+    };
     unsafe {
-        EnableWindow(save, 1);
-        InvalidateRect(list, std::ptr::null(), 0);
+        if first_edit {
+            EnableWindow(save, 1);
+        }
+        if row_changed {
+            let mut row = RECT::default();
+            if SendMessageW(list, LB_GETITEMRECT, selected, &mut row as *mut _ as LPARAM)
+                != LB_ERR as isize
+            {
+                InvalidateRect(list, &row, 0);
+            }
+        }
     }
-    kind_visibility();
+    sync_kind_layout();
     status("尚未保存。保存后立即更新启动面板。", false);
 }
 fn save() {
@@ -509,11 +528,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             SendMessageW(kind, CB_SETCURSEL, id - TYPE_COMMAND, 0);
                         }
                         update_draft();
-                        unsafe {
-                            for id in TYPE_COMMAND..=TYPE_REMARK {
-                                InvalidateRect(GetDlgItem(hwnd, id as i32), std::ptr::null(), 1);
-                            }
-                        }
                     }
                     CAPTION_CLOSE => unsafe {
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
@@ -795,7 +809,7 @@ fn run(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
             ui("ALTRun · 管理快捷项").as_ptr(),
-            WS_POPUP | WS_SYSMENU,
+            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
             450,
             180,
             760,
@@ -1119,6 +1133,7 @@ fn run(
                 selected: 0,
                 dirty: false,
                 loading: false,
+                laid_out_kind: None,
                 list,
                 alias,
                 name,
@@ -1963,11 +1978,11 @@ fn paint_manager(hwnd: HWND) {
             crate::theme_ui::rounded(
                 dc,
                 rect(
-                    RAIL + 25,
-                    112,
-                    WIDTH - RAIL - 51,
+                    FORM_LEFT,
+                    FORM_TOP,
+                    FORM_WIDTH,
                     if kind == library::EntryKind::Command {
-                        432
+                        COMMAND_FORM_HEIGHT
                     } else {
                         164
                     },
@@ -2048,17 +2063,20 @@ unsafe extern "system" fn list_scrollbar_proc(
     result
 }
 
-fn kind_visibility() {
-    let (hwnd, kind, name, dpi) = EDITOR.with(|c| {
-        let state = c.borrow();
-        let s = state.as_ref().unwrap();
-        (
-            unsafe { GetParent(s.list) },
-            s.draft.get(s.selected).map(|e| e.kind),
-            s.name,
-            s.dpi,
-        )
+fn sync_kind_layout() {
+    let layout = EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        let kind = s.draft.get(s.selected).map(|e| e.kind);
+        if s.laid_out_kind == Some(kind) {
+            return None;
+        }
+        s.laid_out_kind = Some(kind);
+        Some((unsafe { GetParent(s.list) }, kind, s.name, s.dpi))
     });
+    let Some((hwnd, kind, name, dpi)) = layout else {
+        return;
+    };
     unsafe {
         for id in [
             ALIAS, COMMAND, KIND, ENABLED, WORKDIR, 2170, 2171, 2172, 2173, 2174,
@@ -2123,6 +2141,12 @@ fn kind_visibility() {
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
-        InvalidateRect(hwnd, std::ptr::null(), 1);
+        let card = RECT {
+            left: scaled(FORM_LEFT, dpi),
+            top: scaled(FORM_TOP, dpi),
+            right: scaled(FORM_LEFT + FORM_WIDTH, dpi),
+            bottom: scaled(FORM_TOP + COMMAND_FORM_HEIGHT, dpi),
+        };
+        InvalidateRect(hwnd, &card, 0);
     }
 }
