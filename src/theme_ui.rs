@@ -170,7 +170,7 @@ fn update_scrollbar(list: HWND, scrollbar: HWND) {
         RedrawWindow(
             scrollbar,
             std::ptr::null(),
-            null_mut(),
+            std::ptr::null_mut(),
             RDW_INVALIDATE | RDW_UPDATENOW,
         );
     }

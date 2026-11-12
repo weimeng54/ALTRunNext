@@ -323,12 +323,11 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
                     | WS_TABSTOP
                     | WS_VSCROLL
                     | WS_CLIPSIBLINGS
-                    | WS_BORDER
                     | (LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS) as u32,
                 scaled(16, dpi),
                 scaled(132, dpi),
                 scaled(width - 32, dpi),
-                7 * scaled(29, dpi) + 2,
+                7 * scaled(29, dpi),
                 hwnd,
                 11usize as HMENU,
                 instance,
