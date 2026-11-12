@@ -211,12 +211,18 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
                 theme_ui::line_text(dc, tick, "✓", theme::accent(), DT_CENTER);
             }
             if item.child {
-                let arrow = RECT {
-                    left: rect.right - px(14),
-                    right: rect.right - px(3),
-                    ..rect
-                };
-                theme_ui::line_text(dc, arrow, "›", ink, DT_CENTER);
+                // Win32 paints its cascade arrow in the right gutter after
+                // WM_DRAWITEM. Keep the theme stroke in that same footprint.
+                let x = rect.right - px(6);
+                let y = (rect.top + rect.bottom) / 2;
+                let half = px(3).max(2);
+                let pen = CreatePen(PS_SOLID, px(1).max(1), ink);
+                let old_pen = SelectObject(dc, pen);
+                MoveToEx(dc, x, y - half, std::ptr::null_mut());
+                LineTo(dc, x + half, y);
+                LineTo(dc, x, y + half);
+                SelectObject(dc, old_pen);
+                DeleteObject(pen);
             }
             SelectObject(dc, font);
         }

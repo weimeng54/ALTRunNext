@@ -20,7 +20,7 @@ Parameter commands request a value in the same input field. Esc returns to searc
 
 ## Shortcut manager
 
-Alt+S or the tray opens the shortcut manager. The manager uses a 760 × 420 DIP client area with a shortcut list on the left and an editor on the right. The footer contains Add, Delete, Save and Close. Backup and restore are available in Tools. Draft editing, validation and confirmations follow UX-CONTRACT.md. The manager runs on a separate UI thread.
+Alt+S or the tray opens the shortcut manager. Its reference client area is 980 × 571 DIP, with a shortcut list and toolbar on the left and an editor on the right. The saved size and position are fitted to the current work area. The footer contains Delete, Close and Save. New creates commands, separators and notes. Tools groups checks, organization and backup actions, and Windows places its cascading submenus. Draft editing, validation and confirmations follow UX-CONTRACT.md. The manager runs on a separate UI thread.
 
 Cloud native interaction regression for input focus, empty state, parameter cancellation and composition; pure launch parsing tests; cloud synthetic UI screenshots at 100% and 150% DPI, including long Chinese labels and no results. No personal content in screenshots or CI. User judges actual feel; screenshot timing is not an acceptance gate.
 
@@ -31,3 +31,5 @@ Settings use a native sidebar for General, Hotkeys, Search and Launch, Appearanc
 Appearance and Fonts and Colors show a live launcher preview with sample commands. Background images use proportional cropping and a strength control capped at 34% image opacity. The search field, results and CMD use solid surfaces. Image decoding, downsampling and tinting run off the UI thread, and the launcher paints from the cached bitmap. Saving a language choice updates the launcher, tray and newly opened windows.
 
 The manager adds work directory, enabled/type controls and menu-only maintenance actions. Keep optional maintenance and UI buttons outside the default launch path. Both lists expose text to native accessibility. Persist manager position/selection; fit windows to work areas, including menu/non-client bounds.
+
+Advanced settings group search, execution, launcher appearance and diagnostics. Result display offers presets and validates custom formats against the live example. Numeric edits share one rounded field with inset up and down arrows. The image strength slider and its numeric field stay in sync.
