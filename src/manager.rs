@@ -21,6 +21,7 @@ use windows_sys::Win32::{
     UI::{
         Controls::Dialogs::*,
         Controls::*,
+        HiDpi::GetDpiForWindow,
         Input::KeyboardAndMouse::*,
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -106,6 +107,7 @@ const TYPE_LABEL: usize = 2160;
 const NOTE_LABEL: usize = 2161;
 const SEPARATOR_HELP: usize = 2162;
 const EMPTY_HELP: usize = 2163;
+const LIST_SCROLLBAR: usize = 2164;
 const TYPE_COMMAND: usize = 2150;
 const TYPE_SEPARATOR: usize = 2151;
 const TYPE_REMARK: usize = 2152;
@@ -953,6 +955,7 @@ fn run(
             "LISTBOX",
             "",
             WS_VSCROLL
+                | WS_CLIPSIBLINGS
                 | WS_TABSTOP
                 | LBS_NOTIFY as u32
                 | LBS_OWNERDRAWFIXED as u32
@@ -965,7 +968,25 @@ fn run(
             LIST,
         );
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(ROW_HEIGHT, dpi) as LPARAM);
-        SetWindowSubclass(list, Some(list_scrollbar_proc), 1, 0);
+        let scrollbar = CreateWindowExW(
+            0,
+            wide("STATIC").as_ptr(),
+            std::ptr::null(),
+            WS_CHILD | WS_CLIPSIBLINGS,
+            0,
+            0,
+            0,
+            0,
+            hwnd,
+            LIST_SCROLLBAR as HMENU,
+            instance,
+            std::ptr::null(),
+        );
+        if !scrollbar.is_null()
+            && SetWindowSubclass(scrollbar, Some(scrollbar_proc), 1, list as usize) != 0
+        {
+            SetWindowSubclass(list, Some(list_scrollbar_proc), 1, scrollbar as usize);
+        }
         control("STATIC", "快捷字", 0, 280, 52, 210, 20, 0);
         control("STATIC", "名称", 0, 512, 52, 232, 20, 0);
         let alias = control(
@@ -2052,16 +2073,102 @@ unsafe extern "system" fn list_scrollbar_proc(
     w: WPARAM,
     l: LPARAM,
     _: usize,
-    _: usize,
+    scrollbar: usize,
 ) -> LRESULT {
     let result = unsafe { DefSubclassProc(hwnd, msg, w, l) };
     if matches!(
         msg,
-        WM_NCPAINT | WM_PAINT | WM_VSCROLL | WM_NCMOUSEMOVE | WM_NCLBUTTONDOWN
+        WM_NCPAINT
+            | WM_PAINT
+            | WM_VSCROLL
+            | WM_MOUSEWHEEL
+            | WM_KEYDOWN
+            | WM_NCLBUTTONDOWN
+            | WM_SIZE
+            | LB_SETTOPINDEX
+            | LB_SETCURSEL
     ) {
-        crate::native::paint_scrollbar(hwnd);
+        update_scrollbar(hwnd, scrollbar as HWND);
     }
     result
+}
+
+fn update_scrollbar(list: HWND, scrollbar: HWND) {
+    unsafe {
+        let visible = GetWindowLongW(scrollbar, GWL_STYLE) as u32 & WS_VISIBLE != 0;
+        let Some(bar) = crate::theme_ui::vertical_scrollbar(list) else {
+            if visible {
+                ShowWindow(scrollbar, SW_HIDE);
+            }
+            return;
+        };
+        let mut bounds = RECT::default();
+        GetWindowRect(scrollbar, &mut bounds);
+        let track = bar.rcScrollBar;
+        if !visible || EqualRect(&bounds, &track) == 0 {
+            let mut origin = POINT {
+                x: track.left,
+                y: track.top,
+            };
+            ScreenToClient(GetParent(scrollbar), &mut origin);
+            SetWindowPos(
+                scrollbar,
+                HWND_TOP,
+                origin.x,
+                origin.y,
+                track.right - track.left,
+                track.bottom - track.top,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+        // Native scrollbar tracking can draw directly into its list window.
+        // A separate, clipped sibling keeps our colors visible during that loop.
+        RedrawWindow(
+            scrollbar,
+            std::ptr::null(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_UPDATENOW,
+        );
+    }
+}
+
+unsafe extern "system" fn scrollbar_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    list: usize,
+) -> LRESULT {
+    match msg {
+        WM_NCHITTEST => HTTRANSPARENT as isize,
+        WM_ERASEBKGND => 1,
+        WM_PAINT | WM_PRINTCLIENT => unsafe {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = if msg == WM_PAINT {
+                BeginPaint(hwnd, &mut paint)
+            } else {
+                w as HDC
+            };
+            let mut track = RECT::default();
+            GetClientRect(hwnd, &mut track);
+            if let Some(bar) = crate::theme_ui::vertical_scrollbar(list as HWND) {
+                crate::theme_ui::draw_scrollbar(
+                    dc,
+                    track,
+                    &bar,
+                    GetDpiForWindow(hwnd).max(96) as i32,
+                );
+            } else {
+                crate::theme_ui::fill(dc, &track, theme::paper());
+            }
+            if msg == WM_PAINT {
+                EndPaint(hwnd, &paint);
+            }
+            0
+        },
+        _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
+    }
 }
 
 fn sync_kind_layout() {

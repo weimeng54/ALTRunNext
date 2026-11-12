@@ -2980,17 +2980,11 @@ unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     result
 }
 
-pub(crate) fn paint_scrollbar(hwnd: HWND) {
-    let mut bar = SCROLLBARINFO {
-        cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
-        ..Default::default()
+fn paint_scrollbar(hwnd: HWND) {
+    let Some(bar) = crate::theme_ui::vertical_scrollbar(hwnd) else {
+        return;
     };
     unsafe {
-        if GetScrollBarInfo(hwnd, OBJID_VSCROLL, &mut bar) == 0
-            || bar.rgstate[0] & STATE_SYSTEM_INVISIBLE != 0
-        {
-            return;
-        }
         let mut window = RECT::default();
         GetWindowRect(hwnd, &mut window);
         let mut track = bar.rcScrollBar;
@@ -2999,19 +2993,8 @@ pub(crate) fn paint_scrollbar(hwnd: HWND) {
         if dc.is_null() {
             return;
         }
-        crate::theme_ui::fill(dc, &track, theme::paper());
         let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-        let center = (track.left + track.right) / 2;
-        let width = scaled(4, dpi).max(3);
-        if bar.xyThumbBottom > bar.xyThumbTop {
-            let thumb = RECT {
-                left: center - width / 2,
-                right: center - width / 2 + width,
-                top: track.top + bar.xyThumbTop,
-                bottom: track.top + bar.xyThumbBottom,
-            };
-            crate::theme_ui::rounded(dc, thumb, width, theme::muted(), theme::muted());
-        }
+        crate::theme_ui::draw_scrollbar(dc, track, &bar, dpi);
         ReleaseDC(hwnd, dc);
     }
 }

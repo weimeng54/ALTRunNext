@@ -23,6 +23,33 @@ pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
     }
 }
 
+pub fn vertical_scrollbar(hwnd: HWND) -> Option<SCROLLBARINFO> {
+    let mut bar = SCROLLBARINFO {
+        cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        (GetScrollBarInfo(hwnd, OBJID_VSCROLL, &mut bar) != 0
+            && bar.rgstate[0] & STATE_SYSTEM_INVISIBLE == 0)
+            .then_some(bar)
+    }
+}
+
+pub fn draw_scrollbar(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32) {
+    fill(dc, &track, theme::paper());
+    if bar.xyThumbBottom > bar.xyThumbTop {
+        let width = scaled(4, dpi).max(3);
+        let left = (track.left + track.right - width) / 2;
+        let thumb = RECT {
+            left,
+            right: left + width,
+            top: track.top + bar.xyThumbTop,
+            bottom: track.top + bar.xyThumbBottom,
+        };
+        rounded(dc, thumb, width, theme::muted(), theme::muted());
+    }
+}
+
 pub fn caption_mark(dc: HDC, dpi: i32) {
     let px = |value| scaled(value, dpi);
     let bounds = RECT {
