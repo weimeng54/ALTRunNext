@@ -21,7 +21,6 @@ use windows_sys::Win32::{
     UI::{
         Controls::Dialogs::*,
         Controls::*,
-        HiDpi::*,
         Input::KeyboardAndMouse::*,
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -29,6 +28,15 @@ use windows_sys::Win32::{
 };
 
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
+const WIDTH: i32 = crate::settings_layout::WIDTH;
+const HEIGHT: i32 = crate::settings_layout::page_height(0);
+const RAIL: i32 = 376;
+const CAPTION: i32 = crate::settings_layout::CAPTION;
+const FOOTER_TOP: i32 = HEIGHT - crate::settings_layout::FOOTER;
+const FIELD_LEFT: i32 = RAIL + 41;
+const FIELD_RIGHT: i32 = WIDTH - 45;
+const FIELD_WIDTH: i32 = FIELD_RIGHT - FIELD_LEFT;
+const HALF_FIELD: i32 = (FIELD_WIDTH - 14) / 2;
 const FOCUS: u32 = WM_APP + 1;
 pub const UPDATED: u32 = WM_APP + 6;
 pub const GEOMETRY_CHANGED: u32 = WM_APP + 16;
@@ -112,8 +120,6 @@ static WINDOW: AtomicUsize = AtomicUsize::new(0);
 struct Editor {
     launch_enabled: bool,
     preferred_sort: usize,
-    layout: Vec<crate::window_geometry::Child>,
-    client_size: (i32, i32),
     workdir: HWND,
     enabled: HWND,
     entry_kind: HWND,
@@ -447,7 +453,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     ScreenToClient(hwnd, &mut point);
                 }
                 let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-                if point.y < scaled(42, dpi) {
+                if (0..scaled(CAPTION, dpi)).contains(&point.y) && point.x < scaled(WIDTH - 46, dpi)
+                {
                     return HTCAPTION as isize;
                 }
             }
@@ -457,22 +464,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             paint_manager(hwnd);
             0
         }
-        WM_SIZE => {
-            resize(hwnd);
-            kind_visibility();
-            0
-        }
         WM_EXITSIZEMOVE => {
             publish_geometry(hwnd);
-            0
-        }
-        WM_GETMINMAXINFO => {
-            let info = unsafe { &mut *(l as *mut MINMAXINFO) };
-            let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-            info.ptMinTrackSize = POINT {
-                x: scaled(600, dpi),
-                y: scaled(430, dpi),
-            };
             0
         }
         WM_DROPFILES => {
@@ -794,7 +787,7 @@ fn run(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
             ui("ALTRun · 管理快捷项").as_ptr(),
-            WS_POPUP | WS_THICKFRAME | WS_SYSMENU,
+            WS_POPUP | WS_SYSMENU,
             450,
             180,
             760,
@@ -808,45 +801,16 @@ fn run(
             DeleteObject(background);
             return Err("无法创建管理窗口".into());
         }
-        let mut monitor: MONITORINFO = zeroed();
-        monitor.cbSize = std::mem::size_of_val(&monitor) as u32;
-        if GetMonitorInfoW(
-            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
-            &mut monitor,
-        ) == 0
-        {
-            DestroyWindow(hwnd);
-            DeleteObject(background);
-            return Err("无法读取显示器工作区域".into());
-        }
-        let work = monitor.rcWork;
         theme::frame(hwnd);
-        let dpi = (GetDpiForWindow(hwnd).max(96) as i32)
-            .min(((work.right - work.left - 64) * 96 / 980).max(48))
-            .min(((work.bottom - work.top - 80) * 96 / 571).max(48));
-        let mut outer = RECT {
-            left: 0,
-            top: 0,
-            right: scaled(980, dpi),
-            bottom: scaled(571, dpi),
-        };
-        AdjustWindowRectEx(
-            &mut outer,
-            WS_POPUP | WS_THICKFRAME | WS_SYSMENU,
-            0,
-            WS_EX_CONTROLPARENT,
-        );
-        let width = outer.right - outer.left;
-        let height = outer.bottom - outer.top;
-        SetWindowPos(
-            hwnd,
-            null_mut(),
-            work.left + ((work.right - work.left - width) / 2).max(0),
-            work.top + ((work.bottom - work.top - height) / 2).max(0),
-            width,
-            height,
-            SWP_NOZORDER | SWP_NOACTIVATE,
-        );
+        let remembered = window_state();
+        let position = remembered.rect.map(|(x, y, _, _)| (x, y)).or_else(|| {
+            let defaults = altrun_probe::preferences::Preferences::default();
+            let x = prefs.number("ManWinLeft");
+            let y = prefs.number("ManWinTop");
+            (x != defaults.number("ManWinLeft") || y != defaults.number("ManWinTop"))
+                .then_some((x, y))
+        });
+        let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT, position);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(27, 600, "Microsoft YaHei UI", dpi);
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
@@ -872,34 +836,41 @@ fn run(
                 style
             };
             let (x, y, width, height) = match id {
-                CAPTION_CLOSE => (932, 0, 46, 42),
-                NEW_MENU => (177, 62, 67, 32),
-                TOOLS_MENU => (251, 62, 67, 32),
-                LIST => (17, 137, 298, 343),
-                DELETE => (16, 524, 64, 34),
-                TEST => (706, 524, 72, 34),
-                CLOSE => (827, 524, 64, 34),
-                SAVE => (900, 524, 64, 34),
-                TYPE_COMMAND => (377, 157, 184, 29),
-                TYPE_SEPARATOR => (564, 157, 184, 29),
-                TYPE_REMARK => (751, 157, 184, 29),
-                TYPE_LABEL => (373, 126, 562, 21),
-                NOTE_LABEL => (373, 201, 562, 21),
-                SEPARATOR_HELP | EMPTY_HELP => (373, 201, 562, 40),
-                ALIAS => (373, 227, 274, 34),
-                NAME => (661, 227, 274, 34),
-                COMMAND => (373, 299, 562, 34),
-                KIND => (373, 371, 440, 220),
-                ENABLED => (830, 371, 105, 34),
-                WORKDIR => (373, 443, 562, 34),
-                ENTRY_KIND => (373, 153, 562, 120),
-                _ if label == "修改后点击保存。" => (92, 529, 600, 24),
-                _ if label == "管理快捷项" => (357, 62, 580, 34),
-                _ if label == "快捷字" => (373, 201, 274, 21),
-                _ if label == "名称" => (661, 201, 274, 21),
-                _ if label == "命令或路径" => (373, 273, 562, 21),
-                _ if label == "参数类型" => (373, 345, 440, 21),
-                _ if label == "工作目录（留空使用默认）" => (373, 417, 562, 21),
+                CAPTION_CLOSE => (WIDTH - 46, 0, 46, CAPTION),
+                NEW_MENU => (RAIL - 180, 62, 78, 32),
+                TOOLS_MENU => (RAIL - 94, 62, 78, 32),
+                LIST => (17, 137, RAIL - 34, FOOTER_TOP - 170),
+                DELETE => (16, FOOTER_TOP + 14, 72, 34),
+                CLOSE => (WIDTH - 176, FOOTER_TOP + 14, 72, 34),
+                SAVE => (WIDTH - 96, FOOTER_TOP + 14, 80, 34),
+                TYPE_COMMAND | TYPE_SEPARATOR | TYPE_REMARK => {
+                    let index = match id {
+                        TYPE_COMMAND => 0,
+                        TYPE_SEPARATOR => 1,
+                        _ => 2,
+                    };
+                    let width = (FIELD_WIDTH - 14) / 3;
+                    (FIELD_LEFT + 4 + index * (width + 3), 157, width, 29)
+                }
+                TYPE_LABEL => (FIELD_LEFT, 126, FIELD_WIDTH, 21),
+                NOTE_LABEL => (FIELD_LEFT, 207, FIELD_WIDTH, 21),
+                SEPARATOR_HELP | EMPTY_HELP => (FIELD_LEFT, 207, FIELD_WIDTH, 40),
+                ALIAS => (FIELD_LEFT, 233, HALF_FIELD, 36),
+                NAME => (FIELD_RIGHT - HALF_FIELD, 233, HALF_FIELD, 36),
+                COMMAND => (FIELD_LEFT, 317, FIELD_WIDTH, 36),
+                KIND => (FIELD_LEFT, 401, FIELD_WIDTH - 144, 220),
+                ENABLED => (FIELD_RIGHT - 128, 401, 128, 36),
+                WORKDIR => (FIELD_LEFT, 485, FIELD_WIDTH, 36),
+                ENTRY_KIND => (FIELD_LEFT, 153, FIELD_WIDTH, 120),
+                _ if label == "修改后点击保存。" => (100, FOOTER_TOP + 19, 600, 24),
+                _ if label == "管理快捷项" => (RAIL + 25, 60, FIELD_WIDTH, 41),
+                _ if label == "快捷字" => (FIELD_LEFT, 207, HALF_FIELD, 21),
+                _ if label == "名称" => (FIELD_RIGHT - HALF_FIELD, 207, HALF_FIELD, 21),
+                _ if label == "命令或路径" => (FIELD_LEFT, 291, FIELD_WIDTH, 21),
+                _ if label == "参数类型" => (FIELD_LEFT, 375, FIELD_WIDTH - 144, 21),
+                _ if label == "工作目录（留空使用默认）" => {
+                    (FIELD_LEFT, 459, FIELD_WIDTH, 21)
+                }
                 _ => (x, y, width, height),
             };
             let child = CreateWindowExW(
@@ -1127,8 +1098,6 @@ fn run(
             *c.borrow_mut() = Some(Editor {
                 launch_enabled,
                 preferred_sort: SORT_ALIAS,
-                layout: Vec::new(),
-                client_size: (scaled(980, dpi), scaled(571, dpi)),
                 workdir,
                 enabled,
                 entry_kind,
@@ -1157,39 +1126,13 @@ fn run(
                 sender,
             })
         });
-        refresh_list();
-        let remembered = window_state();
-        let mut configured = RECT {
-            left: 0,
-            top: 0,
-            right: scaled(prefs.number("ManWinWidth"), dpi),
-            bottom: scaled(prefs.number("ManWinHeight"), dpi),
-        };
-        AdjustWindowRectExForDpi(
-            &mut configured,
-            GetWindowLongW(hwnd, GWL_STYLE) as u32,
-            0,
-            WS_EX_CONTROLPARENT,
-            GetDpiForWindow(hwnd),
-        );
-        let desired = remembered.rect.unwrap_or((
-            prefs.number("ManWinLeft"),
-            prefs.number("ManWinTop"),
-            configured.right - configured.left,
-            configured.bottom - configured.top,
-        ));
-        // Fit the complete in-window toolbar, form and footer together.
-        crate::window_geometry::fit(hwnd, 980, 571, Some(desired));
-        let layout = crate::window_geometry::children(hwnd);
         EDITOR.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
-            s.layout = layout;
             if let Some(index) = s.draft.iter().position(|e| e.id == remembered.selected) {
                 s.selected = index;
             }
         });
-        resize(hwnd);
         refresh_list();
         windows_sys::Win32::UI::Shell::DragAcceptFiles(hwnd, 1);
         WINDOW.store(hwnd as usize, Ordering::Release);
@@ -1680,34 +1623,6 @@ fn tool(hwnd: HWND, id: usize) {
     }
 }
 
-fn resize(hwnd: HWND) {
-    let mut client: RECT = unsafe { zeroed() };
-    unsafe {
-        GetClientRect(hwnd, &mut client);
-    }
-    let (layout, base) = EDITOR.with(|c| {
-        let s = c.borrow();
-        let s = s.as_ref().unwrap();
-        (s.layout.clone(), s.client_size)
-    });
-    for child in layout {
-        let r = child.rectangle;
-        unsafe {
-            SetWindowPos(
-                child.handle as HWND,
-                null_mut(),
-                r.left * client.right / base.0,
-                r.top * client.bottom / base.1,
-                ((r.right - r.left) * client.right / base.0).max(1),
-                ((r.bottom - r.top) * client.bottom / base.1).max(1),
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
-    }
-    unsafe {
-        InvalidateRect(hwnd, std::ptr::null(), 1);
-    }
-}
 fn publish_geometry(hwnd: HWND) {
     let mut rect: RECT = unsafe { zeroed() };
     unsafe {
@@ -2001,18 +1916,26 @@ fn paint_manager(hwnd: HWND) {
             (s.dpi, s.font)
         });
         let rect = |x, y, w, h| RECT {
-            left: x * bounds.right / 980,
-            top: y * bounds.bottom / 571,
-            right: (x + w) * bounds.right / 980,
-            bottom: (y + h) * bounds.bottom / 571,
+            left: scaled(x, dpi),
+            top: scaled(y, dpi),
+            right: scaled(x + w, dpi),
+            bottom: scaled(y + h, dpi),
         };
         crate::theme_ui::fill(dc, &bounds, theme::surface());
-        crate::theme_ui::fill(dc, &rect(0, 0, 980, 42), theme::chrome());
-        crate::theme_ui::fill(dc, &rect(0, 42, 332, 472), theme::chrome());
-        crate::theme_ui::fill(dc, &rect(0, 514, 980, 57), theme::chrome());
+        crate::theme_ui::fill(dc, &rect(0, 0, WIDTH, CAPTION), theme::chrome());
+        crate::theme_ui::fill(
+            dc,
+            &rect(0, CAPTION, RAIL, FOOTER_TOP - CAPTION),
+            theme::chrome(),
+        );
+        crate::theme_ui::fill(
+            dc,
+            &rect(0, FOOTER_TOP, WIDTH, HEIGHT - FOOTER_TOP),
+            theme::chrome(),
+        );
         crate::theme_ui::rounded(
             dc,
-            rect(16, 106, 302, 375),
+            rect(16, 106, RAIL - 32, FOOTER_TOP - 138),
             scaled(16, dpi),
             theme::control_surface(),
             theme::divider(),
@@ -2026,11 +1949,11 @@ fn paint_manager(hwnd: HWND) {
             crate::theme_ui::rounded(
                 dc,
                 rect(
-                    357,
+                    RAIL + 25,
                     112,
-                    597,
+                    WIDTH - RAIL - 51,
                     if kind == library::EntryKind::Command {
-                        379
+                        432
                     } else {
                         164
                     },
@@ -2041,29 +1964,25 @@ fn paint_manager(hwnd: HWND) {
             );
             crate::theme_ui::rounded(
                 dc,
-                rect(373, 153, 565, 37),
+                rect(FIELD_LEFT, 153, FIELD_WIDTH, 37),
                 scaled(14, dpi),
                 theme::paper(),
                 theme::border(),
             );
         }
         for line in [
-            rect(0, 42, 980, 1),
-            rect(332, 42, 1, 472),
-            rect(0, 513, 980, 1),
-            rect(17, 136, 300, 1),
+            rect(0, CAPTION, WIDTH, 1),
+            rect(RAIL, CAPTION, 1, FOOTER_TOP - CAPTION),
+            rect(0, FOOTER_TOP - 1, WIDTH, 1),
+            rect(17, 136, RAIL - 34, 1),
         ] {
             crate::theme_ui::fill(dc, &line, theme::divider());
         }
-        let mark = rect(16, 12, 18, 18);
-        crate::theme_ui::rounded(dc, mark, scaled(10, dpi), theme::accent(), theme::accent());
-        let old = SelectObject(dc, font);
-        crate::theme_ui::line_text(dc, mark, ">_", theme::on_accent(), DT_CENTER);
-        SelectObject(dc, old);
+        crate::theme_ui::caption_mark(dc, dpi);
         SetBkMode(dc, TRANSPARENT as i32);
         SetTextColor(dc, theme::text());
         SelectObject(dc, font);
-        let mut caption = rect(44, 0, 900, 42);
+        let mut caption = rect(44, 0, WIDTH - 90, CAPTION);
         DrawTextW(
             dc,
             ui("ALTRun 管理快捷项").as_ptr(),
@@ -2088,7 +2007,7 @@ fn paint_manager(hwnd: HWND) {
         );
         crate::theme_ui::line_text(
             dc,
-            rect(150, 106, 162, 31),
+            rect(17 + (RAIL - 34) * 42 / 100, 106, RAIL / 2, 31),
             &crate::localization::tr("名称"),
             theme::muted(),
             0,
@@ -2116,14 +2035,14 @@ unsafe extern "system" fn list_scrollbar_proc(
 }
 
 fn kind_visibility() {
-    let (hwnd, kind, name, alias) = EDITOR.with(|c| {
+    let (hwnd, kind, name, dpi) = EDITOR.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
         (
             unsafe { GetParent(s.list) },
             s.draft.get(s.selected).map(|e| e.kind),
             s.name,
-            s.alias,
+            s.dpi,
         )
     });
     unsafe {
@@ -2175,35 +2094,18 @@ fn kind_visibility() {
                 SW_HIDE
             },
         );
-        if kind == Some(library::EntryKind::Remark) {
-            let mut rect: RECT = zeroed();
-            GetWindowRect(alias, &mut rect);
-            let mut point = POINT {
-                x: rect.left,
-                y: rect.top,
-            };
-            ScreenToClient(hwnd, &mut point);
-            let mut client: RECT = zeroed();
-            GetClientRect(hwnd, &mut client);
+        if let Some((x, width)) = match kind {
+            Some(library::EntryKind::Remark) => Some((FIELD_LEFT, FIELD_WIDTH)),
+            Some(library::EntryKind::Command) => Some((FIELD_RIGHT - HALF_FIELD, HALF_FIELD)),
+            _ => None,
+        } {
             SetWindowPos(
                 name,
                 null_mut(),
-                point.x,
-                point.y,
-                562 * client.right / 980,
-                rect.bottom - rect.top,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        } else if kind == Some(library::EntryKind::Command) {
-            let mut client: RECT = zeroed();
-            GetClientRect(hwnd, &mut client);
-            SetWindowPos(
-                name,
-                null_mut(),
-                661 * client.right / 980,
-                227 * client.bottom / 571,
-                274 * client.right / 980,
-                34 * client.bottom / 571,
+                scaled(x, dpi),
+                scaled(233, dpi),
+                scaled(width, dpi),
+                scaled(36, dpi),
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }

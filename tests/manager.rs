@@ -7,7 +7,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     Graphics::Gdi::*,
-    UI::WindowsAndMessaging::*,
+    UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::*},
 };
 #[path = "native_snapshot/mod.rs"]
 mod native_snapshot;
@@ -91,6 +91,17 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         .join(format!("target/manager-fixture-{stamp}.tsv"));
     let original = "np\t记事本\tnotepad.exe\t7\tnone\nweb\t网页搜索\thttps://example.com/?q={%p}\t2\tutf8_query\n";
     std::fs::write(&path, original).unwrap();
+    let stem = path.file_stem().unwrap().to_str().unwrap();
+    std::fs::write(
+        path.with_file_name(format!("{stem}.settings.ini")),
+        "[Config]\nManWinWidth=500\nManWinHeight=360\n",
+    )
+    .unwrap();
+    std::fs::write(
+        path.with_file_name(format!("{stem}.state.tsv")),
+        "W\tmanager\t10\t10\t600\t430\n",
+    )
+    .unwrap();
     let child = Running(
         Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
             .arg("--show")
@@ -117,6 +128,30 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
     unsafe {
         // In-window toolbar and type segments keep the existing draft controls usable.
         assert!(GetMenu(manager).is_null());
+        assert_eq!(GetWindowLongW(manager, GWL_STYLE) as u32 & WS_THICKFRAME, 0);
+        let mut monitor = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..std::mem::zeroed()
+        };
+        assert_ne!(
+            GetMonitorInfoW(
+                MonitorFromWindow(manager, MONITOR_DEFAULTTONEAREST),
+                &mut monitor,
+            ),
+            0
+        );
+        let work = monitor.rcWork;
+        let dpi = (GetDpiForWindow(manager).max(96) as i32)
+            .min((work.right - work.left - 48) * 96 / 1102)
+            .min((work.bottom - work.top - 80) * 96 / 683)
+            .max(48);
+        let mut client = RECT::default();
+        GetClientRect(manager, &mut client);
+        assert_eq!(
+            (client.right, client.bottom),
+            (1102 * dpi / 96, 683 * dpi / 96),
+            "stale size from the profile must not shrink the editor"
+        );
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2140)), 0);
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2141)), 0);
         SendMessageW(manager, WM_COMMAND, 2152, 0);

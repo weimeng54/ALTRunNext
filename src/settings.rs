@@ -152,7 +152,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "窗口位置",
-        hint: "设置面板的呼出位置、自动隐藏和管理窗口尺寸。",
+        hint: "设置面板的呼出位置、自动隐藏和管理窗口位置。",
         keys: &[
             "PositionMode",
             "HideDelay",
@@ -160,8 +160,6 @@ const PAGES: &[Page] = &[
             "WinTop",
             "ManWinLeft",
             "ManWinTop",
-            "ManWinWidth",
-            "ManWinHeight",
         ],
     },
     Page {
@@ -203,7 +201,6 @@ struct Editor {
     section_font: HFONT,
     small_font: HFONT,
     caption_font: HFONT,
-    glyph_font: HFONT,
     filename_font: HFONT,
     hotkey_font: HFONT,
     footer_controls: [HWND; 5],
@@ -1826,7 +1823,6 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                 s.format_expanded,
                 s.scroll,
                 s.caption_font,
-                s.glyph_font,
             )
         })
     });
@@ -1844,7 +1840,6 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
         format_expanded,
         scroll,
         caption,
-        glyph,
     )) = state
     else {
         theme_ui::fill(dc, &rect, theme::surface());
@@ -1901,12 +1896,9 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     ] {
         theme_ui::fill(dc, &line, divider);
     }
-    let mark = BoxRect::new(16, 12, 18, 18).pixels(dpi);
-    theme_ui::rounded(dc, mark, px(10), theme::accent(), theme::accent());
+    theme_ui::caption_mark(dc, dpi);
     unsafe {
-        let old = SelectObject(dc, glyph);
-        theme_ui::line_text(dc, mark, ">_", theme::on_accent(), DT_CENTER);
-        SelectObject(dc, caption);
+        let old = SelectObject(dc, caption);
         theme_ui::line_text(
             dc,
             BoxRect::new(44, 0, 290, 42).pixels(dpi),
@@ -2607,7 +2599,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let section_font = make_font(14, 650, "Microsoft YaHei UI", dpi);
                 let small_font = make_font(13, 400, "Microsoft YaHei UI", dpi);
                 let caption_font = make_font(13, 600, "Microsoft YaHei UI", dpi);
-                let glyph_font = make_font(11, 600, "Consolas", dpi);
                 let filename_font = make_font(12, 400, "Consolas", dpi);
                 let hotkey_font = make_font(14, 600, "Consolas", dpi);
                 let common = INITCOMMONCONTROLSEX {
@@ -3213,7 +3204,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         section_font,
                         small_font,
                         caption_font,
-                        glyph_font,
                         filename_font,
                         hotkey_font,
                         footer_controls,
@@ -3285,7 +3275,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         DeleteObject(e.section_font);
                         DeleteObject(e.small_font);
                         DeleteObject(e.caption_font);
-                        DeleteObject(e.glyph_font);
                         DeleteObject(e.filename_font);
                         DeleteObject(e.hotkey_font);
                         DeleteObject(e.rail);

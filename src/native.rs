@@ -2574,7 +2574,7 @@ fn apply_settings_messages() {
                             }
                         }
                     }
-                    if ["ManWinLeft", "ManWinTop", "ManWinWidth", "ManWinHeight"]
+                    if ["ManWinLeft", "ManWinTop"]
                         .iter()
                         .any(|key| s.preferences.get(key) != prefs.get(key))
                     {

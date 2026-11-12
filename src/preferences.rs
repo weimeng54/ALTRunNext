@@ -104,18 +104,6 @@ pub const SPECS: &[Spec] = &[
         default: "400",
     },
     Spec {
-        key: "ManWinWidth",
-        label: "管理窗口宽度",
-        kind: Kind::Number(500, 2400),
-        default: "760",
-    },
-    Spec {
-        key: "ManWinHeight",
-        label: "管理窗口高度",
-        kind: Kind::Number(360, 1600),
-        default: "420",
-    },
-    Spec {
         key: "ManWinTop",
         label: "管理窗口纵坐标",
         kind: Kind::Number(-100000, 100000),

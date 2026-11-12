@@ -23,6 +23,31 @@ pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
     }
 }
 
+pub fn caption_mark(dc: HDC, dpi: i32) {
+    let px = |value| scaled(value, dpi);
+    let bounds = RECT {
+        left: px(16),
+        top: px(12),
+        right: px(34),
+        bottom: px(30),
+    };
+    rounded(dc, bounds, px(10), theme::accent(), theme::accent());
+    let point = |x, y| POINT {
+        x: bounds.left + px(x),
+        y: bounds.top + px(y),
+    };
+    let chevron = [point(4, 5), point(9, 9), point(4, 13)];
+    let baseline = [point(10, 13), point(15, 13)];
+    unsafe {
+        let pen = CreatePen(PS_SOLID, px(1).max(1), theme::on_accent());
+        let old = SelectObject(dc, pen);
+        Polyline(dc, chevron.as_ptr(), chevron.len() as i32);
+        Polyline(dc, baseline.as_ptr(), baseline.len() as i32);
+        SelectObject(dc, old);
+        DeleteObject(pen);
+    }
+}
+
 pub fn line_text(dc: HDC, mut rect: RECT, value: &str, colour: u32, flags: u32) {
     unsafe {
         SetBkMode(dc, TRANSPARENT as i32);
