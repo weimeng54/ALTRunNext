@@ -43,3 +43,22 @@ fn rejects_original_settings_and_normalizes_removed_options() {
     assert_eq!(Preferences::default().get("PositionMode"), "center");
     assert!(Preferences::import("; ALTRun settings format 2\n[GUI]\nTheme=dark\n").is_err());
 }
+#[test]
+fn language_defaults_to_system_and_preserves_explicit_choices() {
+    use altrun_probe::preferences::Preferences;
+
+    assert_eq!(Preferences::default().get("Lang"), "system");
+    for (previous, expected) in [
+        ("EN", "en"),
+        ("简体中文", "zh-Hans"),
+        ("ja-jp", "ja-JP"),
+        ("fr", "fr"),
+    ] {
+        let config = Preferences::parse(&format!("[GUI]\nLang={previous}\n")).unwrap();
+        assert_eq!(config.get("Lang"), expected);
+        assert_eq!(
+            Preferences::parse(&config.text()).unwrap().get("Lang"),
+            expected
+        );
+    }
+}

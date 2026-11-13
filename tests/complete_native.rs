@@ -316,7 +316,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
     assert_ne!(unsafe { RegisterHotKey(null_mut(), 22221, 3, 0x78) }, 0);
     std::fs::write(
         &settings,
-        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\nTheme=dark\nMaxRows=2\n[Legacy]\nExtraSetting=keep\n",
+        "[Config]\nLastItemHotKey=Ctrl+Alt+F9\nTheme=dark\nMaxRows=2\nLang=简体中文\n[Legacy]\nExtraSetting=keep\n",
     )
     .unwrap();
     let shell = altrun_probe::safe_notepad_path()
@@ -431,7 +431,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         );
         assert_eq!(text(setting(dialog, "PopupFileName")), "Popup.wav");
         assert_eq!(IsWindowVisible(setting(dialog, "HotKey1")), 0);
-        assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
+        assert!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0) >= 3);
         let size = |rect: RECT| (rect.right - rect.left, rect.bottom - rect.top);
         let initial_size = size(bounds(dialog));
         for page in 1..=6 {
@@ -452,6 +452,13 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         let len = GetClassNameW(email, class.as_mut_ptr(), class.len() as i32);
         assert_eq!(String::from_utf16_lossy(&class[..len as usize]), "SysLink");
         assert!(text(email).contains("mailto:weimeng54@qq.com"));
+        let releases = FindWindowExW(
+            dialog,
+            null_mut(),
+            wide("Static").as_ptr(),
+            wide("https://github.com/weimeng54/ALTRunNext/releases").as_ptr(),
+        );
+        assert!(!releases.is_null() && IsWindowVisible(releases) != 0);
         select_page(dialog, 0);
         assert_eq!(IsWindowVisible(GetDlgItem(dialog, 2360)), 0);
         command(launcher, 18007);
@@ -650,7 +657,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert!(
             std::fs::read_to_string(&settings)
                 .unwrap()
-                .contains("Lang=EN")
+                .contains("Lang=en")
         );
         command(settings_window, 2314);
         wait(|| IsWindow(settings_window) == 0);
