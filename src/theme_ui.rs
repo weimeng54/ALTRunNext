@@ -1158,7 +1158,8 @@ unsafe extern "system" fn switch_proc(
             if !inside {
                 return match msg {
                     WM_NCHITTEST => HTTRANSPARENT as LRESULT,
-                    WM_LBUTTONUP | WM_MOUSEMOVE => DefSubclassProc(hwnd, msg, w, -1),
+                    WM_LBUTTONUP => DefSubclassProc(hwnd, WM_CANCELMODE, 0, 0),
+                    WM_MOUSEMOVE => DefSubclassProc(hwnd, msg, w, -1),
                     _ => 0,
                 };
             }
