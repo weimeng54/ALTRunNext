@@ -33,21 +33,18 @@ pub const SPECS: &[Spec] = &[
     spec!("MatchAnywhere", "允许中间和模糊匹配", Bool, "1"),
     spec!("EnglishSearch", "搜索框默认使用英文输入", Bool, "1"),
     spec!("NumberKey", "数字快捷执行", Bool, "1"),
-    spec!("IndexFrom0to9", "编号从 0 开始", Bool, "0"),
     spec!("RememberFavouratMatch", "记住查询的上次选择", Bool, "0"),
     spec!("ShowOperationHint", "显示操作提示", Bool, "1"),
     spec!("ShowCommandLine", "显示命令预览", Bool, "1"),
     spec!("ShowStartNotification", "启动通知", Bool, "0"),
     spec!("ShowTopTen", "搜索只显示前十项", Bool, "1"),
     spec!("PlayPopupNotify", "呼出声音", Bool, "1"),
-    spec!("ExitWhenExecute", "执行后退出", Bool, "0"),
     spec!("ShowSkin", "启用背景图片", Bool, "0"),
     spec!("ShowMeWhenStart", "启动时显示面板", Bool, "0"),
     spec!("ShowTrayIcon", "显示托盘图标", Bool, "1"),
     spec!("ShowShortCutButton", "显示管理按钮", Bool, "1"),
     spec!("ShowConfigButton", "显示设置按钮", Bool, "1"),
     spec!("ShowCloseButton", "显示隐藏按钮", Bool, "1"),
-    spec!("ExecuteIfOnlyOne", "唯一结果自动执行", Bool, "0"),
     spec!("TraceEnable", "保存诊断日志", Bool, "0"),
     spec!("StandardRegex", "使用标准正则语法", Bool, "0"),
     spec!("AllowDynamicTarget", "允许参数作为启动目标", Bool, "0"),
@@ -203,7 +200,15 @@ impl Preferences {
             let Some((key, value)) = line.split_once('=') else {
                 return Err(format!("设置第 {} 行缺少等号", i + 1));
             };
-            if key.trim().eq_ignore_ascii_case("AlphaColor") {
+            if [
+                "AlphaColor",
+                "IndexFrom0to9",
+                "ExitWhenExecute",
+                "ExecuteIfOnlyOne",
+            ]
+            .iter()
+            .any(|retired| key.trim().eq_ignore_ascii_case(retired))
+            {
                 continue;
             }
             if SPECS.iter().any(|s| s.key.eq_ignore_ascii_case(key.trim())) {

@@ -26,7 +26,7 @@ Cloud native interaction regression for input focus, empty state, parameter canc
 
 ## Complete settings and maintenance
 
-Settings use a native sidebar for General, Hotkeys, Search and Launch, Appearance, Fonts and Colors, Window Position, and Advanced. The content uses 15 DIP text with a larger page title. General groups startup, tray, File Explorer, notifications and language. The fixed footer groups Reset, Import and Export on the left and Close and Save on the right. Settings use native focus, accessible checkbox state, owner-drawn controls and themed dialogs. Compare normalized form values to the saved snapshot when closing.
+Settings use a native sidebar for General, Hotkeys, Search and Launch, Appearance, Fonts and Colors, Window Position, and Advanced. The sidebar, window and footer share the same dimensions across pages. The content uses 15 DIP text with a larger page title. General groups startup, tray, File Explorer, notifications and language. The fixed footer groups Reset, Import and Export on the left and Close and Save on the right. Switches accept clicks on the switch and Space when focused. Settings use native focus, accessible checkbox state, owner-drawn controls and themed dialogs. Compare normalized form values to the saved snapshot when closing.
 
 Appearance and Fonts and Colors show a live launcher preview with sample commands. Background images use proportional cropping and a strength control capped at 34% image opacity. The search field, results and CMD use solid surfaces. Image decoding, downsampling and tinting run off the UI thread, and the launcher paints from the cached bitmap. Saving a language choice updates the launcher, tray and newly opened windows.
 

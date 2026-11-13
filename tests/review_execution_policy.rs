@@ -27,6 +27,7 @@ fn manager_test_respects_debug_and_explicit_safe_modes() {
         let (process, launcher) = start(&data, mode);
         let dialog = manager(launcher, process.0.id());
         unsafe {
+            wait(|| !GetDlgItem(dialog, 2137).is_null() && IsWindowVisible(dialog) != 0);
             let test = GetDlgItem(dialog, 2137);
             let command_field = GetDlgItem(dialog, 2104);
             assert_ne!(IsWindowVisible(test), 0);

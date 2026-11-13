@@ -9,9 +9,10 @@ pub const CONTENT: i32 = 214;
 pub const RIGHT: i32 = 524;
 pub const CAPTION: i32 = 42;
 pub const FOOTER: i32 = 62;
-pub const ADVANCED_RAIL: i32 = 154;
+pub const ADVANCED_RIGHT: i32 = 652;
 pub const ADVANCED_EXPANSION: i32 = 125;
 pub const PREVIEW: BoxRect = BoxRect::new(RIGHT, 180, 549, 246);
+pub const EXTRA_COLORS: BoxRect = BoxRect::new(RIGHT, 478, 549, 161);
 
 #[derive(Clone, Copy)]
 pub struct BoxRect {
@@ -75,19 +76,14 @@ pub const CARDS: &[Card] = &[
         BoxRect::new(CONTENT, 180, 859, 185),
         &[44, 87, 141],
     ),
-    card(
-        2,
-        "结果与执行",
-        BoxRect::new(CONTENT, 411, 859, 219),
-        &[44, 87, 130, 173],
-    ),
+    card(2, "结果与执行", BoxRect::new(CONTENT, 411, 859, 90), &[44]),
     card(3, "主题", BoxRect::new(CONTENT, 180, 290, 60), &[]),
     card(3, "启动面板背景", BoxRect::new(CONTENT, 284, 290, 226), &[]),
     card(
         3,
         "面板与列表",
-        BoxRect::new(RIGHT, 496, 549, 135),
-        &[45, 90],
+        BoxRect::new(RIGHT, 486, 549, 161),
+        &[41, 81, 117],
     ),
     card(
         4,
@@ -103,15 +99,21 @@ pub const CARDS: &[Card] = &[
         &[45, 90, 135],
     ),
     card(5, "管理窗口", BoxRect::new(CONTENT, 407, 859, 90), &[45]),
-    card(6, "搜索与结果", BoxRect::new(177, 135, 391, 246), &[80]),
-    card(6, "启动面板外观", BoxRect::new(177, 419, 391, 124), &[61]),
-    card(6, "命令执行", BoxRect::new(581, 135, 376, 87), &[]),
-    card(6, "诊断", BoxRect::new(581, 255, 376, 68), &[]),
+    card(6, "搜索与结果", BoxRect::new(CONTENT, 180, 422, 246), &[80]),
+    card(
+        6,
+        "命令执行",
+        BoxRect::new(ADVANCED_RIGHT, 180, 421, 87),
+        &[],
+    ),
+    card(6, "诊断", BoxRect::new(ADVANCED_RIGHT, 314, 421, 68), &[]),
+    card(
+        6,
+        "启动面板外观",
+        BoxRect::new(ADVANCED_RIGHT, 429, 421, 124),
+        &[61],
+    ),
 ];
-
-pub const fn page_height(page: usize) -> i32 {
-    [683, 671, 719, 721, 671, 677, 622][page]
-}
 
 pub struct Placement {
     pub bounds: BoxRect,
@@ -154,23 +156,20 @@ pub fn field(key: &str) -> Placement {
         ),
         "RememberFavouratMatch" => (215, 321, 857, 43, 0, "记住常用匹配", ""),
         "NumberKey" => (215, 412, 857, 43, 0, "支持数字键选择结果", ""),
-        "IndexFrom0to9" => (215, 455, 857, 43, 0, "结果从 0 开始编号", ""),
-        "ExecuteIfOnlyOne" => (215, 498, 857, 43, 0, "只有一条结果时自动执行", ""),
-        "ExitWhenExecute" => (215, 541, 857, 43, 0, "执行后退出程序", ""),
-        "ParamHistoryLimit" => (215, 584, 857, 45, 78, "", ""),
+        "ParamHistoryLimit" => (215, 455, 857, 45, 78, "", ""),
         "Theme" | "ShowSkin" => (0, 0, 1, 1, 1, "", ""),
         "BGFileName" => (227, 337, 264, 40, 222, "", ""),
         "BGStrength" => (226, 386, 266, 46, 266, "底纹强度", ""),
         "BGCrop" => (226, 438, 266, 37, 66, "", ""),
-        "FormWidth" => (525, 497, 273, 44, 78, "", ""),
-        "MaxRows" => (799, 497, 273, 44, 78, "最多显示结果数", ""),
-        "RowHeight" => (525, 541, 273, 45, 78, "结果行高", ""),
-        "ShowCommandLine" => (799, 541, 273, 45, 0, "显示命令行", ""),
-        "ShowTopTen" => (525, 630, 547, 43, 0, "搜索时最多显示十条", ""),
-        "ShowOperationHint" => (525, 673, 547, 43, 0, "", ""),
-        "ShowShortCutButton" => (525, 716, 547, 43, 0, "", ""),
-        "ShowConfigButton" => (525, 759, 547, 43, 0, "", ""),
-        "ShowCloseButton" => (525, 802, 547, 43, 0, "", ""),
+        "FormWidth" => (525, 487, 273, 40, 78, "", ""),
+        "MaxRows" => (799, 487, 273, 40, 78, "最多显示结果数", ""),
+        "RowHeight" => (525, 527, 273, 40, 78, "结果行高", ""),
+        "ShowCommandLine" => (799, 527, 273, 40, 0, "显示命令行", ""),
+        "ShowTopTen" => (525, 567, 273, 36, 0, "搜索时最多显示十条", ""),
+        "ShowOperationHint" => (799, 567, 273, 36, 0, "", ""),
+        "ShowShortCutButton" => (525, 603, 182, 43, 0, "", ""),
+        "ShowConfigButton" => (707, 603, 182, 43, 0, "", ""),
+        "ShowCloseButton" => (889, 603, 183, 43, 0, "", ""),
         "TitleFont" => (215, 236, 288, 45, 78, "标题字号", ""),
         "KeywordFont" => (215, 281, 288, 45, 78, "输入字号", ""),
         "ListFont" => (215, 326, 288, 45, 78, "结果字号", ""),
@@ -186,13 +185,13 @@ pub fn field(key: &str) -> Placement {
         "WinTop" => (215, 315, 857, 45, 78, "纵坐标", ""),
         "ManWinLeft" => (215, 408, 857, 44, 78, "横坐标", ""),
         "ManWinTop" => (215, 452, 857, 45, 78, "纵坐标", ""),
-        "StandardRegex" => (176, 139, 394, 34, 0, "", ""),
-        "ListFormat" => (176, 396, 393, 46, 367, "格式", ""),
+        "StandardRegex" => (215, 184, 420, 34, 0, "", ""),
+        "ListFormat" => (215, 441, 421, 46, 396, "自定义格式", ""),
         "WorkingDirectory" => (580, 136, 378, 119, 352, "", ""),
-        "AllowDynamicTarget" => (580, 140, 379, 34, 0, "允许用参数指定启动目标", ""),
-        "TraceEnable" => (580, 259, 379, 34, 0, "保存启动诊断日志", ""),
-        "Alpha" => (176, 420, 372, 60, 66, "不透明度", ""),
-        "RoundBorderRadius" => (176, 481, 361, 62, 66, "窗口圆角", ""),
+        "AllowDynamicTarget" => (653, 185, 419, 34, 0, "允许用参数指定启动目标", ""),
+        "TraceEnable" => (653, 318, 419, 34, 0, "保存启动诊断日志", ""),
+        "Alpha" => (653, 429, 372, 61, 66, "不透明度", ""),
+        "RoundBorderRadius" => (653, 490, 372, 62, 66, "窗口圆角", ""),
         _ => unreachable!("No layout for {key}"),
     };
     Placement {

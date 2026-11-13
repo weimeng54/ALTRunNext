@@ -47,7 +47,6 @@ struct PopupSound {
 
 struct State {
     sound_sender: std::sync::mpsc::SyncSender<PopupSound>,
-    last_user_generation: Option<u64>,
     match_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     input_paper: HBRUSH,
     font_colours: [u32; 3],
@@ -173,7 +172,6 @@ fn refresh() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
-        s.last_user_generation = None;
         s.match_generation
             .store(s.generation, std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
@@ -1235,17 +1233,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     if current {
                         cancel_parameter();
                     }
-                    if STATE.with(|c| {
-                        c.borrow()
-                            .as_ref()
-                            .unwrap()
-                            .preferences
-                            .flag("ExitWhenExecute")
-                    }) {
-                        unsafe {
-                            PostMessageW(hwnd, QUIT, 0, 0);
-                        }
-                    }
                 }
             }
             0
@@ -1401,18 +1388,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 render_hits();
                 if let Some(error) = error {
                     show_inline_error(&error);
-                } else if STATE.with(|c| {
-                    let s = c.borrow();
-                    let s = s.as_ref().unwrap();
-                    s.enabled
-                        && s.preferences.flag("ExecuteIfOnlyOne")
-                        && s.hits.len() == 1
-                        && s.last_user_generation == Some(s.generation)
-                        && s.parameter_entry.is_none()
-                }) && unsafe {
-                    IsWindowVisible(hwnd) != 0 && GetForegroundWindow() == hwnd
-                } {
-                    launch_selected();
                 }
             }
             0
@@ -1562,13 +1537,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 });
                 let query = edit_text(edit);
                 refresh();
-                if key != 0 && !composing && !query.is_empty() {
-                    STATE.with(|c| {
-                        let mut s = c.borrow_mut();
-                        let s = s.as_mut().unwrap();
-                        s.last_user_generation = Some(s.generation);
-                    });
-                }
                 let none = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
@@ -1601,18 +1569,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                             launch_selected();
                         }
                     }
-                }
-                let unique = STATE.with(|c| {
-                    let s = c.borrow();
-                    let s = s.as_ref().unwrap();
-                    s.enabled
-                        && s.preferences.flag("ExecuteIfOnlyOne")
-                        && s.hits.len() == 1
-                        && !s.matching
-                        && s.parameter_entry.is_none()
-                });
-                if unique && !composing && key != 0 && !query.is_empty() {
-                    launch_selected();
                 }
             }
             if id == ID_LIST && code == LBN_SELCHANGE as usize {
@@ -1686,8 +1642,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         },
                         if d.itemID >= 10 {
                             ' '
-                        } else if s.preferences.flag("IndexFrom0to9") {
-                            char::from(b'0' + d.itemID as u8)
                         } else {
                             char::from(b'0' + ((d.itemID + 1) % 10) as u8)
                         }
@@ -2064,7 +2018,6 @@ pub fn run() -> Result<(), String> {
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
                 sound_sender,
-                last_user_generation: None,
                 input_paper,
                 alias_font,
                 font_colours: [theme::text(); 3],
@@ -2795,11 +2748,7 @@ fn choose_number(digit: usize) {
         if s.parameter_entry.is_some() || s.matching {
             return false;
         }
-        let index = if s.preferences.flag("IndexFrom0to9") {
-            digit
-        } else {
-            (digit + 9) % 10
-        };
+        let index = (digit + 9) % 10;
         if index < visible_count(s) {
             s.selected = index;
             true

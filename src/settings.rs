@@ -38,7 +38,6 @@ const PREVIEW: usize = 2305;
 const PREVIEW_QUERY: usize = 2306;
 const TITLE_CLOSE: usize = 2307;
 const SEGMENT: usize = 2330;
-const MORE_PANEL: usize = 2340;
 const FONT_FAMILY: usize = 2341;
 const MORE_COLORS: usize = 2343;
 const IMAGE_THUMB: usize = 2344;
@@ -102,16 +101,13 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "搜索与执行",
-        hint: "调整快捷字匹配、搜索框输入和执行后的行为。",
+        hint: "调整快捷字匹配、搜索框输入和数字快捷键。",
         keys: &[
             "Regex",
             "MatchAnywhere",
             "EnglishSearch",
             "RememberFavouratMatch",
             "NumberKey",
-            "IndexFrom0to9",
-            "ExecuteIfOnlyOne",
-            "ExitWhenExecute",
             "ParamHistoryLimit",
         ],
     },
@@ -203,17 +199,14 @@ struct Editor {
     caption_font: HFONT,
     filename_font: HFONT,
     hotkey_font: HFONT,
-    footer_controls: [HWND; 5],
     sections: Vec<(usize, HWND)>,
     extra_controls: Vec<(usize, HWND)>,
-    appearance_children: Vec<(HWND, RECT, bool)>,
+    appearance_children: Vec<HWND>,
     dpi: i32,
     page: usize,
     height: i32,
-    more_panel: bool,
     more_colors: bool,
     format_expanded: bool,
-    scroll: i32,
     preview: Preview,
     preview_controls: [HWND; 3],
     preview_font: HFONT,
@@ -402,87 +395,76 @@ fn choose_colour(hwnd: HWND, key: &str) {
 }
 
 fn update_background_mode() {
-    let (window, page, dpi, scroll, height, children) = EDITOR.with(|c| {
+    let (window, page, dpi, children) = EDITOR.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
-        (
-            s.hwnd,
-            s.page,
-            s.dpi,
-            s.scroll,
-            s.height,
-            s.appearance_children.clone(),
-        )
+        (s.hwnd, s.page, s.dpi, s.appearance_children.clone())
     });
     if page != 3 {
         return;
     }
     let image = background_image();
-    let footer = height - scaled(layout::FOOTER, dpi);
-    unsafe {
-        for (child, base, _) in children {
-            let id = GetDlgCtrlID(child) as usize;
-            if image_control(id) || solid_control(id) {
-                position_appearance_child(
-                    child,
-                    base,
-                    scroll,
-                    dpi,
-                    footer,
-                    shows_in_background_mode(id, image),
-                );
-            }
+    for child in children {
+        let id = unsafe { GetDlgCtrlID(child) } as usize;
+        if image_control(id) || solid_control(id) {
+            show_without_redraw(child, shows_in_background_mode(id, image));
         }
-        let mut rect = BoxRect::new(214, 284, 290, 227).pixels(dpi);
-        OffsetRect(&mut rect, 0, -scroll);
-        rect.top = rect.top.max(scaled(150, dpi));
-        rect.bottom = rect.bottom.min(footer);
-        if rect.top < rect.bottom {
-            RedrawWindow(
-                window,
-                &rect,
+    }
+    repaint_section(window, BoxRect::new(layout::CONTENT, 284, 290, 227), dpi);
+}
+
+fn show_without_redraw(hwnd: HWND, visible: bool) {
+    if !hwnd.is_null() {
+        unsafe {
+            SetWindowPos(
+                hwnd,
                 null_mut(),
-                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOACTIVATE
+                    | SWP_NOZORDER
+                    | SWP_NOREDRAW
+                    | if visible {
+                        SWP_SHOWWINDOW
+                    } else {
+                        SWP_HIDEWINDOW
+                    },
             );
         }
     }
 }
 
-fn position_appearance_child(
-    child: HWND,
-    base: RECT,
-    scroll: i32,
-    dpi: i32,
-    footer: i32,
-    enabled: bool,
-) {
-    let y = base.top - scroll;
-    let h = base.bottom - base.top;
-    let w = base.right - base.left;
-    let top = (scaled(150, dpi) - y).max(0);
-    let bottom = h.min(footer - y);
-    let visible = enabled && top < bottom;
+fn repaint_section(window: HWND, bounds: BoxRect, dpi: i32) {
     unsafe {
-        if visible {
-            SetWindowPos(
-                child,
-                null_mut(),
-                base.left,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-            let clipping = if top != 0 || bottom != h {
-                CreateRectRgn(0, top, w, bottom)
-            } else {
-                null_mut()
-            };
-            if SetWindowRgn(child, clipping, 0) == 0 && !clipping.is_null() {
-                DeleteObject(clipping);
-            }
+        RedrawWindow(
+            window,
+            &bounds.pixels(dpi),
+            null_mut(),
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+        );
+    }
+}
+
+fn toggle_extra_colors(window: HWND) {
+    let (expanded, dpi) = EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        s.more_colors = !s.more_colors;
+        (s.more_colors, s.dpi)
+    });
+    for (spec, field) in SPECS.iter().zip(fields()) {
+        if extra_color(spec.key) {
+            show_without_redraw(field.label, expanded);
+            show_without_redraw(field.pick, expanded);
         }
-        ShowWindow(child, if visible { SW_SHOWNA } else { SW_HIDE });
+    }
+    repaint_section(window, layout::EXTRA_COLORS, dpi);
+    unsafe {
+        InvalidateRect(GetDlgItem(window, MORE_COLORS as i32), std::ptr::null(), 0);
     }
 }
 
@@ -516,7 +498,8 @@ fn show_page(page: usize) {
         SendMessageW(tabs, LB_SETCURSEL, page, 0);
         SetWindowTextW(title, ui(design.name).as_ptr());
         SetWindowTextW(hint, ui(design.hint).as_ptr());
-        ShowWindow(hint, if page == 6 { SW_HIDE } else { SW_SHOWNA });
+        ShowWindow(hint, SW_SHOWNA);
+        SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visibility = if field.page == page
                 && !hidden_field(spec.key)
@@ -568,11 +551,14 @@ fn show_page(page: usize) {
             );
         }
     }
-    layout_page();
+    update_background_mode();
     if page == 6 {
         refresh_format(window);
     }
     update_preview();
+    if matches!(page, 3 | 4) {
+        align_preview();
+    }
     unsafe {
         if shown {
             SendMessageW(window, WM_SETREDRAW, 1, 0);
@@ -586,203 +572,13 @@ fn show_page(page: usize) {
     }
 }
 
-fn layout_page() {
-    let (hwnd, dpi, page, expanded, more_colors, scroll, footer, status, children) =
-        EDITOR.with(|c| {
-            let state = c.borrow();
-            let e = state.as_ref().unwrap();
-            (
-                e.hwnd,
-                e.dpi,
-                e.page,
-                e.more_panel,
-                e.more_colors,
-                e.scroll,
-                e.footer_controls,
-                e.status,
-                e.appearance_children.clone(),
-            )
-        });
-    let px = |value| scaled(value, dpi);
-    let image = page == 3 && background_image();
-    let advanced = page == 6;
-    let width = layout::WIDTH;
-    let (tabs, title, format_expanded, sections, extras) = EDITOR.with(|c| {
-        let state = c.borrow();
-        let s = state.as_ref().unwrap();
-        (
-            s.tabs,
-            s.title,
-            s.format_expanded,
-            s.sections.clone(),
-            s.extra_controls.clone(),
-        )
-    });
-    unsafe {
-        let mut rect: RECT = std::mem::zeroed();
-        GetWindowRect(hwnd, &mut rect);
-        let mut monitor: MONITORINFO = std::mem::zeroed();
-        monitor.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        GetMonitorInfoW(
-            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
-            &mut monitor,
-        );
-        let work = monitor.rcWork;
-        let available = (work.bottom - work.top).max(1);
-        let target = if page == 3 && expanded {
-            936
-        } else if page == 4 && more_colors {
-            721
-        } else if advanced && format_expanded {
-            layout::page_height(page) + layout::ADVANCED_EXPANSION
-        } else {
-            layout::page_height(page)
-        };
-        let height = px(layout::HEIGHT).min(available);
-        let foot = height - px(layout::FOOTER);
-        let scroll_max = if (page == 3 && expanded) || (advanced && format_expanded) {
-            (px(target) - height).max(0)
-        } else {
-            0
-        };
-        let scroll = scroll.clamp(0, scroll_max);
-        EDITOR.with(|c| {
-            let mut editor = c.borrow_mut();
-            let e = editor.as_mut().unwrap();
-            e.height = height;
-            e.scroll = scroll;
-        });
-        SetWindowPos(
-            hwnd,
-            null_mut(),
-            rect.left.min(work.right - px(width)).max(work.left),
-            rect.top.min(work.bottom - height).max(work.top),
-            px(width),
-            height,
-            SWP_NOZORDER | SWP_NOACTIVATE,
-        );
-        let old_width = rect.right - rect.left;
-        let old_height = rect.bottom - rect.top;
-        if old_width != px(width) || old_height != height {
-            theme_ui::round_panel(hwnd, px(width), height, dpi);
-        }
-        for (i, h) in footer.into_iter().enumerate() {
-            ShowWindow(
-                h,
-                if advanced && i < 3 {
-                    SW_HIDE
-                } else {
-                    SW_SHOWNA
-                },
-            );
-            let (x, w) = [(17, 132), (157, 136), (301, 136), (882, 65), (955, 130)][i];
-            MoveWindow(h, px(x), foot + px(13), px(w), px(37), 0);
-        }
-        MoveWindow(
-            status,
-            px(if advanced { 17 } else { 449 }),
-            foot + px(17),
-            px(if advanced { 650 } else { 425 }),
-            px(25),
-            0,
-        );
-        let tab_height = px(if advanced { 39 } else { 45 });
-        MoveWindow(
-            tabs,
-            px(if advanced { 11 } else { 13 }),
-            px(if advanced { 62 } else { 67 }),
-            px(if advanced { 134 } else { 160 }),
-            tab_height * PAGES.len() as i32,
-            0,
-        );
-        SendMessageW(tabs, LB_SETITEMHEIGHT, 0, tab_height as isize);
-        SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
-        MoveWindow(
-            title,
-            px(if advanced { 177 } else { 214 }),
-            px(if advanced { 61 } else { 68 }),
-            px(if advanced { 780 } else { 859 }),
-            px(38),
-            0,
-        );
-        MoveWindow(
-            GetDlgItem(hwnd, TITLE_CLOSE as i32),
-            px(width - 47),
-            px(1),
-            px(46),
-            px(41),
-            0,
-        );
-        if advanced {
-            let shift = if format_expanded {
-                layout::ADVANCED_EXPANSION
-            } else {
-                0
-            };
-            let position = |child, x, y, w, h, shown| {
-                position_appearance_child(
-                    child,
-                    BoxRect::new(x, y, w, h).pixels(dpi),
-                    scroll,
-                    dpi,
-                    foot,
-                    shown,
-                );
-            };
-            for (key, x, y) in [("Alpha", 469, 433), ("RoundBorderRadius", 458, 495)] {
-                let f = field(key);
-                position(f.value, x, y + shift, 66, 34, true);
-                position(f.label, 189, y - 7 + shift, 236, 21, true);
-            }
-            if let Some((_, child)) = sections.iter().filter(|(group, _)| *group == 6).nth(1) {
-                position(*child, 177, 393 + shift, 391, 21, true);
-            }
-            for (id, x, y, w, h) in [
-                (ALPHA_UNIT, 544, 438 + shift, 18, 22),
-                (RADIUS_UNIT, 533, 501 + shift, 31, 22),
-                (ALPHA_HELP, 189, 448 + shift, 242, 24),
-                (RADIUS_HELP, 189, 511 + shift, 255, 24),
-                (FORMAT_GUIDE, 189, 442, 367, 59),
-            ] {
-                if let Some((_, child)) = extras.iter().find(|(_, h)| GetDlgCtrlID(*h) == id as i32)
-                {
-                    position(*child, x, y, w, h, id != FORMAT_GUIDE || format_expanded);
-                }
-            }
-        }
-        if page == 3 {
-            for (child, base, needs_expansion) in children {
-                let id = GetDlgCtrlID(child) as usize;
-                position_appearance_child(
-                    child,
-                    base,
-                    scroll,
-                    dpi,
-                    foot,
-                    (!needs_expansion || expanded) && shows_in_background_mode(id, image),
-                );
-            }
-        }
-        RedrawWindow(
-            hwnd,
-            std::ptr::null(),
-            null_mut(),
-            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
-        );
-    }
-    if matches!(page, 3 | 4) {
-        align_preview();
-    }
-}
-
 fn align_preview() {
-    let (query, dpi, scroll, footer) = EDITOR.with(|c| {
+    let (query, dpi, footer) = EDITOR.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
         (
             s.preview_controls[2],
             s.dpi,
-            if s.page == 3 { s.scroll } else { 0 },
             s.height - scaled(layout::FOOTER, s.dpi),
         )
     });
@@ -795,7 +591,7 @@ fn align_preview() {
     });
     let px = |value| scaled(value, dpi);
     let x = px(layout::PREVIEW.x + panel.x + 9);
-    let y = px(layout::PREVIEW.y + panel.y + 35) - scroll;
+    let y = px(layout::PREVIEW.y + panel.y + 35);
     let height = px(input_height);
     let width = px(panel.w - 18);
     let top = (px(150) - y).max(0);
@@ -981,10 +777,16 @@ fn expand_format(expand: bool) {
         let s = state.as_mut().unwrap();
         let changed = s.format_expanded != expand;
         s.format_expanded = expand;
-        changed
+        changed.then_some((s.hwnd, s.dpi))
     });
-    if changed {
-        show_page(6);
+    if let Some((hwnd, dpi)) = changed {
+        let field = field("ListFormat");
+        for child in [field.label, field.value, unsafe {
+            GetDlgItem(hwnd, FORMAT_GUIDE as i32)
+        }] {
+            show_without_redraw(child, expand);
+        }
+        repaint_section(hwnd, BoxRect::new(layout::CONTENT, 393, 422, 159), dpi);
     }
 }
 
@@ -1537,13 +1339,12 @@ fn draw(item: &DRAWITEMSTRUCT) {
             );
         } else if id == TITLE_CLOSE {
             theme_ui::caption_close(item, EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi));
-        } else if matches!(id, FORMAT_DISCLOSE | MORE_PANEL | MORE_COLORS) {
+        } else if matches!(id, FORMAT_DISCLOSE | MORE_COLORS) {
             let (dpi, expanded) = EDITOR.with(|c| {
                 let state = c.borrow();
                 let s = state.as_ref().unwrap();
                 let expanded = match id {
                     FORMAT_DISCLOSE => s.format_expanded,
-                    MORE_PANEL => s.more_panel,
                     _ => s.more_colors,
                 };
                 (s.dpi, expanded)
@@ -1651,8 +1452,8 @@ fn draw(item: &DRAWITEMSTRUCT) {
                     theme::muted(),
                     0,
                 );
-                SelectObject(dc, s.filename_font);
                 if format == FORMAT_PRESETS[0] {
+                    SelectObject(dc, s.font);
                     theme_ui::line_text(dc, row(8, 26), "doubao", theme::text(), 0);
                     theme_ui::line_text(
                         dc,
@@ -1662,6 +1463,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
                         0,
                     );
                 } else {
+                    SelectObject(dc, s.filename_font);
                     let name = crate::localization::tr("豆包");
                     match altrun_probe::list_format::render(format, "doubao", &name) {
                         Ok(line) => theme_ui::line_text(dc, row(8, 26), &line, theme::text(), 0),
@@ -1762,9 +1564,9 @@ fn draw(item: &DRAWITEMSTRUCT) {
                     theme::accent(),
                 );
             }
-            bounds.left += scaled(if s.page == 6 { 10 } else { 15 }, s.dpi);
+            bounds.left += scaled(15, s.dpi);
             unsafe {
-                let old = SelectObject(item.hDC, if selected { s.section_font } else { s.font });
+                let old = SelectObject(item.hDC, s.font);
                 theme_ui::line_text(
                     item.hDC,
                     bounds,
@@ -1795,10 +1597,8 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                 s.dpi,
                 s.height,
                 s.page,
-                s.more_panel,
                 s.more_colors,
                 s.format_expanded,
-                s.scroll,
                 s.caption_font,
             )
         })
@@ -1807,30 +1607,14 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     unsafe {
         GetClientRect(hwnd, &mut rect);
     }
-    let Some((
-        background,
-        dpi,
-        height,
-        page,
-        more_panel,
-        more_colors,
-        format_expanded,
-        scroll,
-        caption,
-    )) = state
-    else {
+    let Some((background, dpi, height, page, more_colors, format_expanded, caption)) = state else {
         theme_ui::fill(dc, &rect, theme::surface());
         return;
     };
     let px = |v| scaled(v, dpi);
     let divider = theme::divider();
-    let advanced = page == 6;
     let foot = height - px(layout::FOOTER);
-    let rail = px(if advanced {
-        layout::ADVANCED_RAIL
-    } else {
-        layout::RAIL
-    });
+    let rail = px(layout::RAIL);
     unsafe {
         FillRect(dc, &rect, background);
     }
@@ -1877,47 +1661,20 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     unsafe {
         let clip = SaveDC(dc);
         if clip != 0 {
-            IntersectClipRect(
-                dc,
-                px(if advanced { 176 } else { layout::CONTENT }) - 1,
-                px(if advanced { 133 } else { 150 }),
-                rect.right,
-                foot,
-            );
+            IntersectClipRect(dc, px(layout::CONTENT) - 1, px(150), rect.right, foot);
         }
         for card in layout::CARDS.iter().filter(|card| card.page == page) {
             let mut bounds = card.bounds;
-            if advanced && format_expanded && bounds.x == 177 {
-                if bounds.y == 135 {
-                    bounds.h += layout::ADVANCED_EXPANSION;
-                } else {
-                    bounds.y += layout::ADVANCED_EXPANSION;
-                }
+            if page == 6 && format_expanded && bounds.x == layout::CONTENT {
+                bounds.h += layout::ADVANCED_EXPANSION;
             }
             if page == 3 && bounds.y == 284 && !background_image() {
                 bounds.h = 120;
             }
-            if page == 3 && more_panel && bounds.x == layout::RIGHT {
-                bounds.h += 215;
-            }
-            let mut r = bounds.pixels(dpi);
-            let card_scroll = if !advanced || card.bounds.y == 419 {
-                scroll
-            } else {
-                0
-            };
-            OffsetRect(&mut r, 0, -card_scroll);
+            let r = bounds.pixels(dpi);
             theme_ui::rounded(dc, r, px(16), theme::control_surface(), divider);
-            for &y in
-                card.rules
-                    .iter()
-                    .chain(if page == 3 && bounds.x == layout::RIGHT && more_panel {
-                        &[134, 177, 220, 263, 306][..]
-                    } else {
-                        &[]
-                    })
-            {
-                let top = px(bounds.y + y) - card_scroll;
+            for &y in card.rules {
+                let top = px(bounds.y + y);
                 theme_ui::fill(
                     dc,
                     &RECT {
@@ -1930,17 +1687,13 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                 );
             }
             if page == 3 && bounds.x == layout::RIGHT {
-                let x = px(798);
-                theme_ui::fill(
-                    dc,
-                    &RECT {
-                        left: x,
-                        right: x + 1,
-                        top: r.top + 1,
-                        bottom: r.top + px(90),
-                    },
-                    divider,
-                );
+                for (x, top, bottom) in [(798, 487, 603), (707, 603, 646), (889, 603, 646)] {
+                    theme_ui::fill(
+                        dc,
+                        &BoxRect::new(x, top, 1, bottom - top).pixels(dpi),
+                        divider,
+                    );
+                }
             }
         }
         if page == 3 {
@@ -1948,13 +1701,17 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
                 BoxRect::new(226, 191, 266, 38),
                 BoxRect::new(226, 295, 266, 38),
             ] {
-                let mut r = segment.pixels(dpi);
-                OffsetRect(&mut r, 0, -scroll);
-                theme_ui::rounded(dc, r, px(14), theme::paper(), theme::border());
+                theme_ui::rounded(
+                    dc,
+                    segment.pixels(dpi),
+                    px(14),
+                    theme::paper(),
+                    theme::border(),
+                );
             }
         }
         if page == 4 && more_colors {
-            let r = BoxRect::new(524, 478, 549, 161).pixels(dpi);
+            let r = layout::EXTRA_COLORS.pixels(dpi);
             theme_ui::rounded(dc, r, px(16), theme::control_surface(), divider);
             for y in [518, 558, 598] {
                 theme_ui::fill(dc, &BoxRect::new(525, y, 547, 1).pixels(dpi), divider);
@@ -2030,24 +1787,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             } else {
                 HTCLIENT as isize
             }
-        }
-        WM_MOUSEWHEEL => {
-            let delta = (w >> 16) as i16 as i32;
-            let scroll = EDITOR.with(|c| {
-                let mut editor = c.borrow_mut();
-                let Some(s) = editor.as_mut() else {
-                    return false;
-                };
-                if !((s.page == 3 && s.more_panel) || (s.page == 6 && s.format_expanded)) {
-                    return false;
-                }
-                s.scroll -= scaled(55, s.dpi) * delta / 120;
-                true
-            });
-            if scroll {
-                layout_page();
-            }
-            0
         }
         WM_DRAWITEM if l != 0 => {
             draw(unsafe { &*(l as *const DRAWITEMSTRUCT) });
@@ -2256,19 +1995,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
                 return 0;
             }
-            if matches!(id, MORE_PANEL | MORE_COLORS) && code == BN_CLICKED {
-                let page = EDITOR.with(|c| {
-                    let mut editor = c.borrow_mut();
-                    let s = editor.as_mut().unwrap();
-                    if id == MORE_PANEL {
-                        s.more_panel = !s.more_panel;
-                        s.scroll = 0;
-                    } else {
-                        s.more_colors = !s.more_colors;
-                    }
-                    s.page
-                });
-                show_page(page);
+            if id == MORE_COLORS && code == BN_CLICKED {
+                toggle_extra_colors(hwnd);
                 return 0;
             }
             if id == FONT_FAMILY && code == BN_CLICKED {
@@ -2606,7 +2334,17 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     315,
                     TAB,
                 );
-                SendMessageW(tabs, LB_SETITEMHEIGHT, 0, scaled(45, dpi) as isize);
+                let tab_height = scaled(45, dpi);
+                SendMessageW(tabs, LB_SETITEMHEIGHT, 0, tab_height as isize);
+                SetWindowPos(
+                    tabs,
+                    null_mut(),
+                    0,
+                    0,
+                    scaled(160, dpi),
+                    tab_height * PAGES.len() as i32,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
                 for page in PAGES {
                     SendMessageW(tabs, LB_ADDSTRING, 0, ui(page.name).as_ptr() as isize);
                 }
@@ -2614,7 +2352,16 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 SendMessageW(title, WM_SETFONT, heading_font as usize, 0);
                 let hint = control("STATIC", "", 0, 214, 110, 859, 26, 0);
                 SendMessageW(hint, WM_SETFONT, small_font as usize, 0);
-                let status = control("STATIC", "", OWNER_STATIC, 267, 610, 650, 24, STATUS);
+                let status = control(
+                    "STATIC",
+                    "",
+                    OWNER_STATIC,
+                    449,
+                    layout::HEIGHT - layout::FOOTER + 17,
+                    425,
+                    25,
+                    STATUS,
+                );
                 SendMessageW(status, WM_SETFONT, small_font as usize, 0);
                 let close = control("BUTTON", "关闭", WS_TABSTOP, 1055, 1, 46, 41, TITLE_CLOSE);
                 theme_ui::style_caption_close(close);
@@ -2698,40 +2445,40 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     (
                         ADVANCED_NOTE,
                         "仅在启用正则匹配时生效。开启后，匹配以 d 开头的快捷字可用 ^d.*；关闭时可直接输入 d*。",
-                        189,
-                        170,
-                        367,
+                        227,
+                        215,
+                        396,
                         42,
                     ),
-                    (0, "结果显示样式", 189, 225, 367, 22),
+                    (0, "结果显示样式", 227, 270, 396, 22),
                     (
                         ADVANCED_NOTE,
                         "让输入参数或上下文决定打开哪个程序或路径。普通快捷项保持关闭。",
-                        593,
-                        171,
-                        352,
+                        665,
+                        216,
+                        395,
                         40,
                     ),
                     (
                         ADVANCED_NOTE,
                         "在快捷项数据文件旁记录启动成功或失败。",
-                        593,
-                        290,
-                        352,
+                        665,
+                        350,
+                        395,
                         29,
                     ),
-                    (ALPHA_HELP, "100% 完全不透明。", 189, 448, 242, 24),
-                    (RADIUS_HELP, "0 为直角，数值越大角越圆。", 189, 511, 255, 24),
+                    (ALPHA_HELP, "100% 完全不透明。", 666, 457, 270, 24),
+                    (RADIUS_HELP, "0 为直角，数值越大角越圆。", 666, 518, 270, 24),
                     (
                         FORMAT_GUIDE,
                         "第一个 %s 显示快捷字，第二个显示名称。\n%-25s 左对齐并补足到 25 字符。宽度可填 0–256。\n%% 显示一个百分号。可填写 1–2 个占位符。",
-                        189,
-                        442,
-                        367,
+                        227,
+                        487,
+                        396,
                         59,
                     ),
-                    (ALPHA_UNIT, "%", 544, 438, 18, 22),
-                    (RADIUS_UNIT, "DIP", 533, 501, 31, 22),
+                    (ALPHA_UNIT, "%", 1034, 447, 18, 22),
+                    (RADIUS_UNIT, "DIP", 1034, 509, 31, 22),
                 ] {
                     let label = control("STATIC", caption, 0, x, y, w, h, id);
                     if caption != "结果显示样式" && !matches!(id, ALPHA_UNIT | RADIUS_UNIT) {
@@ -2745,9 +2492,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     WS_TABSTOP
                         | WS_VSCROLL
                         | (CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32,
-                    189,
-                    251,
-                    367,
+                    227,
+                    296,
+                    396,
                     148,
                     FORMAT_MODE,
                 );
@@ -2774,9 +2521,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         "STATIC",
                         "",
                         OWNER_STATIC,
-                        189,
-                        292,
-                        367,
+                        227,
+                        337,
+                        396,
                         54,
                         FORMAT_PREVIEW,
                     ),
@@ -2785,9 +2532,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     "BUTTON",
                     "自定义写法",
                     WS_TABSTOP,
-                    188,
-                    349,
-                    368,
+                    226,
+                    394,
+                    397,
                     25,
                     FORMAT_DISCLOSE,
                 );
@@ -2799,7 +2546,6 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     (SEGMENT + 2, "深色", 404, 195, 84, 30, 3),
                     (SEGMENT + 3, "纯色", 230, 299, 128, 30, 3),
                     (SEGMENT + 4, "图片", 361, 299, 127, 30, 3),
-                    (MORE_PANEL, "其他面板选项", 528, 587, 541, 42, 3),
                     (FONT_FAMILY, "", 310, 191, 180, 34, 4),
                     (MORE_COLORS, "其他颜色", 215, 517, 288, 40, 4),
                 ] {
@@ -2925,7 +2671,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                                     if *key == "WorkingDirectory" {
                                         146
                                     } else if *key == "ListFormat" {
-                                        379
+                                        424
+                                    } else if matches!(*key, "Alpha" | "RoundBorderRadius") {
+                                        y + 9
                                     } else if *key == "BGStrength" {
                                         y + 2
                                     } else {
@@ -3104,48 +2852,35 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         );
                     }
                 }
-                let footer_controls = [
-                    ("恢复默认", 2311),
-                    ("导入设置…", 2312),
-                    ("导出设置…", 2313),
-                    ("关闭", 2314),
-                    ("保存并应用", 2310),
-                ]
-                .map(|(label, id)| control("BUTTON", label, WS_TABSTOP, 0, 0, 1, 1, id));
-                SendMessageW(footer_controls[4], WM_SETFONT, section_font as usize, 0);
+                let footer_y = layout::HEIGHT - layout::FOOTER + 13;
+                for (label, id, x, width) in [
+                    ("恢复默认", 2311, 17, 132),
+                    ("导入设置…", 2312, 157, 136),
+                    ("导出设置…", 2313, 301, 136),
+                    ("关闭", 2314, 882, 65),
+                    ("保存并应用", 2310, 955, 130),
+                ] {
+                    let button = control("BUTTON", label, WS_TABSTOP, x, footer_y, width, 37, id);
+                    if id == 2310 {
+                        SendMessageW(button, WM_SETFONT, section_font as usize, 0);
+                    }
+                }
                 let fields = fields
                     .into_iter()
                     .map(|field| field.expect("missing settings field"))
                     .collect::<Vec<_>>();
-                let client_rect = |child: HWND| {
-                    let mut bounds: RECT = std::mem::zeroed();
-                    GetWindowRect(child, &mut bounds);
-                    MapWindowPoints(null_mut(), hwnd, &mut bounds as *mut RECT as *mut POINT, 2);
-                    bounds
-                };
-                let mut appearance_children = Vec::new();
-                for (spec, field) in SPECS.iter().zip(&fields) {
-                    if field.page != 3 || hidden_field(spec.key) {
-                        continue;
-                    }
-                    let needs_expansion = layout::field(spec.key).bounds.y >= 630;
-                    for child in [field.label, field.value, field.pick, field.clear]
-                        .into_iter()
-                        .filter(|h| !h.is_null())
-                    {
-                        appearance_children.push((child, client_rect(child), needs_expansion));
-                    }
-                }
-                for (_, child) in sections
+                let appearance_children = fields
                     .iter()
-                    .chain(&extra_controls)
-                    .filter(|(page, _)| *page == 3)
-                {
-                    appearance_children.push((*child, client_rect(*child), false));
-                }
-                for child in [preview_controls[0], preview_controls[1]] {
-                    appearance_children.push((child, client_rect(child), false));
-                }
+                    .filter(|field| field.page == 3)
+                    .flat_map(|field| [field.label, field.value, field.pick, field.clear])
+                    .chain(
+                        extra_controls
+                            .iter()
+                            .filter(|(page, _)| *page == 3)
+                            .map(|(_, child)| *child),
+                    )
+                    .filter(|child| !child.is_null())
+                    .collect();
                 EDITOR.with(|c| {
                     *c.borrow_mut() = Some(Editor {
                         hwnd,
@@ -3163,17 +2898,14 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                         caption_font,
                         filename_font,
                         hotkey_font,
-                        footer_controls,
                         sections,
                         extra_controls,
                         appearance_children,
                         dpi,
                         page: 0,
                         height: scaled(layout::HEIGHT, dpi),
-                        more_panel: false,
                         more_colors: false,
                         format_expanded: false,
-                        scroll: 0,
                         preview: Preview::new(prefs.clone()),
                         preview_controls,
                         preview_font: null_mut(),

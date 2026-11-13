@@ -1103,6 +1103,18 @@ pub fn switch(hwnd: HWND, dpi: i32, description: bool) {
     unsafe { SetWindowSubclass(hwnd, Some(switch_proc), 1, mode | dpi as usize) };
 }
 
+fn switch_track(bounds: RECT, dpi: i32) -> RECT {
+    let height = scaled(20, dpi);
+    let right = bounds.right - scaled(9, dpi);
+    let top = (bounds.bottom - height) / 2;
+    RECT {
+        left: right - scaled(35, dpi),
+        top,
+        right,
+        bottom: top + height,
+    }
+}
+
 unsafe extern "system" fn switch_proc(
     hwnd: HWND,
     msg: u32,
@@ -1112,6 +1124,45 @@ unsafe extern "system" fn switch_proc(
     dpi: usize,
 ) -> LRESULT {
     unsafe {
+        let description = dpi & 0x20000 != 0;
+        let dpi = (dpi & 0xffff) as i32;
+        if matches!(
+            msg,
+            WM_NCHITTEST
+                | WM_LBUTTONDOWN
+                | WM_LBUTTONDBLCLK
+                | WM_LBUTTONUP
+                | WM_MOUSEMOVE
+                | BM_CLICK
+        ) {
+            let mut bounds = RECT::default();
+            GetClientRect(hwnd, &mut bounds);
+            let track = switch_track(bounds, dpi);
+            if msg == BM_CLICK {
+                // Native button automation should click the track, not the row origin.
+                let x = (track.left + track.right) / 2;
+                let y = (track.top + track.bottom) / 2;
+                let center = (x | (y << 16)) as LPARAM;
+                DefSubclassProc(hwnd, WM_LBUTTONDOWN, 1, center);
+                return DefSubclassProc(hwnd, WM_LBUTTONUP, 0, center);
+            }
+            let mut point = POINT {
+                x: l as i16 as i32,
+                y: (l >> 16) as i16 as i32,
+            };
+            if msg == WM_NCHITTEST {
+                ScreenToClient(hwnd, &mut point);
+            }
+            let inside = (track.left..track.right).contains(&point.x)
+                && (track.top..track.bottom).contains(&point.y);
+            if !inside {
+                return match msg {
+                    WM_NCHITTEST => HTTRANSPARENT as LRESULT,
+                    WM_LBUTTONUP | WM_MOUSEMOVE => DefSubclassProc(hwnd, msg, w, -1),
+                    _ => 0,
+                };
+            }
+        }
         if matches!(msg, WM_PAINT | WM_PRINTCLIENT) {
             let mut paint: PAINTSTRUCT = std::mem::zeroed();
             let dc = if msg == WM_PAINT {
@@ -1121,22 +1172,14 @@ unsafe extern "system" fn switch_proc(
             };
             let mut bounds: RECT = std::mem::zeroed();
             GetClientRect(hwnd, &mut bounds);
-            let description = dpi & 0x20000 != 0;
-            let dpi = (dpi & 0xffff) as i32;
             let px = |n| scaled(n, dpi);
             let checked = DefSubclassProc(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
             let enabled =
                 windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(hwnd) != 0;
             let focused = GetFocus() == hwnd;
-            let h = px(20);
-            let right = bounds.right - px(9);
-            let top = (bounds.bottom - h) / 2;
-            let track = RECT {
-                left: right - px(35),
-                top,
-                right,
-                bottom: top + h,
-            };
+            let track = switch_track(bounds, dpi);
+            let top = track.top;
+            let h = track.bottom - track.top;
             fill(dc, &bounds, theme::control_surface());
             if focused && DefSubclassProc(hwnd, WM_QUERYUISTATE, 0, 0) as u32 & UISF_HIDEFOCUS == 0
             {

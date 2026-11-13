@@ -234,7 +234,44 @@ fn settings_design(hwnd: HWND) {
             );
             native_snapshot::save(hwnd, &format!("settings-colors-{theme}"));
             command(hwnd, 2343);
+            let sidebar = GetDlgItem(hwnd, 2301);
+            let sidebar_bounds = bounds(sidebar);
+            let row_height = SendMessageW(sidebar, LB_GETITEMHEIGHT, 0, 0);
             select_page(hwnd, 6);
+            let advanced_sidebar = bounds(sidebar);
+            assert_eq!(
+                (
+                    advanced_sidebar.left,
+                    advanced_sidebar.top,
+                    advanced_sidebar.right,
+                    advanced_sidebar.bottom
+                ),
+                (
+                    sidebar_bounds.left,
+                    sidebar_bounds.top,
+                    sidebar_bounds.right,
+                    sidebar_bounds.bottom
+                ),
+            );
+            assert_eq!(SendMessageW(sidebar, LB_GETITEMHEIGHT, 0, 0), row_height);
+            let switch = setting(hwnd, "StandardRegex");
+            let rect = bounds(switch);
+            let height = rect.bottom - rect.top;
+            let switch_center = rect.right - rect.left - height / 3;
+            let click = |from, to| {
+                let center_y = (height / 2) << 16;
+                SendMessageW(switch, WM_LBUTTONDOWN, 1, (from | center_y) as isize);
+                SendMessageW(switch, WM_LBUTTONUP, 0, (to | center_y) as isize);
+            };
+            let checked = SendMessageW(switch, BM_GETCHECK, 0, 0);
+            click(8, 8);
+            assert_eq!(SendMessageW(switch, BM_GETCHECK, 0, 0), checked);
+            click(switch_center, 8);
+            assert_eq!(SendMessageW(switch, BM_GETCHECK, 0, 0), checked);
+            click(switch_center, switch_center);
+            assert_ne!(SendMessageW(switch, BM_GETCHECK, 0, 0), checked);
+            SendMessageW(switch, BM_CLICK, 0, 0);
+            assert_eq!(SendMessageW(switch, BM_GETCHECK, 0, 0), checked);
             let format = GetDlgItem(hwnd, 2356);
             let raw = setting(hwnd, "ListFormat");
             assert_eq!(IsWindowVisible(raw), 0);
@@ -282,12 +319,19 @@ fn settings_design(hwnd: HWND) {
     );
     select_page(hwnd, 3);
     unsafe {
-        let option = setting(hwnd, "ShowTopTen");
-        assert_eq!(IsWindowVisible(option), 0);
-        command(hwnd, 2340);
-        assert_ne!(IsWindowVisible(option), 0);
-        command(hwnd, 2340);
-        assert_eq!(IsWindowVisible(option), 0);
+        assert!(GetDlgItem(hwnd, 2340).is_null());
+        let footer = bounds(GetDlgItem(hwnd, 2310));
+        for key in [
+            "ShowTopTen",
+            "ShowOperationHint",
+            "ShowShortCutButton",
+            "ShowConfigButton",
+            "ShowCloseButton",
+        ] {
+            let option = setting(hwnd, key);
+            assert_ne!(IsWindowVisible(option), 0, "{key}");
+            assert!(bounds(option).bottom < footer.top, "{key} overlaps footer");
+        }
     }
     command(hwnd, 2331);
     select_page(hwnd, 0);
