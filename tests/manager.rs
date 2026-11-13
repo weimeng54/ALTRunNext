@@ -263,8 +263,26 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         set(edit, "new");
         wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 1);
         SendMessageW(manager, WM_COMMAND, 2110, 0);
+        let draft_row = SendMessageW(editor_list, LB_GETCURSEL, 0, 0);
+        assert_eq!(draft_row, 2);
+        assert_eq!(
+            SendMessageW(editor_list, LB_GETTEXTLEN, draft_row as usize, 0),
+            0
+        );
+        assert!(read(alias).is_empty());
+        assert!(read(name).is_empty());
+        assert!(read(GetDlgItem(manager, 2104)).is_empty());
+        native_snapshot::save(manager, "manager-blank-draft");
         set(alias, "added");
+        assert_eq!(
+            SendMessageW(editor_list, LB_GETTEXTLEN, draft_row as usize, 0),
+            5
+        );
         set(name, "新添加的快捷项");
+        assert_eq!(
+            SendMessageW(editor_list, LB_GETTEXTLEN, draft_row as usize, 0),
+            "added · 新添加的快捷项".encode_utf16().count() as isize
+        );
         set(GetDlgItem(manager, 2104), "https://example.com/?q=");
         assert_eq!(IsWindowVisible(parameter_type), 0);
         SendMessageW(ask_parameter, BM_CLICK, 0, 0);

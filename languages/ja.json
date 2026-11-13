@@ -255,7 +255,6 @@
     "ui.new": "新規 ▾",
     "ui.new_2": "追加 ▾",
     "ui.new_shortcut": "ショートカットを追加",
-    "ui.new_shortcut_2": "新しいショートカット",
     "ui.no_hotkey_slot_is_available": "利用できるホットキーの登録枠がありません。",
     "ui.no_image_selected": "画像が選択されていません",
     "ui.no_matches": "一致する項目がありません",

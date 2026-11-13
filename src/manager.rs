@@ -339,7 +339,14 @@ fn refresh_list_rows() {
             s.list,
             s.view
                 .iter()
-                .map(|&i| format!("{} · {}", s.draft[i].alias, s.draft[i].name))
+                .map(|&i| {
+                    let entry = &s.draft[i];
+                    match (entry.alias.as_str(), entry.name.as_str()) {
+                        ("", name) => name.to_owned(),
+                        (alias, "") => alias.to_owned(),
+                        (alias, name) => format!("{alias} · {name}"),
+                    }
+                })
                 .collect::<Vec<_>>(),
             s.view.iter().position(|&i| i == s.selected),
         )
@@ -771,12 +778,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     rect.right = d.rcItem.right * 42 / 100;
                     DrawTextW(
                         d.hDC,
-                        wide(if entry.alias.is_empty() {
-                            "ui.new_shortcut_2"
-                        } else {
-                            &entry.alias
-                        })
-                        .as_ptr(),
+                        wide(&entry.alias).as_ptr(),
                         -1,
                         &mut rect,
                         DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
