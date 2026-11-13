@@ -139,7 +139,7 @@ pub fn load(request: &Request) -> Result<Bitmap, String> {
             suppress_codecs: 0,
         };
         if GdiplusStartup(&mut token, &input, null_mut()) != 0 {
-            return Err("无法初始化图片服务".into());
+            return Err("ui.could_not_initialize_the_image_service".into());
         }
         let mut image = null_mut();
         let mut thumbnail = null_mut();
@@ -150,9 +150,9 @@ pub fn load(request: &Request) -> Result<Bitmap, String> {
             GdipGetImageHeight(image, &mut height);
         }
         let result = if !loaded {
-            Err("无法读取背景图片；支持 PNG、JPEG、BMP".into())
+            Err("ui.could_not_read_the_image_use_png".into())
         } else if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 25_000_000 {
-            Err("背景图片过大，请缩小到 2500 万像素以内".into())
+            Err("ui.resize_the_image_to_25_megapixels_or".into())
         } else {
             let max = width.max(height).max(1024);
             let w = (width * 1024 / max).max(1);
@@ -163,7 +163,7 @@ pub fn load(request: &Request) -> Result<Bitmap, String> {
             if GdipGetImageThumbnail(image, w, h, &mut thumbnail, std::ptr::null(), null_mut()) != 0
                 || GdipCreateHBITMAPFromBitmap(thumbnail, &mut bitmap, argb) != 0
             {
-                Err("无法创建背景图片".into())
+                Err("ui.could_not_create_the_background_image".into())
             } else {
                 let bitmap = Bitmap {
                     handle: bitmap as usize,
@@ -190,7 +190,7 @@ fn blend(bitmap: Bitmap, tint: u32, strength: i32) -> Result<Bitmap, String> {
     unsafe {
         let dc = CreateCompatibleDC(null_mut());
         if dc.is_null() {
-            return Err("无法创建背景图片".into());
+            return Err("ui.could_not_create_the_background_image".into());
         }
         let mut info: BITMAPINFO = std::mem::zeroed();
         info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
@@ -233,7 +233,7 @@ fn blend(bitmap: Bitmap, tint: u32, strength: i32) -> Result<Bitmap, String> {
         if ok {
             Ok(bitmap)
         } else {
-            Err("无法处理背景图片".into())
+            Err("ui.could_not_process_the_background_image".into())
         }
     }
 }

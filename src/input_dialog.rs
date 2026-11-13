@@ -297,7 +297,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
             theme_ui::style_vertical_scrollbar(content, 12, dpi);
         }
         if let Some(report) = report.filter(|r| !r.rows.is_empty()) {
-            for (label, x, w) in [("快捷字", 26, 170), ("名称", 216, 350)] {
+            for (label, x, w) in [("ui.alias", 26, 170), ("ui.name", 216, 350)] {
                 let header = CreateWindowExW(
                     0,
                     wide("STATIC").as_ptr(),
@@ -347,13 +347,19 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
         }
         let mut focus = content;
         let actions: &[(&str, usize, i32, i32)] = if has_rows {
-            &[("移除缺失项", 1, 372, 120), ("取消", 2, 500, 84)]
+            &[
+                ("ui.remove_missing", 1, 372, 120),
+                ("ui.cancel", 2, 500, 84),
+            ]
         } else if report.is_some() {
-            &[("关闭", 1, 500, 84)]
-        } else if title == "关闭设置" {
-            &[("放弃并关闭", 1, 156, 120), ("继续编辑", 2, 284, 120)]
+            &[("ui.close", 1, 500, 84)]
+        } else if title == "ui.close_settings" {
+            &[
+                ("ui.discard_and_close", 1, 156, 120),
+                ("ui.keep_editing", 2, 284, 120),
+            ]
         } else {
-            &[("确定", 1, 224, 84), ("取消", 2, 320, 84)]
+            &[("ui.ok", 1, 224, 84), ("ui.cancel", 2, 320, 84)]
         };
         for &(text, id, x, width) in actions {
             let button = CreateWindowExW(

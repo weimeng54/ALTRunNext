@@ -69,9 +69,9 @@ const NAME: usize = 2103;
 const COMMAND: usize = 2104;
 const KIND: usize = 2105;
 const PARAMETER_CHOICES: [(ParamType, &str); 3] = [
-    (ParamType::Raw, "原样传入"),
-    (ParamType::Utf8Url, "UTF-8 网址编码"),
-    (ParamType::AnsiUrl, "旧系统编码（Windows ANSI）"),
+    (ParamType::Raw, "ui.pass_as_entered"),
+    (ParamType::Utf8Url, "ui.utf_8_url_encoding"),
+    (ParamType::AnsiUrl, "ui.legacy_encoding_windows_ansi"),
 ];
 const ADD: usize = 2110;
 const DELETE: usize = 2111;
@@ -184,8 +184,8 @@ pub fn open(
             unsafe {
                 MessageBoxW(
                     null_mut(),
-                    wide(&error).as_ptr(),
-                    ui("无法打开快捷项管理").as_ptr(),
+                    ui(&error).as_ptr(),
+                    ui("ui.could_not_open_the_shortcut_manager").as_ptr(),
                     MB_OK | MB_ICONERROR,
                 );
             }
@@ -310,7 +310,7 @@ fn sync_fields() {
         });
         let hwnd = GetParent(command);
         let label = program.map_or_else(
-            || crate::localization::tr("选择程序…"),
+            || crate::localization::tr("ui.choose_app"),
             |p| crate::shortcut_intake::program_name(p).to_owned(),
         );
         SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
@@ -419,7 +419,7 @@ fn update_draft(changed: usize) {
         unsafe {
             SendMessageW(toggle, BM_SETCHECK, 1, 0);
         }
-        status("请先删除命令中的参数占位符，再关闭参数输入。", true);
+        status("ui.remove_the_parameter_placeholder_from_the_command", true);
         return;
     }
     let change = EDITOR.with(|c| {
@@ -473,7 +473,7 @@ fn update_draft(changed: usize) {
     sync_kind_layout();
     status(
         if dirty {
-            "尚未保存。保存后立即更新启动面板。"
+            "ui.unsaved_saving_updates_the_launcher_immediately"
         } else {
             ""
         },
@@ -505,12 +505,15 @@ fn save() {
     if !duplicates.is_empty()
         && !confirm(
             WINDOW.load(Ordering::Acquire) as HWND,
-            &format!("以下快捷字重复：{}。仍然保存？", duplicates.join("、")),
+            &crate::localization::message(
+                "ui.these_aliases_are_used_more_than_once",
+                &[("aliases", &duplicates.join(", "))],
+            ),
         )
     {
         return;
     }
-    status("正在保存…", false);
+    status("ui.saving", false);
     let result = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
@@ -525,14 +528,14 @@ fn save() {
             unsafe {
                 PostMessageW(parent as HWND, UPDATED, 0, 0);
             }
-            status("已保存。启动面板已更新，上一版保存在 .bak 文件。", false);
+            status("ui.saved_the_launcher_is_updated_and_a", false);
             sync_fields();
         }
         Err(error) => status(&error, true),
     }
 }
 fn confirm(hwnd: HWND, message: &str) -> bool {
-    crate::input_dialog::confirm(hwnd, "管理快捷项", message)
+    crate::input_dialog::confirm(hwnd, "ui.manage_shortcuts", message)
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     if msg == WM_DESTROY {
@@ -561,7 +564,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     }
     if msg == WM_CLOSE {
         let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
-        if !dirty || confirm(hwnd, "有尚未保存的修改。放弃修改并关闭？") {
+        if !dirty || confirm(hwnd, "ui.discard_unsaved_changes_and_close") {
             publish_selection();
             unsafe {
                 DestroyWindow(hwnd);
@@ -651,7 +654,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             s.selected = s.draft.len() - 1;
                         });
                         refresh_list();
-                        status("新增项尚未保存，请填写快捷字和命令。", false);
+                        status("ui.enter_an_alias_and_a_command_for", false);
                         let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
                         unsafe {
                             SetFocus(field);
@@ -666,7 +669,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 .map(|e| format!("{} · {}", e.alias, e.name))
                         });
                         if let Some(name) = name
-                            && confirm(hwnd, &format!("从草稿中删除“{name}”？保存后生效。"))
+                            && confirm(
+                                hwnd,
+                                &crate::localization::message(
+                                    "ui.remove_name_from_the_draft_save_to",
+                                    &[("name", &name)],
+                                ),
+                            )
                         {
                             EDITOR.with(|c| {
                                 let mut state = c.borrow_mut();
@@ -675,7 +684,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 s.selected = s.selected.min(s.draft.len().saturating_sub(1));
                             });
                             refresh_list();
-                            pending_status("已从草稿删除，尚未保存。");
+                            pending_status("ui.removed_from_the_draft_changes_are_unsaved");
                         }
                     }
                     SAVE => save(),
@@ -766,7 +775,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     DrawTextW(
                         d.hDC,
                         wide(if entry.alias.is_empty() {
-                            "新快捷项"
+                            "ui.new_shortcut_2"
                         } else {
                             &entry.alias
                         })
@@ -833,7 +842,7 @@ fn run(
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
     {
-        return Err("请选择 ALTRunNext 的 TSV 快捷项数据文件。".into());
+        return Err("ui.select_an_altrunnext_shortcut_data_file_in".into());
     }
     let file = if path.exists() {
         Snapshot::open(&path)?
@@ -859,7 +868,7 @@ fn run(
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
-            ui("ALTRunNext · 管理快捷项").as_ptr(),
+            ui("ui.altrunnext_manage_shortcuts").as_ptr(),
             WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
             450,
             180,
@@ -872,7 +881,7 @@ fn run(
         );
         if hwnd.is_null() {
             DeleteObject(background);
-            return Err("无法创建管理窗口".into());
+            return Err("ui.could_not_create_the_shortcut_manager_window".into());
         }
         theme::frame(hwnd);
         let remembered = window_state();
@@ -884,10 +893,10 @@ fn run(
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
             let id = if class == "STATIC" && id == 0 {
                 match label {
-                    "快捷字" => 2170,
-                    "名称" => 2171,
-                    "命令或路径" => 2172,
-                    "传参方式" => 2173,
+                    "ui.alias" => 2170,
+                    "ui.name" => 2171,
+                    "ui.command_or_path" => 2172,
+                    "ui.input_format" => 2173,
                     _ => id,
                 }
             } else {
@@ -921,12 +930,12 @@ fn run(
                 OPEN_LABEL => (FIELD_LEFT, 296, FIELD_WIDTH, 21),
                 OPEN_WITH => (FIELD_LEFT, 322, FIELD_WIDTH - 144, 36),
                 OPEN_DEFAULT => (FIELD_RIGHT - 128, 322, 128, 36),
-                _ if label == "修改后点击保存。" => (112, FOOTER_TOP + 13, 600, 37),
-                _ if label == "管理快捷项" => (RAIL + 25, 60, FIELD_WIDTH, 41),
-                _ if label == "快捷字" => (FIELD_LEFT, 128, HALF_FIELD, 21),
-                _ if label == "名称" => (FIELD_RIGHT - HALF_FIELD, 128, HALF_FIELD, 21),
-                _ if label == "命令或路径" => (FIELD_LEFT, 212, FIELD_WIDTH, 21),
-                _ if label == "传参方式" => (FIELD_LEFT, 352, FIELD_WIDTH, 21),
+                _ if label == "ui.save_to_apply_your_changes" => (112, FOOTER_TOP + 13, 600, 37),
+                _ if label == "ui.manage_shortcuts" => (RAIL + 25, 60, FIELD_WIDTH, 41),
+                _ if label == "ui.alias" => (FIELD_LEFT, 128, HALF_FIELD, 21),
+                _ if label == "ui.name" => (FIELD_RIGHT - HALF_FIELD, 128, HALF_FIELD, 21),
+                _ if label == "ui.command_or_path" => (FIELD_LEFT, 212, FIELD_WIDTH, 21),
+                _ if label == "ui.input_format" => (FIELD_LEFT, 352, FIELD_WIDTH, 21),
                 _ => (x, y, width, height),
             };
             let child = CreateWindowExW(
@@ -962,12 +971,14 @@ fn run(
             }
             child
         };
-        let close_caption = control("BUTTON", "关闭", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
+        let close_caption = control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
         crate::theme_ui::style_caption_close(close_caption);
-        let title = control("STATIC", "管理快捷项", 0, 280, 12, 300, 25, 0);
-        control("BUTTON", "新增", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
-        control("BUTTON", "工具", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU);
-        SetWindowTextW(title, ui("编辑快捷项").as_ptr());
+        let title = control("STATIC", "ui.manage_shortcuts", 0, 280, 12, 300, 25, 0);
+        control("BUTTON", "ui.add", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
+        control(
+            "BUTTON", "ui.tools", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU,
+        );
+        SetWindowTextW(title, ui("ui.edit_shortcut").as_ptr());
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
         let list = control(
             "LISTBOX",
@@ -987,8 +998,8 @@ fn run(
         );
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(ROW_HEIGHT, dpi) as LPARAM);
         crate::theme_ui::style_vertical_scrollbar(list, LIST_SCROLLBAR, dpi);
-        control("STATIC", "快捷字", 0, 280, 52, 210, 20, 0);
-        control("STATIC", "名称", 0, 512, 52, 232, 20, 0);
+        control("STATIC", "ui.alias", 0, 280, 52, 210, 20, 0);
+        control("STATIC", "ui.name", 0, 512, 52, 232, 20, 0);
         let alias = control(
             "EDIT",
             "",
@@ -1009,7 +1020,7 @@ fn run(
             28,
             NAME,
         );
-        control("STATIC", "命令或路径", 0, 280, 118, 464, 20, 0);
+        control("STATIC", "ui.command_or_path", 0, 280, 118, 464, 20, 0);
         let command = control(
             "EDIT",
             "",
@@ -1022,7 +1033,7 @@ fn run(
         );
         let ask_parameter = control(
             "BUTTON",
-            "启动时输入参数",
+            "ui.ask_for_input_on_launch",
             BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
             0,
             0,
@@ -1031,7 +1042,7 @@ fn run(
             ASK_PARAMETER,
         );
         crate::theme_ui::switch(ask_parameter, dpi, false);
-        control("STATIC", "传参方式", 0, 0, 0, 0, 0, 0);
+        control("STATIC", "ui.input_format", 0, 0, 0, 0, 0, 0);
         let kind = control(
             "COMBOBOX",
             "",
@@ -1050,13 +1061,22 @@ fn run(
                 wide(&crate::localization::tr(label)).as_ptr() as LPARAM,
             );
         }
-        control("STATIC", "打开方式", 0, 0, 0, 0, 0, OPEN_LABEL);
-        control("BUTTON", "选择程序…", WS_TABSTOP, 0, 0, 0, 0, OPEN_WITH);
-        control("BUTTON", "系统默认", WS_TABSTOP, 0, 0, 0, 0, OPEN_DEFAULT);
-        control("STATIC", "备注内容", 0, 0, 0, 0, 0, NOTE_LABEL);
+        control("STATIC", "ui.open_with", 0, 0, 0, 0, 0, OPEN_LABEL);
+        control("BUTTON", "ui.choose_app", WS_TABSTOP, 0, 0, 0, 0, OPEN_WITH);
+        control(
+            "BUTTON",
+            "ui.system_default",
+            WS_TABSTOP,
+            0,
+            0,
+            0,
+            0,
+            OPEN_DEFAULT,
+        );
+        control("STATIC", "ui.note_text", 0, 0, 0, 0, 0, NOTE_LABEL);
         control(
             "STATIC",
-            "用「新增」创建第一个快捷项。",
+            "ui.select_new_to_create_your_first_shortcut",
             0,
             0,
             0,
@@ -1066,7 +1086,7 @@ fn run(
         );
         let status = control(
             "STATIC",
-            "修改后点击保存。",
+            "ui.save_to_apply_your_changes",
             crate::theme_ui::STATIC_CENTER_IMAGE,
             0,
             0,
@@ -1076,12 +1096,12 @@ fn run(
         );
         SetWindowTextW(status, wide("").as_ptr());
 
-        let delete = control("BUTTON", "删除", WS_TABSTOP, 92, 374, 72, 30, DELETE);
-        control("BUTTON", "关闭", WS_TABSTOP, 0, 0, 0, 0, CLOSE);
-        control("BUTTON", "测试打开", WS_TABSTOP, 0, 0, 0, 0, TEST);
+        let delete = control("BUTTON", "ui.delete", WS_TABSTOP, 92, 374, 72, 30, DELETE);
+        control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CLOSE);
+        control("BUTTON", "ui.try_opening_2", WS_TABSTOP, 0, 0, 0, 0, TEST);
         let save = control(
             "BUTTON",
-            "保存",
+            "ui.save",
             WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
             560,
             374,
@@ -1159,9 +1179,7 @@ fn run(
                             continue;
                         }
                         VK_F1 => {
-                            crate::native::show_error(
-                                "选择快捷项后在右侧修改。工具菜单可检查、排序或导入导出快捷项。保存后更新启动面板。",
-                            );
+                            crate::native::show_error("ui.select_a_shortcut_to_edit_tools_can");
                             continue;
                         }
                         VK_UP | VK_DOWN if control => {
@@ -1284,10 +1302,13 @@ fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
             .collect::<std::collections::HashSet<_>>();
         for (index, entry) in additions.iter().enumerate() {
             if entry.alias.trim().is_empty() {
-                return Err((index, "请输入快捷字。".into()));
+                return Err((index, "ui.enter_a_shortcut_keyword".into()));
             }
             if !aliases.insert(entry.alias.trim().to_lowercase()) {
-                return Err((index, "这个快捷字已存在，请换一个。".into()));
+                return Err((
+                    index,
+                    "ui.this_shortcut_keyword_is_taken_choose_another".into(),
+                ));
             }
         }
         let mut committed = s.file.entries.clone();
@@ -1305,9 +1326,9 @@ fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
     let dirty = EDITOR.with(|c| c.borrow().as_ref().unwrap().is_dirty());
     status(
         if dirty {
-            "已添加快捷项。管理窗口仍有未保存的修改。"
+            "ui.shortcut_added_the_manager_still_has_unsaved"
         } else {
-            "已添加快捷项。"
+            "ui.shortcut_added"
         },
         false,
     );
@@ -1344,7 +1365,7 @@ fn change_open_with(hwnd: HWND, use_default: bool) {
     });
     if changed {
         sync_fields();
-        pending_status("尚未保存。保存后立即更新启动面板。");
+        pending_status("ui.unsaved_saving_updates_the_launcher_immediately");
     }
 }
 pub fn drop_paths(handle: windows_sys::Win32::UI::Shell::HDROP) -> Vec<PathBuf> {
@@ -1386,7 +1407,7 @@ fn add_paths(paths: Vec<PathBuf>) {
         s.draft.extend(entries);
     });
     refresh_list();
-    status("已添加到草稿。请调整快捷字后保存。", false);
+    status("ui.added_to_the_draft_edit_the_alias", false);
 }
 pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf> {
     pick_path_filtered(hwnd, save, folder, None)
@@ -1482,7 +1503,7 @@ fn tool(hwnd: HWND, id: usize) {
         if moved {
             refresh_list_rows();
             sync_fields();
-            pending_status("顺序已更新，保存后生效。");
+            pending_status("ui.order_changed_save_to_apply_it");
         }
         return;
     }
@@ -1520,17 +1541,17 @@ fn tool(hwnd: HWND, id: usize) {
             }
             let summary = format!(
                 "{} {}     {} {}     {} {}\n{}\n{}",
-                tr("正常"),
+                tr("ui.available"),
                 present,
-                tr("缺失"),
+                tr("ui.missing"),
                 missing.len(),
-                tr("未检查"),
+                tr("ui.not_checked"),
                 skipped,
-                tr("网址、系统入口及依赖 Windows 搜索的命令会保留。"),
+                tr("ui.urls_system_entries_and_commands_resolved_by"),
                 tr(if missing.is_empty() {
-                    "未发现缺失的本地目标。"
+                    "ui.no_missing_local_targets_were_found"
                 } else {
-                    "下面是缺失项。移除后点击「保存」生效。"
+                    "ui.review_the_missing_entries_below_save_after"
                 }),
             );
             let report = crate::input_dialog::Report {
@@ -1540,7 +1561,8 @@ fn tool(hwnd: HWND, id: usize) {
                     .map(|&i| (rows[i].alias.clone(), rows[i].name.clone()))
                     .collect(),
             };
-            if crate::input_dialog::report(hwnd, "检查失效路径", report) && !missing.is_empty()
+            if crate::input_dialog::report(hwnd, "ui.check_missing_paths_2", report)
+                && !missing.is_empty()
             {
                 EDITOR.with(|c| {
                     let mut s = c.borrow_mut();
@@ -1551,7 +1573,7 @@ fn tool(hwnd: HWND, id: usize) {
                     s.selected = 0;
                 });
                 refresh_list();
-                status("已移除缺失项，保存后生效。", false);
+                status("ui.missing_entries_removed_from_the_draft_save", false);
             }
         }
         EXPORT => {
@@ -1561,7 +1583,7 @@ fn tool(hwnd: HWND, id: usize) {
                         .ok()
                         .is_some_and(|p| Some(p) == std::fs::canonicalize(&path).ok())
                 {
-                    status("请选择不同的备份文件；保存数据请使用“保存”。", true);
+                    status("ui.choose_a_different_backup_file_select_save", true);
                     return;
                 }
                 let result = library::serialize(&rows).and_then(|text| {
@@ -1569,7 +1591,7 @@ fn tool(hwnd: HWND, id: usize) {
                         .and_then(|(mut file, _)| file.save(&text))
                 });
                 match result {
-                    Ok(()) => status("快捷项草稿已导出。", false),
+                    Ok(()) => status("ui.shortcut_draft_exported", false),
                     Err(e) => status(&e, true),
                 }
             }
@@ -1579,13 +1601,13 @@ fn tool(hwnd: HWND, id: usize) {
                 match library::import_shortcuts(&source) {
                     Ok(snapshot) => {
                         let mut message = crate::localization::tr(
-                            "导入 {count} 条快捷项并替换当前草稿？点击「保存」后生效。",
+                            "ui.import_count_shortcuts_and_replace_the_current",
                         )
                         .replace("{count}", &snapshot.entries.len().to_string());
                         if snapshot.ignored_lines > 0 {
                             message.push('\n');
                             message.push_str(
-                                &crate::localization::tr("已跳过 {count} 行空行或备注。")
+                                &crate::localization::tr("ui.skipped_count_blank_lines_or_notes")
                                     .replace("{count}", &snapshot.ignored_lines.to_string()),
                             );
                         }
@@ -1629,7 +1651,7 @@ fn publish_selection() {
 
 fn test_selected(hwnd: HWND) {
     if !EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled) {
-        status("预览模式：未执行测试命令。", false);
+        status("ui.preview_mode_the_test_command_was_not", false);
         return;
     }
     let (entry, base) = EDITOR.with(|c| {
@@ -1648,7 +1670,7 @@ fn test_selected(hwnd: HWND) {
         return;
     };
     if !can_test(&entry) {
-        status("所选项没有可测试的启动命令。", true);
+        status("ui.the_selected_entry_has_no_command_to", true);
         return;
     }
     let mut context = TEST_CONTEXT.lock().map(|c| c.clone()).unwrap_or_default();
@@ -1660,16 +1682,23 @@ fn test_selected(hwnd: HWND) {
             || altrun_probe::launch::has_parameter(&entry.command)
             || !altrun_probe::launch::has_context(&entry.command));
     let parameter = if needs_input {
-        let Some(value) = crate::input_dialog::ask(hwnd, &format!("{} · 输入测试参数", entry.name))
-        else {
+        let Some(value) = crate::input_dialog::ask(
+            hwnd,
+            &crate::localization::message(
+                "ui.name_enter_a_test_parameter",
+                &[("name", &entry.name)],
+            ),
+        ) else {
             return;
         };
         Some(value)
     } else {
         None
     };
-    status("已发出测试打开请求。", false);
+    status("ui.test_launch_requested", false);
+    let language = crate::localization::current();
     std::thread::spawn(move || {
+        crate::localization::install_snapshot(language);
         if entry.open_target.is_none()
             && altrun_probe::launch::has_context(&entry.command)
             && entry.command.contains("%c")
@@ -1762,14 +1791,14 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
             append(
                 menu,
                 MOVE_UP,
-                "上移所选项",
+                "ui.move_selection_up",
                 false,
                 sort_mode != SORT_ORIGINAL || selected == 0,
             );
             append(
                 menu,
                 MOVE_DOWN,
-                "下移所选项",
+                "ui.move_selection_down",
                 false,
                 sort_mode != SORT_ORIGINAL || selected + 1 >= row_count,
             );
@@ -1780,27 +1809,33 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
             point.y = rect.bottom;
             if group == NEW_MENU {
                 for (id, label) in [
-                    (ADD, "手动添加"),
-                    (ADD_FILE, "从文件添加…"),
-                    (ADD_FOLDER, "从文件夹添加…"),
+                    (ADD, "ui.add_manually"),
+                    (ADD_FILE, "ui.add_from_file"),
+                    (ADD_FOLDER, "ui.add_from_folder"),
                 ] {
                     append(menu, id, label, false, false);
                 }
             } else {
-                append(menu, VALIDATE, "检查失效路径…", false, row_count == 0);
+                append(
+                    menu,
+                    VALIDATE,
+                    "ui.check_missing_paths",
+                    false,
+                    row_count == 0,
+                );
                 append(menu, 0, "", false, true);
                 let sort = CreatePopupMenu();
                 for (id, label) in [
-                    (SORT_ORIGINAL, "原顺序"),
-                    (SORT_ALIAS, "按快捷字"),
-                    (SORT_NAME, "按名称"),
+                    (SORT_ORIGINAL, "ui.original_order"),
+                    (SORT_ALIAS, "ui.by_alias"),
+                    (SORT_NAME, "ui.by_name"),
                 ] {
                     append(sort, id, label, sort_mode == id, row_count == 0);
                 }
-                style.submenu(menu, sort, "排序");
+                style.submenu(menu, sort, "ui.sort");
                 append(menu, 0, "", false, true);
-                append(menu, EXPORT, "导出快捷项…", false, false);
-                append(menu, RESTORE, "导入快捷项…", false, false);
+                append(menu, EXPORT, "ui.export_shortcuts", false, false);
+                append(menu, RESTORE, "ui.import_shortcuts", false, false);
             }
         }
         style.background(menu);
@@ -1889,14 +1924,14 @@ fn paint_manager(hwnd: HWND) {
         ] {
             crate::theme_ui::fill(dc, &line, theme::divider());
         }
-        crate::theme_ui::panel_caption(dc, dpi, caption, "ALTRunNext 管理快捷项");
+        crate::theme_ui::panel_caption(dc, dpi, caption, "ui.altrunnext_manage_shortcuts_2");
         SetBkMode(dc, TRANSPARENT as i32);
         SetTextColor(dc, theme::text());
         SelectObject(dc, font);
         let mut library_title = rect(17, 62, 120, 32);
         DrawTextW(
             dc,
-            ui("快捷项").as_ptr(),
+            ui("ui.shortcuts").as_ptr(),
             -1,
             &mut library_title,
             DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
@@ -1904,14 +1939,14 @@ fn paint_manager(hwnd: HWND) {
         crate::theme_ui::line_text(
             dc,
             rect(28, 106, 115, 31),
-            &crate::localization::tr("快捷字"),
+            &crate::localization::tr("ui.alias"),
             theme::muted(),
             0,
         );
         crate::theme_ui::line_text(
             dc,
             rect(17 + (RAIL - 34) * 42 / 100, 106, RAIL / 2, 31),
-            &crate::localization::tr("名称"),
+            &crate::localization::tr("ui.name"),
             theme::muted(),
             0,
         );

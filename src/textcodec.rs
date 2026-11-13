@@ -1,5 +1,5 @@
 pub(crate) fn decode_gb18030(bytes: &[u8]) -> Result<String, String> {
-    let invalid = || String::from("无法识别快捷项文件的字符编码");
+    let invalid = || String::from("ui.the_shortcut_file_uses_an_unsupported_text");
     #[cfg(windows)]
     {
         use windows_sys::Win32::Globalization::{MB_ERR_INVALID_CHARS, MultiByteToWideChar};
@@ -40,7 +40,7 @@ pub fn ansi_bytes(text: &str) -> Result<Vec<u8>, String> {
         if input.is_empty() {
             return Ok(Vec::new());
         }
-        let n = i32::try_from(input.len()).map_err(|_| "参数过长")?;
+        let n = i32::try_from(input.len()).map_err(|_| "ui.the_parameter_is_too_long")?;
         let unicode = page == 65001 || page == 54936;
         let flags = if unicode {
             WC_ERR_INVALID_CHARS
@@ -64,7 +64,7 @@ pub fn ansi_bytes(text: &str) -> Result<Vec<u8>, String> {
             check,
         );
         if size == 0 || changed != 0 {
-            return Err("参数不能用Windows ANSI URL 编码表示，请改用 UTF-8 URL 编码".into());
+            return Err("ui.this_parameter_requires_utf_8_url_encoding".into());
         }
         let mut out = vec![0_u8; size as usize];
         if WideCharToMultiByte(
@@ -79,7 +79,7 @@ pub fn ansi_bytes(text: &str) -> Result<Vec<u8>, String> {
         ) != size
             || changed != 0
         {
-            return Err("Windows ANSI URL 编码失败".into());
+            return Err("ui.could_not_encode_the_parameter_as_a".into());
         }
         Ok(out)
     }

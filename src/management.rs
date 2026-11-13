@@ -24,45 +24,45 @@ pub fn validate(entry: &Entry, base: &Path) -> Validation {
             .flatten()
         {
             if launch::is_network_path(path) {
-                return Validation::Unconfirmed("网络目标，不探测".into());
+                return Validation::Unconfirmed("ui.network_location_not_checked".into());
             }
             match Path::new(path).try_exists() {
                 Ok(true) => {}
                 Ok(false) => return Validation::Missing,
-                Err(_) => return Validation::Unconfirmed("无法读取目标路径".into()),
+                Err(_) => return Validation::Unconfirmed("ui.could_not_read_target_path".into()),
             }
         }
         return Validation::Present;
     }
     if entry.command.contains('%') || entry.command.starts_with(['@']) {
-        return Validation::Unconfirmed("含模板或显示模式".into());
+        return Validation::Unconfirmed("ui.contains_placeholders_or_a_window_mode".into());
     }
     let Ok(directory) = launch::effective_directory(&entry.working_directory, base) else {
-        return Validation::Unconfirmed("工作目录无效".into());
+        return Validation::Unconfirmed("ui.invalid_working_directory".into());
     };
     if launch::is_network_path(&directory.to_string_lossy()) {
-        return Validation::Unconfirmed("网络工作目录，不探测".into());
+        return Validation::Unconfirmed("ui.network_working_directory_not_checked".into());
     }
     let Ok(request) =
         launch::resolve_typed_in(&entry.command, None, ParamType::None, Some(&directory))
     else {
-        return Validation::Unconfirmed("命令需要人工检查".into());
+        return Validation::Unconfirmed("ui.command_requires_manual_review".into());
     };
     if launch::is_network_path(&request.file)
         || request.file.contains("://")
         || request.file.starts_with("shell:")
         || request.file.starts_with("::")
     {
-        return Validation::Unconfirmed("网络或系统目标，不探测".into());
+        return Validation::Unconfirmed("ui.network_or_system_location_not_checked".into());
     }
     let path = Path::new(&request.file);
     if !path.is_absolute() && !request.file.contains(['\\', '/']) {
-        return Validation::Unconfirmed("由 Windows 搜索路径解析".into());
+        return Validation::Unconfirmed("ui.resolved_by_windows".into());
     }
     match directory.join(path).try_exists() {
         Ok(true) => Validation::Present,
         Ok(false) => Validation::Missing,
-        Err(_) => Validation::Unconfirmed("无法读取目标路径".into()),
+        Err(_) => Validation::Unconfirmed("ui.could_not_read_target_path".into()),
     }
 }
 pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bool, String> {
@@ -89,7 +89,7 @@ pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bo
         }
         PathBuf::from(".").join(
             path.strip_prefix(&directory)
-                .map_err(|_| "目标不在工作目录下，保留绝对路径")?,
+                .map_err(|_| "ui.target_is_outside_the_working_directory_keeping")?,
         )
     } else {
         if path.is_absolute() {
@@ -121,9 +121,9 @@ pub fn is_executable(path: &Path) -> bool {
 
 pub fn absolute_path(path: &Path) -> Result<String, String> {
     let path = std::path::absolute(path).map_err(|e| e.to_string())?;
-    let text = path.to_str().ok_or("路径不是有效 Unicode")?;
+    let text = path.to_str().ok_or("ui.the_path_is_not_valid_unicode")?;
     if !valid_absolute_path(text) {
-        return Err("路径包含无效字符".into());
+        return Err("ui.the_path_contains_invalid_characters".into());
     }
     Ok(text.into())
 }

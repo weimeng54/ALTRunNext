@@ -8,7 +8,9 @@ pub fn directory(command: &str, base: &Path) -> Result<PathBuf, String> {
         .unwrap_or(command.trim())
         .trim();
     let target = if let Some(quoted) = command.strip_prefix('"') {
-        let end = quoted.find('"').ok_or("程序路径引号没有闭合")?;
+        let end = quoted
+            .find('"')
+            .ok_or("ui.the_program_path_has_an_unclosed_quote")?;
         format!("\"{}\"", &quoted[..end])
     } else if Path::new(command).exists() {
         format!("\"{command}\"")
@@ -20,7 +22,7 @@ pub fn directory(command: &str, base: &Path) -> Result<PathBuf, String> {
         || request.file.starts_with("shell:")
         || request.file.starts_with("::")
     {
-        return Err("网址或系统入口没有本地目录".into());
+        return Err("ui.web_addresses_and_windows_locations_do_not".into());
     }
     let mut path = PathBuf::from(&request.file);
     if !path.is_absolute() {
@@ -54,6 +56,6 @@ pub fn directory(command: &str, base: &Path) -> Result<PathBuf, String> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .ok_or("无法确定命令所在目录")?;
+        .ok_or("ui.could_not_find_the_command_s_folder")?;
     Ok(parent.to_path_buf())
 }

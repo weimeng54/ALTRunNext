@@ -42,7 +42,7 @@ pub(crate) fn effective_directory(explicit: &str, base: &Path) -> Result<PathBuf
         base.join(expand_environment(explicit.trim(), false)?)
     };
     if directory.to_string_lossy().contains(['\0', '\r', '\n']) {
-        return Err("工作目录包含无效字符".into());
+        return Err("ui.the_working_directory_contains_invalid_characters".into());
     }
     std::path::absolute(directory).map_err(|e| e.to_string())
 }
@@ -87,7 +87,7 @@ pub fn resolve_entry(
         OpenTarget::Document(None) => (entry.command.clone(), String::new()),
         OpenTarget::Document(Some(program)) => {
             if !Path::new(program).is_file() {
-                return Err("找不到指定的打开程序，请在快捷项管理中重新选择。".into());
+                return Err("ui.the_selected_app_could_not_be_found".into());
             }
             // A Windows file name cannot contain a quote. A trailing backslash
             // must be doubled before the closing quote in a Windows argument.
@@ -137,7 +137,7 @@ pub fn resolve_context(
     if command.contains(['\u{e000}', '\u{e001}'])
         || parameter.is_some_and(|p| p.contains(['\u{e000}', '\u{e001}']))
     {
-        return Err("命令含保留字符".into());
+        return Err("ui.the_command_contains_reserved_characters".into());
     }
     let mut values = vec![
         context.clipboard.clone().unwrap_or_default(),
@@ -148,9 +148,9 @@ pub fn resolve_context(
     let mut tokens = vec!["c", "wd", "wt", "wc"];
     if context.allow_dynamic_target && has_parameter(command) {
         if kind == ParamType::None {
-            return Err("命令含参数标记，请先设置参数类型".into());
+            return Err("ui.choose_an_input_format_for_the_parameter".into());
         }
-        values.push(parameter.ok_or("请输入参数")?.to_owned());
+        values.push(parameter.ok_or("ui.enter_a_parameter")?.to_owned());
         tokens.push("p");
     }
     let mut masked = command.to_owned();
@@ -169,7 +169,7 @@ pub fn resolve_context(
         {
             had_context = true;
             if i == 0 && context.clipboard.is_none() {
-                return Err("剪贴板没有可用文本".into());
+                return Err("ui.the_clipboard_has_no_text".into());
             }
             masked = masked.replace(&brace, &marker);
             let mut result = String::new();
@@ -212,7 +212,7 @@ pub fn resolve_context(
         && !result.file.to_ascii_lowercase().starts_with("https://")
         && !result.file.to_ascii_lowercase().starts_with("http://")
     {
-        return Err("动态内容不能替换程序路径；可在设置中明确启用".into());
+        return Err("ui.dynamic_input_cannot_replace_the_program_path".into());
     }
     let substitute = |text: &str| -> Result<String, String> {
         let mut out = String::new();
@@ -220,14 +220,18 @@ pub fn resolve_context(
         while let Some(start) = rest.find('\u{e000}') {
             out.push_str(&rest[..start]);
             let tail = &rest[start + '\u{e000}'.len_utf8()..];
-            let end = tail.find('\u{e001}').ok_or("无效上下文标记")?;
-            let i = tail[..end].parse::<usize>().map_err(|_| "无效上下文标记")?;
-            let value = values.get(i).ok_or("无效上下文标记")?;
+            let end = tail
+                .find('\u{e001}')
+                .ok_or("ui.invalid_context_placeholder")?;
+            let i = tail[..end]
+                .parse::<usize>()
+                .map_err(|_| "ui.invalid_context_placeholder")?;
+            let value = values.get(i).ok_or("ui.invalid_context_placeholder")?;
             if value.contains('\0')
                 || (value.contains(['\r', '\n'])
                     && !matches!(kind, ParamType::AnsiUrl | ParamType::Utf8Url))
             {
-                return Err("上下文包含换行或空字符，请先复制单行文本".into());
+                return Err("ui.copy_one_line_of_text_without_null".into());
             }
             out.push_str(&match kind {
                 ParamType::AnsiUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
@@ -305,11 +309,11 @@ pub(crate) fn resolve_typed_in(
     use crate::library::ParamType;
     let marked = has_parameter(command);
     if kind == ParamType::None && marked {
-        return Err("命令含参数标记，请先设置参数类型".into());
+        return Err("ui.choose_an_input_format_for_the_parameter".into());
     }
     let active = kind.needs_input(command);
     let encoded = if active {
-        let value = parameter.ok_or("请输入参数")?;
+        let value = parameter.ok_or("ui.enter_a_parameter")?;
         Some(encode_parameter(kind, value)?)
     } else {
         None
@@ -334,7 +338,7 @@ pub(crate) fn resolve_typed_in(
 fn encode_parameter(kind: crate::library::ParamType, value: &str) -> Result<String, String> {
     use crate::library::ParamType;
     if value.contains(['\0', '\r', '\n']) {
-        return Err("命令或参数中包含无效控制字符".into());
+        return Err("ui.the_command_or_arguments_contain_invalid_control".into());
     }
     Ok(match kind {
         ParamType::AnsiUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
@@ -372,7 +376,7 @@ fn resolve_base(
     }
     let command = command.trim();
     if command.is_empty() {
-        return Err("命令为空".into());
+        return Err("ui.the_command_is_empty".into());
     }
     let lowercase = command.to_ascii_lowercase();
     let url = lowercase.starts_with("https://")
@@ -402,10 +406,12 @@ fn resolve_base(
     let (file, parameters) = if url {
         (expanded.as_str(), "")
     } else if let Some(quoted) = expanded.strip_prefix('"') {
-        let end = quoted.find('"').ok_or("程序路径的引号没有闭合")?;
+        let end = quoted
+            .find('"')
+            .ok_or("ui.close_the_quote_around_the_program_path")?;
         let rest = &quoted[end + 1..];
         if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
-            return Err("程序路径后需要空格".into());
+            return Err("ui.add_a_space_after_the_program_path".into());
         }
         (&quoted[..end], rest.trim_start())
     } else if expanded.contains(char::is_whitespace) && {
@@ -423,16 +429,16 @@ fn resolve_base(
             .iter()
             .any(|extension| first.to_ascii_lowercase().ends_with(extension));
         if split < expanded.len() && path && !explicit_executable {
-            return Err("请给带空格的程序路径加双引号，再填写启动参数".into());
+            return Err("ui.put_the_program_path_in_double_quotes".into());
         }
         (&expanded[..split], expanded[split..].trim_start())
     };
     if file.is_empty() || (!url && file.contains("%p")) {
-        return Err("参数不能替换程序路径".into());
+        return Err("ui.an_argument_cannot_replace_the_program_path".into());
     }
     let substitute = |text: &str| -> Result<String, String> {
         if text.contains("%p") {
-            Ok(text.replace("%p", parameter.ok_or("请输入参数")?))
+            Ok(text.replace("%p", parameter.ok_or("ui.enter_a_parameter")?))
         } else {
             Ok(text.to_owned())
         }
@@ -454,7 +460,7 @@ fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<Stri
         remaining = &remaining[index..];
         if parameter_marker(remaining) {
             if remaining.as_bytes().get(2) == Some(&b'%') {
-                return Err("不支持的参数模板 %p%".into());
+                return Err("ui.the_parameter_placeholder_p_is_unsupported".into());
             }
             output.push_str("%p");
             remaining = &remaining[2..];
@@ -478,7 +484,7 @@ fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<Stri
                     remaining = &remaining[1..];
                     continue;
                 }
-                return Err("命令包含无法识别的百分号模板".into());
+                return Err("ui.the_command_contains_an_unknown_percent_placeholder".into());
             }
             let value = match std::env::var(key) {
                 Ok(value) => value,
@@ -487,10 +493,17 @@ fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<Stri
                     remaining = &remaining[end + 2..];
                     continue;
                 }
-                Err(_) => return Err(format!("环境变量不存在：{key}")),
+                Err(_) => {
+                    return Err(crate::localization::message(
+                        "ui.environment_variable_not_found_key",
+                        &[("key", key)],
+                    ));
+                }
             };
             if value.chars().any(|c| matches!(c, '\0' | '\r' | '\n')) {
-                return Err("环境变量包含无效控制字符".into());
+                return Err(
+                    "ui.the_environment_variable_contains_invalid_control_characters".into(),
+                );
             }
             output.push_str(&value);
             remaining = &remaining[end + 2..];
@@ -500,7 +513,7 @@ fn expand_environment_mode(command: &str, url: bool, shell: bool) -> Result<Stri
                 remaining = &remaining[1..];
                 continue;
             }
-            return Err("命令包含无法识别的百分号模板".into());
+            return Err("ui.the_command_contains_an_unknown_percent_placeholder".into());
         }
     }
     output.push_str(remaining);

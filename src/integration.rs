@@ -20,7 +20,7 @@ impl Integration {
         unsafe {
             let mut b = vec![0u16; 32768];
             if SHGetFolderPathW(null_mut(), 9, null_mut(), 0, b.as_mut_ptr()) < 0 {
-                return Err("无法找到“发送到”目录".into());
+                return Err("ui.could_not_find_the_send_to_folder".into());
             }
             let folder = PathBuf::from(String::from_utf16_lossy(
                 &b[..b.iter().position(|c| *c == 0).unwrap_or(0)],
@@ -83,7 +83,10 @@ impl Integration {
             if status == ERROR_FILE_NOT_FOUND {
                 Ok(None)
             } else if status != 0 {
-                Err(format!("读取启动项失败：{status}"))
+                Err(crate::localization::message(
+                    "ui.could_not_read_the_startup_entry_status",
+                    &[("status", &status.to_string())],
+                ))
             } else {
                 let mut b = vec![0u16; 32768];
                 let mut size = (b.len() * 2) as u32;
@@ -100,7 +103,10 @@ impl Integration {
                 if status == ERROR_FILE_NOT_FOUND {
                     Ok(None)
                 } else if status != 0 {
-                    Err(format!("读取启动项失败：{status}"))
+                    Err(crate::localization::message(
+                        "ui.could_not_read_the_startup_entry_status",
+                        &[("status", &status.to_string())],
+                    ))
                 } else {
                     Ok((kind == REG_SZ).then(|| {
                         String::from_utf16_lossy(&b[..(size as usize / 2).min(b.len())])
@@ -126,7 +132,10 @@ impl Integration {
                 std::ptr::null_mut(),
             );
             if status != 0 {
-                return Err(format!("无法修改启动项：{status}"));
+                return Err(crate::localization::message(
+                    "ui.could_not_change_the_startup_entry_status",
+                    &[("status", &status.to_string())],
+                ));
             }
             let status = if let Some(value) = value {
                 let command = wide(value);
@@ -143,7 +152,10 @@ impl Integration {
             };
             RegCloseKey(key);
             if status != 0 && status != ERROR_FILE_NOT_FOUND {
-                return Err(format!("修改启动项失败：{status}"));
+                return Err(crate::localization::message(
+                    "ui.could_not_update_the_startup_entry_status",
+                    &[("status", &status.to_string())],
+                ));
             }
             Ok(())
         }
@@ -175,7 +187,7 @@ impl Integration {
             Some(0) => Ok(LinkState::Current),
             Some(3) => Ok(LinkState::Other),
             Some(4) => Ok(LinkState::PreviousExecutable),
-            _ => Err("无法读取“发送到”快捷方式".into()),
+            _ => Err("ui.could_not_read_the_send_to_shortcut".into()),
         }
     }
 
@@ -212,7 +224,7 @@ impl Integration {
             notify_send_to(&self.send_to, SHCNE_CREATE as i32);
             Ok(())
         } else {
-            Err("创建“发送到”快捷方式失败".into())
+            Err("ui.could_not_create_the_send_to_shortcut".into())
         }
     }
 
@@ -277,7 +289,7 @@ fn run_script(script: &str) -> Result<std::process::ExitStatus, String> {
         .collect::<Vec<_>>();
     let encoded = base64(&bytes);
     use std::os::windows::process::CommandExt;
-    let system = std::env::var_os("SystemRoot").ok_or("缺少 SystemRoot")?;
+    let system = std::env::var_os("SystemRoot").ok_or("ui.systemroot_is_missing")?;
     std::process::Command::new(
         PathBuf::from(system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"),
     )

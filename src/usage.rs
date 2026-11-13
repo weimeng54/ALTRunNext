@@ -16,7 +16,12 @@ impl Usage {
                 continue;
             }
             let fields: Vec<_> = line.split('\t').collect();
-            let bad = || format!("运行记录第 {} 行无效", number + 1);
+            let bad = || {
+                crate::localization::message(
+                    "ui.launch_history_line_row_is_invalid",
+                    &[("row", &(number + 1).to_string())],
+                )
+            };
             match fields.as_slice() {
                 ["S", name, id] => {
                     out.selection.insert(unescape(name)?, entry_id(id)?);
@@ -127,15 +132,16 @@ pub fn unescape(value: &str) -> Result<String, String> {
     while i < input.len() {
         if input[i] == b'%' {
             if i + 2 >= input.len() {
-                return Err("转义字符不完整".into());
+                return Err("ui.incomplete_escape_sequence".into());
             }
-            let hex = std::str::from_utf8(&input[i + 1..i + 3]).map_err(|_| "无效转义")?;
-            out.push(u8::from_str_radix(hex, 16).map_err(|_| "无效转义")?);
+            let hex = std::str::from_utf8(&input[i + 1..i + 3])
+                .map_err(|_| "ui.invalid_escape_sequence")?;
+            out.push(u8::from_str_radix(hex, 16).map_err(|_| "ui.invalid_escape_sequence")?);
             i += 3;
         } else {
             out.push(input[i]);
             i += 1;
         }
     }
-    String::from_utf8(out).map_err(|_| "运行记录不是有效 UTF-8".into())
+    String::from_utf8(out).map_err(|_| "ui.the_launch_history_is_not_valid_utf".into())
 }

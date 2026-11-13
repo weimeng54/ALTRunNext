@@ -139,6 +139,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
         fixture.push_str(&format!("z{i}\tExtra command {i}\t__missing__.exe\t0\n"));
     }
     std::fs::write(&data, fixture).unwrap();
+    std::fs::write(data.with_extension("settings.ini"), "[GUI]\nLang=zh-Hans\n").unwrap();
     for scale in ["100", "125", "150", "200"] {
         let _child = Running(
             Command::new(env!("CARGO_BIN_EXE_ALTRunNext"))

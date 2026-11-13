@@ -36,7 +36,10 @@ impl TextFile {
             Err(e) => return Err(e.to_string()),
         };
         if current != self.original {
-            return Err(format!("{} 已被外部修改，未覆盖", self.path.display()));
+            return Err(crate::localization::message(
+                "ui.file_changed_outside_altrunnext_the_file_was",
+                &[("file", &self.path.to_string_lossy())],
+            ));
         }
         let stage = self
             .path

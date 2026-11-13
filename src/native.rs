@@ -119,7 +119,7 @@ pub fn show_error(message: &str) {
     unsafe {
         MessageBoxW(
             null_mut(),
-            wide(message).as_ptr(),
+            ui(message).as_ptr(),
             wide("ALTRunNext").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
@@ -392,9 +392,9 @@ fn show_inline_error(message: &str) {
 }
 fn search_hint(show_operations: bool) -> Vec<u16> {
     if show_operations {
-        ui("输入快捷字 · Enter 启动，Esc 隐藏")
+        ui("ui.type_a_shortcut_enter_to_launch_esc")
     } else {
-        ui("输入快捷字")
+        ui("ui.type_a_shortcut")
     }
 }
 
@@ -524,8 +524,8 @@ fn launch_selected() {
             && unsafe {
                 MessageBoxW(
                     hwnd,
-                    ui("没有匹配项。添加一个新的快捷项？").as_ptr(),
-                    ui("新增快捷项").as_ptr(),
+                    ui("ui.no_matches_add_a_new_shortcut").as_ptr(),
+                    ui("ui.new_shortcut").as_ptr(),
                     MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
                 )
             } == IDOK
@@ -566,13 +566,20 @@ fn launch_selected() {
         update_search_ime(false);
         unsafe {
             EnableWindow(list, 0);
-            SetWindowTextW(title, wide(&format!("{} · 输入参数", entry.name)).as_ptr());
+            SetWindowTextW(
+                title,
+                wide(&crate::localization::message(
+                    "ui.name_enter_a_parameter",
+                    &[("name", &entry.name)],
+                ))
+                .as_ptr(),
+            );
             SetWindowTextW(edit, wide("").as_ptr());
             SendMessageW(
                 edit,
                 EM_SETCUEBANNER,
                 0,
-                ui("输入参数，Enter 启动，Esc 返回").as_ptr() as LPARAM,
+                ui("ui.enter_a_parameter_enter_to_launch_esc").as_ptr() as LPARAM,
             );
         }
         return;
@@ -599,9 +606,11 @@ fn launch_selected() {
         ShowWindow(hwnd, SW_HIDE);
     }
     let owner = hwnd as usize;
+    let language = crate::localization::current();
     // All path checks, environment expansion, COM initialization and shell work
     // happen off the resident UI thread. No implicit cmd.exe is introduced.
     std::thread::spawn(move || {
+        crate::localization::install_snapshot(language);
         if entry.open_target.is_none()
             && altrun_probe::launch::has_context(&entry.command)
             && entry.command.contains("%c")
@@ -642,7 +651,10 @@ pub(crate) fn execute_request_with(
     unsafe {
         let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
         if hr < 0 {
-            return Err(format!("启动服务初始化失败：0x{:08X}", hr as u32));
+            return Err(crate::localization::message(
+                "ui.could_not_initialize_the_launch_service_0x",
+                &[("code", &format!("{:08X}", hr as u32))],
+            ));
         }
         let mut info: SHELLEXECUTEINFOW = zeroed();
         info.cbSize = std::mem::size_of_val(&info) as u32;
@@ -663,7 +675,10 @@ pub(crate) fn execute_request_with(
         let error = GetLastError();
         CoUninitialize();
         if ok == 0 {
-            Err(format!("无法启动（错误 {error}），请检查命令或文件路径"))
+            Err(crate::localization::message(
+                "ui.could_not_launch_error_error_check_the",
+                &[("error", &error.to_string())],
+            ))
         } else {
             Ok(())
         }
@@ -780,20 +795,20 @@ fn show_menu(hwnd: HWND, tray: bool) {
         }
         let items: &[(usize, &str)] = if tray {
             &[
-                (ID_SHOW, "打开启动面板"),
-                (ID_MANAGE, "管理快捷项"),
-                (ID_SETTINGS, "设置…"),
+                (ID_SHOW, "ui.show_launcher"),
+                (ID_MANAGE, "ui.manage_shortcuts"),
+                (ID_SETTINGS, "ui.settings"),
                 (0, ""),
-                (ID_EXIT, "退出 ALTRunNext"),
+                (ID_EXIT, "ui.exit_altrunnext"),
             ]
         } else {
             &[
-                (ID_COPY, "复制命令\tCtrl+C"),
-                (ID_OPEN_FOLDER, "打开所在文件夹\tCtrl+D"),
-                (ID_RECENT, "最近启动\tCtrl+L"),
+                (ID_COPY, "ui.copy_command_ctrl_c"),
+                (ID_OPEN_FOLDER, "ui.open_containing_folder_ctrl_d"),
+                (ID_RECENT, "ui.recent_launches_ctrl_l"),
                 (0, ""),
-                (ID_ABOUT, "关于\tF1"),
-                (ID_HIDE, "隐藏"),
+                (ID_ABOUT, "ui.about_f1"),
+                (ID_HIDE, "ui.hide"),
             ]
         };
         let has_selection = STATE.with(|c| {
@@ -1193,7 +1208,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     .collect::<Vec<_>>()
             });
             if let Some(error) = errors.last() {
-                show_inline_error(&format!("运行记录未能保存：{error}"));
+                show_inline_error(&crate::localization::message(
+                    "ui.could_not_save_launch_history_error",
+                    &[("error", &crate::localization::tr(error))],
+                ));
             }
             0
         }
@@ -1647,7 +1665,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 unsafe {
                     MessageBoxW(
                         hwnd,
-                        ui("请先保存或关闭快捷项管理窗口，再退出启动器。").as_ptr(),
+                        ui("ui.save_or_close_the_shortcut_manager_before").as_ptr(),
                         wide("ALTRunNext").as_ptr(),
                         MB_OK | MB_ICONINFORMATION,
                     );
@@ -1679,6 +1697,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 }
 
 pub fn run() -> Result<(), String> {
+    crate::localization::refresh_packs();
+    crate::localization::set_active("system");
     let args: Vec<_> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--ui-scale") {
         let dpi = match args.get(i + 1).map(String::as_str) {
@@ -1713,16 +1733,22 @@ pub fn run() -> Result<(), String> {
     let Some(instance_lock) = crate::instance::acquire(&data_path, &intake)? else {
         return Ok(());
     };
-    let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
-        altrun_probe::library::Snapshot::open(&data_path)?.entries
-    } else {
-        parse_entries(include_str!("../assets/shortcuts.tsv"))?
-    };
-    let index = SearchIndex::new(&entries);
     let (settings_file, settings_text) =
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("settings.ini"))?;
     drop(settings_file);
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
+    crate::localization::set_active(&preferences.get("Lang"));
+    let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
+        altrun_probe::library::Snapshot::open(&data_path)?.entries
+    } else {
+        let mut entries = parse_entries(include_str!("../assets/shortcuts.tsv"))?;
+        for entry in &mut entries {
+            entry.name = crate::localization::tr(&entry.name);
+        }
+        altrun_probe::library::Snapshot::new(data_path.clone(), entries.clone())?.save(&entries)?;
+        entries
+    };
+    let index = SearchIndex::new(&entries);
     let (base_directory, base_is_working_directory) = working_directory(&preferences, &data_path);
     let allow_dynamic_target = preferences.flag("AllowDynamicTarget");
     let (state_file, state_text) =
@@ -1758,7 +1784,6 @@ pub fn run() -> Result<(), String> {
         }
     });
     theme::install(&preferences);
-    crate::localization::install(&preferences.get("Lang"));
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance = GetModuleHandleW(std::ptr::null());
@@ -1874,7 +1899,7 @@ pub fn run() -> Result<(), String> {
             SendMessageW(*button, WM_SETFONT, font as usize, 0);
         }
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);
-        SetWindowTextW(empty, ui("没有匹配项，换个快捷字试试").as_ptr());
+        SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
         if [title, edit, list, command, empty]
             .iter()
             .any(|h| h.is_null())
@@ -1890,7 +1915,7 @@ pub fn run() -> Result<(), String> {
             edit,
             EM_SETCUEBANNER,
             0,
-            ui("输入快捷字").as_ptr() as LPARAM,
+            ui("ui.type_a_shortcut").as_ptr() as LPARAM,
         );
         SendMessageW(command, WM_SETFONT, command_font as WPARAM, 0);
         SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(theme::ROW, dpi) as LPARAM);
@@ -2157,25 +2182,25 @@ fn copy_text(value: &str) -> Result<(), String> {
     unsafe {
         let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len() * 2);
         if handle.is_null() {
-            return Err("无法分配剪贴板内存".into());
+            return Err("ui.could_not_allocate_clipboard_memory".into());
         }
         let pointer = GlobalLock(handle) as *mut u16;
         if pointer.is_null() {
             GlobalFree(handle);
-            return Err("无法访问剪贴板内存".into());
+            return Err("ui.could_not_access_clipboard_memory".into());
         }
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len());
         GlobalUnlock(handle);
         if OpenClipboard(owner) == 0 {
             GlobalFree(handle);
-            return Err("剪贴板正被其他程序使用".into());
+            return Err("ui.another_app_is_using_the_clipboard".into());
         }
         EmptyClipboard();
         let success = !SetClipboardData(13, handle).is_null();
         CloseClipboard();
         if !success {
             GlobalFree(handle);
-            return Err("写入剪贴板失败".into());
+            return Err("ui.could_not_write_to_the_clipboard".into());
         }
     }
     Ok(())
@@ -2262,11 +2287,11 @@ fn register_bindings(
         .map(|key| altrun_probe::preferences::parse_hotkey(&prefs.get(key)))
         .collect::<Result<Vec<_>, _>>()?;
     if requested.iter().all(Option::is_none) && !prefs.flag("ShowTrayIcon") {
-        return Err("至少保留一个呼出快捷键或托盘图标".into());
+        return Err("ui.keep_a_launcher_hotkey_or_the_tray".into());
     }
     for (i, value) in requested.iter().enumerate() {
         if value.is_some() && requested[..i].contains(value) {
-            return Err("呼出和最近项目快捷键不能重复".into());
+            return Err("ui.choose_different_hotkeys_for_opening_the_launcher".into());
         }
     }
     let mut next = Vec::new();
@@ -2282,7 +2307,7 @@ fn register_bindings(
         }
         let id = (HOTKEY..HOTKEY + 20)
             .find(|id| !old.iter().any(|v| v.0 == *id) && !next.iter().any(|v| v.0 == *id))
-            .ok_or("没有可用热键编号")?;
+            .ok_or("ui.no_hotkey_slot_is_available")?;
         let previously_unavailable = if let BindingUpdate::Settings(previous) = &update {
             old.get(i).is_none_or(|entry| entry.1.is_none())
                 && altrun_probe::preferences::parse_hotkey(&previous.get(key))? == value
@@ -2296,7 +2321,7 @@ fn register_bindings(
                 if let BindingUpdate::Startup(warnings) = &mut update {
                     eprintln!("RegisterHotKey({binding}) failed: Win32 {error}");
                     warnings.push(
-                        crate::localization::tr("热键 {binding} 不可用")
+                        crate::localization::tr("ui.hotkey_binding_is_unavailable")
                             .replace("{binding}", &binding),
                     );
                     next.push((id, None));
@@ -2315,11 +2340,14 @@ fn register_bindings(
                 }
                 if error == ERROR_HOTKEY_ALREADY_REGISTERED {
                     return Err(crate::localization::tr(
-                        "快捷键 {binding} 已被占用，原快捷键保持可用",
+                        "ui.hotkey_binding_is_already_in_use_your",
                     )
                     .replace("{binding}", &binding));
                 }
-                return Err(format!("快捷键 {binding} 无法注册（Windows {error}）"));
+                return Err(crate::localization::message(
+                    "ui.could_not_register_binding_windows_error_error",
+                    &[("binding", &binding), ("error", &error.to_string())],
+                ));
             }
             added.push(id);
         }
@@ -2353,7 +2381,7 @@ fn apply_settings_messages() {
                     )
                 });
                 if pending {
-                    let _ = reply.send(Err("另一次设置修改尚未完成".into()));
+                    let _ = reply.send(Err("ui.another_settings_change_is_in_progress".into()));
                     continue;
                 }
                 match register_bindings(hwnd, &prefs, &old, BindingUpdate::Settings(&previous)) {
@@ -2397,7 +2425,11 @@ fn apply_settings_messages() {
                 if accepted {
                     let language =
                         STATE.with(|c| c.borrow().as_ref().unwrap().preferences.get("Lang"));
-                    crate::localization::install(&language);
+                    crate::localization::set_active(&language);
+                    let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
+                    unsafe {
+                        SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
+                    }
                     apply_appearance();
                     refresh();
                     update_search_ime(true);
@@ -2639,7 +2671,7 @@ fn selected_action(copy: bool) {
                     std::path::Path::new(&entry.command)
                         .parent()
                         .map(std::path::Path::to_path_buf)
-                        .ok_or_else(|| "无法确定目标所在目录".to_owned())
+                        .ok_or_else(|| "ui.could_not_find_the_target_s_folder".to_owned())
                 } else {
                     altrun_probe::local_target::directory(
                         &entry.command,
@@ -2850,7 +2882,7 @@ fn popup_sound() {
 
 fn lifecycle(clean: bool) {
     if crate::manager::is_open() || crate::settings::is_open() {
-        show_inline_error("请先保存并关闭管理或设置窗口，再执行此操作。");
+        show_inline_error("ui.save_and_close_the_shortcut_manager_or");
         return;
     }
     let (path, enabled, hwnd) = STATE.with(|c| {
@@ -2862,8 +2894,8 @@ fn lifecycle(clean: bool) {
         if unsafe {
             MessageBoxW(
                 hwnd,
-                ui("关闭开机启动并移除“发送到”入口，然后退出 ALTRunNext？").as_ptr(),
-                ui("移除系统集成").as_ptr(),
+                ui("ui.turn_off_startup_remove_the_send_to").as_ptr(),
+                ui("ui.remove_windows_integrations").as_ptr(),
                 MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
             )
         } != IDOK

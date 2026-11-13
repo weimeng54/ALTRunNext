@@ -27,98 +27,133 @@ macro_rules! spec {
 pub const DEFAULT_POPUP_SOUND: &str = "Popup.wav";
 const SETTINGS_HEADER_PREFIX: &str = "; ALTRunNext settings format ";
 const SETTINGS_HEADER: &str = "; ALTRunNext settings format 1";
-pub const SETTINGS_IMPORT_FORMAT_ERROR: &str = "请选择 ALTRunNext 导出的 INI 设置文件";
+pub const SETTINGS_IMPORT_FORMAT_ERROR: &str = "ui.choose_an_ini_settings_file_exported_by";
 
 pub const SPECS: &[Spec] = &[
-    spec!("AutoRun", "开机启动", Bool, "0"),
-    spec!("AddToSendTo", "在「发送到」菜单显示 ALTRunNext", Bool, "0"),
-    spec!("MatchAnywhere", "允许中间和模糊匹配", Bool, "1"),
-    spec!("EnglishSearch", "搜索框默认使用英文输入", Bool, "1"),
-    spec!("NumberKey", "数字快捷执行", Bool, "1"),
-    spec!("RememberFavouratMatch", "记住查询的上次选择", Bool, "0"),
-    spec!("ShowOperationHint", "显示操作提示", Bool, "1"),
-    spec!("ShowCommandLine", "显示命令预览", Bool, "1"),
-    spec!("PlayPopupNotify", "呼出声音", Bool, "1"),
-    spec!("ShowSkin", "启用背景图片", Bool, "0"),
-    spec!("ShowMeWhenStart", "启动时显示面板", Bool, "0"),
-    spec!("ShowTrayIcon", "显示托盘图标", Bool, "1"),
-    spec!("TraceEnable", "保存诊断日志", Bool, "0"),
-    spec!("AllowDynamicTarget", "允许参数作为启动目标", Bool, "0"),
+    spec!("AutoRun", "ui.run_at_sign_in", Bool, "0"),
+    spec!(
+        "AddToSendTo",
+        "ui.add_altrunnext_to_the_send_to_menu",
+        Bool,
+        "0"
+    ),
+    spec!(
+        "MatchAnywhere",
+        "ui.allow_substring_and_fuzzy_matches",
+        Bool,
+        "1"
+    ),
+    spec!(
+        "EnglishSearch",
+        "ui.use_direct_english_input_in_the_search",
+        Bool,
+        "1"
+    ),
+    spec!("NumberKey", "ui.number_key_launching", Bool, "1"),
+    spec!(
+        "RememberFavouratMatch",
+        "ui.remember_last_choice_for_each_query",
+        Bool,
+        "0"
+    ),
+    spec!("ShowOperationHint", "ui.show_operation_hints", Bool, "1"),
+    spec!("ShowCommandLine", "ui.show_command_preview", Bool, "1"),
+    spec!("PlayPopupNotify", "ui.popup_sound", Bool, "1"),
+    spec!("ShowSkin", "ui.use_background_image", Bool, "0"),
+    spec!("ShowMeWhenStart", "ui.show_panel_at_startup", Bool, "0"),
+    spec!("ShowTrayIcon", "ui.show_tray_icon", Bool, "1"),
+    spec!("TraceEnable", "ui.save_diagnostic_log", Bool, "0"),
+    spec!(
+        "AllowDynamicTarget",
+        "ui.allow_dynamic_launch_target",
+        Bool,
+        "0"
+    ),
     Spec {
         key: "HideDelay",
-        label: "自动隐藏秒数（0 为关闭）",
+        label: "ui.auto_hide_seconds_0_disables",
         kind: Kind::Number(0, 3600),
         default: "0",
     },
     Spec {
         key: "ParamHistoryLimit",
-        label: "参数历史上限",
+        label: "ui.parameter_history_limit",
         kind: Kind::Number(0, 1000),
         default: "50",
     },
     Spec {
         key: "FormWidth",
-        label: "面板宽度",
+        label: "ui.panel_width",
         kind: Kind::Number(240, 1600),
         default: "420",
     },
     Spec {
         key: "RowHeight",
-        label: "列表行高",
+        label: "ui.result_row_height",
         kind: Kind::Number(16, 48),
         default: "22",
     },
     Spec {
         key: "MaxRows",
-        label: "展开列表可见行数",
+        label: "ui.visible_rows_when_expanded",
         kind: Kind::Number(1, 50),
         default: "10",
     },
-    spec!("BGFileName", "背景图片", Text, ""),
-    spec!("BGCrop", "裁切位置", Text, "center"),
+    spec!("BGFileName", "ui.background_image", Text, ""),
+    spec!("BGCrop", "ui.crop_alignment", Text, "center"),
     Spec {
         key: "BGStrength",
-        label: "底纹强度（%）",
+        label: "ui.image_strength",
         kind: Kind::Number(0, 100),
         default: "68",
     },
     Spec {
         key: "PopupFileName",
-        label: "呼出声音文件",
+        label: "ui.popup_sound_file",
         kind: Kind::Text,
         default: DEFAULT_POPUP_SOUND,
     },
-    spec!("Lang", "显示语言", Text, "简体中文"),
-    spec!("WorkingDirectory", "默认工作目录", Text, ""),
-    spec!("Theme", "主题（light / dark / system）", Text, "light"),
-    spec!("PositionMode", "记住拖动位置", Text, "center"),
-    spec!("TitleColor", "标题背景色", Text, "#F5F7FA"),
-    spec!("KeywordColor", "输入框背景色", Text, "#FFFFFF"),
-    spec!("ListColor", "列表背景色", Text, "#FFFFFF"),
-    spec!("TextColor", "文字颜色", Text, "#202C3A"),
-    spec!("UseCustomTextColor", "使用自定义文字颜色", Bool, "0"),
-    spec!("SelectionColor", "选中背景色", Text, "#E7EFF8"),
+    spec!("Lang", "settings.display_language", Text, "system"),
+    spec!("WorkingDirectory", "ui.default_working_directory", Text, ""),
+    spec!("Theme", "ui.theme_light_dark_system", Text, "light"),
+    spec!(
+        "PositionMode",
+        "ui.remember_launcher_position",
+        Text,
+        "center"
+    ),
+    spec!("TitleColor", "ui.title_background", Text, "#F5F7FA"),
+    spec!("KeywordColor", "ui.input_background", Text, "#FFFFFF"),
+    spec!("ListColor", "ui.list_background", Text, "#FFFFFF"),
+    spec!("TextColor", "ui.text_color", Text, "#202C3A"),
+    spec!("UseCustomTextColor", "ui.use_custom_text_color", Bool, "0"),
+    spec!("SelectionColor", "ui.selection_background", Text, "#E7EFF8"),
     spec!(
         "TitleFont",
-        "标题字体",
+        "ui.title_font",
         Font,
         "Microsoft YaHei UI|[fsBold]|10|3812384|0"
     ),
     spec!(
         "KeywordFont",
-        "输入字体",
+        "ui.input_font",
         Font,
         "Microsoft YaHei UI|[]|12|3812384|0"
     ),
     spec!(
         "ListFont",
-        "列表字体",
+        "ui.list_font",
         Font,
         "Microsoft YaHei UI|[]|10|3812384|0"
     ),
-    spec!("HotKey1", "主呼出快捷键", Hotkey, "Alt+R"),
-    spec!("HotKey2", "第二呼出快捷键", Hotkey, ""),
-    spec!("LastItemHotKey", "最近项目快捷键", Hotkey, "Ctrl+Alt+L"),
+    spec!("HotKey1", "ui.main_hotkey", Hotkey, "Alt+R"),
+    spec!("HotKey2", "ui.secondary_hotkey", Hotkey, ""),
+    spec!(
+        "LastItemHotKey",
+        "ui.recent_list_hotkey",
+        Hotkey,
+        "Ctrl+Alt+L"
+    ),
 ];
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preferences {
@@ -137,7 +172,7 @@ impl Default for Preferences {
 impl Preferences {
     pub fn import(text: &str) -> Result<Self, String> {
         if text.len() > 1024 * 1024 {
-            return Err("设置文件过大".into());
+            return Err("ui.the_settings_file_is_too_large".into());
         }
         let text = text.trim_start_matches('\u{feff}');
         let mut section = "";
@@ -149,7 +184,7 @@ impl Preferences {
                 .or_else(|| line.strip_prefix("; ALTRun settings format "))
             {
                 if version != "1" {
-                    return Err("不支持此设置文件版本".into());
+                    return Err("ui.this_settings_file_version_is_unsupported".into());
                 }
                 current_format = true;
             }
@@ -191,7 +226,7 @@ impl Preferences {
 
     pub fn parse(text: &str) -> Result<Self, String> {
         if text.len() > 1024 * 1024 {
-            return Err("设置文件过大".into());
+            return Err("ui.the_settings_file_is_too_large".into());
         }
         let mut result = Self::default();
         let mut section = String::from("Config");
@@ -206,7 +241,10 @@ impl Preferences {
                 continue;
             }
             let Some((key, value)) = line.split_once('=') else {
-                return Err(format!("设置第 {} 行缺少等号", i + 1));
+                return Err(crate::localization::message(
+                    "ui.settings_line_row_is_missing_an_equals",
+                    &[("row", &(i + 1).to_string())],
+                ));
             };
             if [
                 "AlphaColor",
@@ -264,12 +302,14 @@ impl Preferences {
     }
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         if value.contains(['\0', '\r', '\n']) {
-            return Err("设置值不能含换行或空字符".into());
+            return Err("ui.a_setting_cannot_contain_line_breaks_or".into());
         }
         let spec = SPECS
             .iter()
             .find(|s| s.key.eq_ignore_ascii_case(key))
-            .ok_or_else(|| format!("未知设置：{key}"))?;
+            .ok_or_else(|| {
+                crate::localization::message("ui.unknown_setting_key", &[("key", key)])
+            })?;
         let value = match value.trim() {
             "" if spec.key == "PopupFileName" => DEFAULT_POPUP_SOUND,
             "mouse" if spec.key == "PositionMode" => "center",
@@ -279,14 +319,29 @@ impl Preferences {
             Kind::Bool => match value.to_ascii_lowercase().as_str() {
                 "1" | "true" | "yes" => "1".to_owned(),
                 "0" | "false" | "no" => "0".to_owned(),
-                _ => return Err(format!("{}需要是 0 或 1", spec.label)),
+                _ => {
+                    return Err(crate::localization::message(
+                        "ui.setting_must_be_0_or_1",
+                        &[("setting", &crate::localization::tr(spec.label))],
+                    ));
+                }
             },
             Kind::Number(low, high) => {
-                let n: i64 = value
-                    .parse()
-                    .map_err(|_| format!("{}需要整数", spec.label))?;
+                let n: i64 = value.parse().map_err(|_| {
+                    crate::localization::message(
+                        "ui.setting_must_be_an_integer",
+                        &[("setting", &crate::localization::tr(spec.label))],
+                    )
+                })?;
                 if !(low..=high).contains(&n) {
-                    return Err(format!("{}范围为 {low}–{high}", spec.label));
+                    return Err(crate::localization::message(
+                        "ui.setting_must_be_between_low_and_high",
+                        &[
+                            ("setting", &crate::localization::tr(spec.label)),
+                            ("low", &low.to_string()),
+                            ("high", &high.to_string()),
+                        ],
+                    ));
                 }
                 n.to_string()
             }
@@ -300,24 +355,24 @@ impl Preferences {
             }
             Kind::Text => {
                 if spec.key == "Lang" {
-                    let language = if value.eq_ignore_ascii_case("EN")
-                        || value.eq_ignore_ascii_case("English")
-                    {
-                        "EN"
-                    } else {
-                        "简体中文"
+                    let language = match value {
+                        "简体中文" => "zh-Hans".into(),
+                        value if value.eq_ignore_ascii_case("English") => "en".into(),
+                        "" => "system".into(),
+                        value => crate::language_pack::language_tag(value)
+                            .ok_or("ui.enter_a_valid_language_code")?,
                     };
-                    self.values.insert(spec.key.into(), language.into());
+                    self.values.insert(spec.key.into(), language);
                     return Ok(());
                 }
                 if spec.key == "Theme" && !matches!(value, "light" | "dark" | "system") {
-                    return Err("主题应为 light、dark 或 system".into());
+                    return Err("ui.choose_a_light_dark_or_system_theme".into());
                 }
                 if spec.key == "PositionMode" && !matches!(value, "remember" | "center") {
-                    return Err("请选择有效的窗口位置".into());
+                    return Err("ui.select_a_valid_window_position".into());
                 }
                 if spec.key == "BGCrop" && !matches!(value, "top" | "center" | "bottom") {
-                    return Err("请选择有效的裁切位置".into());
+                    return Err("ui.select_a_valid_crop_alignment".into());
                 }
                 if spec.key.ends_with("Color") {
                     parse_colour(value)?;
@@ -409,24 +464,29 @@ pub fn parse_hotkey(value: &str) -> Result<Option<Hotkey>, String> {
                     "PAGEUP" => 0x21,
                     "PAGEDOWN" => 0x22,
                     _ if other.starts_with('F') && other.len() <= 3 => {
-                        let n: u32 = other[1..].parse().map_err(|_| "无效功能键")?;
+                        let n: u32 = other[1..].parse().map_err(|_| "ui.invalid_function_key")?;
                         if !(1..=24).contains(&n) {
-                            return Err("功能键范围为 F1–F24".into());
+                            return Err("ui.choose_a_function_key_from_f1_to".into());
                         }
                         0x6f + n
                     }
                     _ if other.len() == 1 && other.as_bytes()[0].is_ascii_alphanumeric() => {
                         other.as_bytes()[0] as u32
                     }
-                    _ => return Err(format!("无法识别快捷键：{part}")),
+                    _ => {
+                        return Err(crate::localization::message(
+                            "ui.unknown_shortcut_key_part",
+                            &[("part", part)],
+                        ));
+                    }
                 };
                 if key.replace(code).is_some() {
-                    return Err("快捷键只能有一个主键".into());
+                    return Err("ui.a_shortcut_can_have_only_one_main".into());
                 }
             }
         }
     }
-    let key = key.ok_or("快捷键缺少主键")?;
+    let key = key.ok_or("ui.the_shortcut_is_missing_a_main_key")?;
     Ok(Some(Hotkey { modifiers, key }))
 }
 #[derive(Clone, Debug)]
@@ -448,12 +508,15 @@ impl Font {
 
     pub fn resized(value: &str, size: &str) -> Result<String, String> {
         let font = Self::parse(value)?;
-        let size = size.trim().parse::<i32>().map_err(|_| "字体字号无效")?;
+        let size = size
+            .trim()
+            .parse::<i32>()
+            .map_err(|_| "ui.invalid_font_size")?;
         if size == font.size_dip() {
             return Ok(value.to_owned());
         }
         if !(6..=128).contains(&size) {
-            return Err("字号应在 6–128 之间".into());
+            return Err("ui.enter_a_text_size_between_6_and".into());
         }
         let mut parts = value.split('|').map(str::to_owned).collect::<Vec<_>>();
         while parts.len() < 5 {
@@ -480,11 +543,11 @@ impl Font {
     pub fn parse(value: &str) -> Result<Self, String> {
         let p: Vec<_> = value.split('|').collect();
         if p.len() < 3 || p[0].trim().is_empty() {
-            return Err("字体格式：名称|样式|字号|颜色|字符集".into());
+            return Err("ui.font_format_name_style_size_color_character".into());
         }
-        let points: i32 = p[2].trim().parse().map_err(|_| "字体字号无效")?;
+        let points: i32 = p[2].trim().parse().map_err(|_| "ui.invalid_font_size")?;
         if !(5..=96).contains(&points) {
-            return Err("字号应在 5–96 之间".into());
+            return Err("ui.choose_a_font_size_from_5_to".into());
         }
         let colour = parse_colour(p.get(3).copied().unwrap_or("3812384"))?;
         let dip = p
@@ -496,7 +559,7 @@ impl Font {
                     .parse::<i32>()
                     .ok()
                     .filter(|size| (6..=128).contains(size))
-                    .ok_or("字体字号无效")
+                    .ok_or("ui.invalid_font_size")
             })
             .transpose()?;
         Ok(Self {
@@ -506,7 +569,7 @@ impl Font {
                 .copied()
                 .unwrap_or("1")
                 .parse()
-                .map_err(|_| "字体字符集无效")?,
+                .map_err(|_| "ui.invalid_font_character_set")?,
             name: p[0].trim().into(),
             points,
             weight: if p[1].contains("fsBold") { 600 } else { 400 },
@@ -520,14 +583,14 @@ impl Font {
 pub fn parse_colour(value: &str) -> Result<u32, String> {
     if let Some(hex) = value.strip_prefix('#') {
         if hex.len() != 6 {
-            return Err("颜色应为 #RRGGBB".into());
+            return Err("ui.enter_a_color_in_rrggbb_format".into());
         }
-        let n = u32::from_str_radix(hex, 16).map_err(|_| "颜色格式无效")?;
+        let n = u32::from_str_radix(hex, 16).map_err(|_| "ui.invalid_color_format")?;
         Ok(((n >> 16) & 255) | (n & 0xff00) | ((n & 255) << 16))
     } else {
         value
             .parse::<i64>()
             .map(|n| n as u32)
-            .map_err(|_| "颜色格式无效".into())
+            .map_err(|_| "ui.invalid_color_format".into())
     }
 }

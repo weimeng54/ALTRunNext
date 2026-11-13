@@ -5,7 +5,7 @@ mod input_dialog;
 #[cfg(windows)]
 mod instance;
 #[cfg(windows)]
-mod localization;
+use altrun_probe::localization;
 #[cfg(windows)]
 mod manager;
 #[cfg(windows)]
@@ -67,7 +67,10 @@ fn main() {
     }
     #[cfg(windows)]
     if let Err(message) = native::run() {
-        native::show_error(&message);
+        native::show_error(&localization::message(
+            "launcher.startup_error",
+            &[("detail", &localization::tr(&message))],
+        ));
         std::process::exit(1);
     }
 }

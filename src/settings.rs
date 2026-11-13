@@ -1,5 +1,6 @@
 //! Native settings pages, created only while the settings window is open.
 use crate::{
+    localization,
     native::{make_font, scaled, ui, wide},
     settings_layout::{self as layout, BoxRect},
     settings_preview::Preview,
@@ -67,20 +68,20 @@ const CONTACT_URI: &str = "mailto:weimeng54@qq.com";
 const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
     (
         OPEN_RELEASES,
-        "下载最新版",
-        "打开发布页",
+        "about.latest_version",
+        "about.open_releases",
         "https://github.com/weimeng54/ALTRunNext/releases",
     ),
     (
         OPEN_SOURCE,
-        "查看源码",
-        "打开仓库",
+        "about.view_source",
+        "about.open_repository",
         "https://github.com/weimeng54/ALTRunNext",
     ),
     (
         OPEN_ISSUES,
-        "反馈问题",
-        "打开问题页",
+        "about.report_issue",
+        "about.open_issues",
         "https://github.com/weimeng54/ALTRunNext/issues",
     ),
 ];
@@ -99,8 +100,8 @@ struct Page {
 
 const PAGES: &[Page] = &[
     Page {
-        name: "常规",
-        hint: "管理启动方式、系统托盘、资源管理器菜单和提示。",
+        name: "ui.general",
+        hint: "ui.manage_startup_the_system_tray_file_explorer",
         keys: &[
             "ShowMeWhenStart",
             "ShowTrayIcon",
@@ -112,13 +113,13 @@ const PAGES: &[Page] = &[
         ],
     },
     Page {
-        name: "快捷键",
-        hint: "将鼠标移到快捷键框上，直接按下新的组合键。",
+        name: "ui.hotkeys",
+        hint: "ui.hover_over_a_shortcut_and_press_the",
         keys: &["HotKey1", "HotKey2", "LastItemHotKey"],
     },
     Page {
-        name: "搜索与执行",
-        hint: "调整快捷字匹配、搜索框输入和数字快捷键。",
+        name: "ui.search_and_launch",
+        hint: "ui.configure_keyword_matching_search_input_and_number",
         keys: &[
             "MatchAnywhere",
             "EnglishSearch",
@@ -127,8 +128,8 @@ const PAGES: &[Page] = &[
         ],
     },
     Page {
-        name: "外观",
-        hint: "调整主题、启动面板和背景。",
+        name: "ui.appearance",
+        hint: "ui.customize_the_theme_launcher_and_background",
         keys: &[
             "Theme",
             "ShowSkin",
@@ -143,8 +144,8 @@ const PAGES: &[Page] = &[
         ],
     },
     Page {
-        name: "字体与颜色",
-        hint: "分别调整标题、输入框与结果的字号，或使用主题颜色。",
+        name: "ui.fonts_and_colors",
+        hint: "ui.set_the_title_search_and_result_text",
         keys: &[
             "TitleFont",
             "KeywordFont",
@@ -158,12 +159,12 @@ const PAGES: &[Page] = &[
         ],
     },
     Page {
-        name: "窗口位置",
-        hint: "窗口默认在当前屏幕居中。",
+        name: "ui.window_position",
+        hint: "ui.windows_open_in_the_center_of_the",
         keys: &["PositionMode", "HideDelay"],
     },
     Page {
-        name: "关于",
+        name: "about.title",
         hint: "",
         keys: &[],
     },
@@ -214,6 +215,7 @@ struct Editor {
     saved: Preferences,
     draft: Preferences,
     fields: Vec<Field>,
+    languages: Vec<(String, String)>,
     file: TextFile,
     data: PathBuf,
     sender: mpsc::Sender<Change>,
@@ -253,9 +255,16 @@ fn status(message: &str) {
 
 fn choices(key: &str) -> &'static [(&'static str, &'static str)] {
     match key {
-        "Theme" => &[("light", "浅色"), ("dark", "深色"), ("system", "跟随系统")],
-        "Lang" => &[("简体中文", "简体中文"), ("EN", "English")],
-        "BGCrop" => &[("top", "顶部"), ("center", "居中"), ("bottom", "底部")],
+        "Theme" => &[
+            ("light", "ui.light"),
+            ("dark", "ui.dark"),
+            ("system", "settings.follow_system"),
+        ],
+        "BGCrop" => &[
+            ("top", "ui.top"),
+            ("center", "ui.center"),
+            ("bottom", "ui.bottom"),
+        ],
         _ => &[],
     }
 }
@@ -328,9 +337,9 @@ fn shows_in_background_mode(id: usize, image: bool) -> bool {
 }
 
 const PRESETS: [(&str, &str, &str); 3] = [
-    ("雾蓝", "#DCE7F4", "#263B53"),
-    ("青灰", "#E0EBE7", "#253B37"),
-    ("紫灰", "#E9E4F1", "#383149"),
+    ("ui.mist_blue", "#DCE7F4", "#263B53"),
+    ("ui.sage_gray", "#E0EBE7", "#253B37"),
+    ("ui.lavender_gray", "#E9E4F1", "#383149"),
 ];
 
 fn preset(index: usize) -> String {
@@ -664,7 +673,9 @@ fn load_form(prefs: &Preferences) {
         }
         let value = prefs.get(spec.key);
         unsafe {
-            if spec.key == "BGStrength" {
+            if spec.key == "Lang" {
+                load_language_choice(field.value, &value);
+            } else if spec.key == "BGStrength" {
                 SendMessageW(
                     field.value,
                     TBM_SETPOS,
@@ -706,6 +717,27 @@ fn load_form(prefs: &Preferences) {
     update_background_mode();
 }
 
+fn load_language_choice(combo: HWND, selected: &str) {
+    let mut languages = localization::options().0;
+    let index = languages
+        .iter()
+        .position(|(code, _)| code == selected)
+        .unwrap_or_else(|| {
+            let label =
+                localization::message("language.unavailable_option", &[("language", selected)]);
+            languages.push((selected.to_owned(), label));
+            languages.len() - 1
+        });
+    unsafe {
+        SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+        for (_, name) in &languages {
+            SendMessageW(combo, CB_ADDSTRING, 0, wide(name).as_ptr() as isize);
+        }
+        SendMessageW(combo, CB_SETCURSEL, index, 0);
+    }
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().languages = languages);
+}
+
 fn sync_sound_picker(enabled: bool) {
     if let Some(index) = SPECS.iter().position(|spec| spec.key == "PopupFileName") {
         unsafe {
@@ -734,12 +766,24 @@ fn read_form() -> Result<Preferences, (usize, String)> {
                 (_, false) => "0",
             }
             .to_owned()
+        } else if spec.key == "Lang" {
+            let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
+            EDITOR
+                .with(|c| {
+                    c.borrow()
+                        .as_ref()
+                        .unwrap()
+                        .languages
+                        .get(selected as usize)
+                        .map(|(code, _)| code.clone())
+                })
+                .ok_or_else(|| (index, "ui.select_a_value".into()))?
         } else if !choices(spec.key).is_empty() {
             let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
             choices(spec.key)
                 .get(selected as usize)
                 .map(|(value, _)| (*value).to_owned())
-                .ok_or_else(|| (index, "请选择一个值".into()))?
+                .ok_or_else(|| (index, "ui.select_a_value".into()))?
         } else {
             text(field.value)
         };
@@ -903,7 +947,7 @@ fn record_key(vk: u32, modifiers: usize) -> bool {
         return true;
     }
     let Some(key) = key_name(vk) else {
-        status("请按字母、数字、功能键或 Pause 等受支持的按键。");
+        status("ui.press_a_supported_key_such_as_a");
         return true;
     };
     let mut value = String::new();
@@ -914,7 +958,7 @@ fn record_key(vk: u32, modifiers: usize) -> bool {
     }
     value.push_str(&key);
     if altrun_probe::preferences::parse_hotkey(&value).is_err() {
-        status("请按字母、数字、功能键或 Pause 等受支持的按键。");
+        status("ui.press_a_supported_key_such_as_a");
         return true;
     }
     let field = fields()[recording.index];
@@ -923,7 +967,7 @@ fn record_key(vk: u32, modifiers: usize) -> bool {
             SetWindowTextW(field.value, wide(&value).as_ptr());
             InvalidateRect(field.value, std::ptr::null(), 0);
         }
-        status("快捷键已更改，保存后生效。");
+        status("ui.shortcut_changed_save_to_apply_it");
     }
     true
 }
@@ -1071,7 +1115,7 @@ fn apply() {
     }
     let prepared = rx
         .recv_timeout(std::time::Duration::from_secs(5))
-        .map_err(|_| "启动面板暂时未响应".to_owned())
+        .map_err(|_| "ui.the_launcher_is_temporarily_unavailable".to_owned())
         .and_then(|v| v);
     let result = prepared.and_then(|_| {
         EDITOR.with(|c| {
@@ -1101,14 +1145,17 @@ fn apply() {
             update_preview();
             sync_save_button(EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd));
             status(if language_changed {
-                "语言已保存。重新打开设置即可查看。"
+                "ui.language_saved_reopen_settings_to_see_the"
             } else {
-                "已保存并应用。"
+                "ui.saved_and_applied"
             });
         }
         Err(e) => {
             let _ = sender.send(Change::Cancel(token));
-            status(&format!("未保存。{e}"));
+            status(&crate::localization::message(
+                "ui.changes_were_not_saved_detail",
+                &[("detail", &localization::tr(&e))],
+            ));
         }
     }
     unsafe {
@@ -1233,7 +1280,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
             );
             let value = text(item.hwndItem);
             let label = if value.is_empty() {
-                crate::localization::tr("未设置")
+                crate::localization::tr("ui.not_set")
             } else {
                 value
             };
@@ -1384,7 +1431,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
             let value = text(item.hwndItem);
             let value = if id == FIELD + spec_index("BGFileName") {
                 if value.is_empty() {
-                    crate::localization::tr("未选择图片")
+                    crate::localization::tr("ui.no_image_selected")
                 } else {
                     std::path::Path::new(&value)
                         .file_name()
@@ -1521,7 +1568,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     ] {
         theme_ui::fill(dc, &line, divider);
     }
-    theme_ui::panel_caption(dc, dpi, caption, "ALTRunNext 设置");
+    theme_ui::panel_caption(dc, dpi, caption, "ui.altrunnext_settings");
     if page == layout::ABOUT_PAGE {
         for (bounds, rules) in [
             (layout::ABOUT_PROFILE, &[80, 133][..]),
@@ -1608,7 +1655,11 @@ fn choose_file(save: bool) -> Option<PathBuf> {
         d.hwndOwner = WINDOW.load(Ordering::Acquire) as HWND;
         d.lpstrFile = b.as_mut_ptr();
         d.nMaxFile = b.len() as u32;
-        let filter = ui("设置文件\0*.ini\0所有文件\0*.*\0");
+        let filter = wide(&format!(
+            "{}\0*.ini\0{}\0*.*\0",
+            localization::tr("ui.settings_files"),
+            localization::tr("ui.all_files"),
+        ));
         d.lpstrFilter = filter.as_ptr();
         d.Flags = OFN_EXPLORER
             | OFN_NOCHANGEDIR
@@ -1673,7 +1724,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         WM_NOTIFY if l != 0 => {
             let header = unsafe { &*(l as *const NMHDR) };
             if header.idFrom == EMAIL_LINK && matches!(header.code, NM_CLICK | NM_RETURN) {
-                open_about_link(hwnd, CONTACT_URI, "无法打开默认邮件应用。");
+                open_about_link(hwnd, CONTACT_URI, "ui.couldn_t_open_the_default_mail_app");
                 return 0;
             }
             if header.code == NM_CUSTOMDRAW
@@ -1806,7 +1857,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 && let Some((_, _, _, url)) =
                     PROJECT_LINKS.iter().find(|(action, _, _, _)| *action == id)
             {
-                open_about_link(hwnd, url, "无法打开链接，请在浏览器中访问该地址。");
+                open_about_link(hwnd, url, "ui.couldn_t_open_the_link_open_the");
                 return 0;
             }
             if (SEGMENT..SEGMENT + 5).contains(&id) && code == BN_CLICKED {
@@ -1936,7 +1987,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let spec = &SPECS[index];
                 let changed = if switch_field(spec) {
                     code == BN_CLICKED
-                } else if !choices(spec.key).is_empty() {
+                } else if spec.key == "Lang" || !choices(spec.key).is_empty() {
                     code == CBN_SELCHANGE
                 } else if matches!(spec.kind, Kind::Font | Kind::Number(..)) {
                     code == EN_CHANGE
@@ -1991,7 +2042,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 unsafe {
                     SetWindowTextW(fields()[index].value, wide("").as_ptr());
                 }
-                status("已清除。点击“保存并应用”生效。");
+                status("ui.shortcut_cleared_select_save_and_apply");
                 return 0;
             }
             match id {
@@ -2003,13 +2054,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     stop_capture();
                     if crate::input_dialog::confirm(
                         hwnd,
-                        "恢复默认",
-                        "将恢复默认设置，保存后生效。",
+                        "ui.reset_defaults",
+                        "ui.load_default_settings_save_to_apply_them",
                     ) {
                         load_form(&Preferences::default());
                         update_preview();
                         sync_save_button(hwnd);
-                        status("已载入默认设置，保存后生效。");
+                        status("ui.defaults_loaded_save_to_apply_them");
                     }
                 }
                 2312 => {
@@ -2031,7 +2082,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 load_form(&prefs);
                                 update_preview();
                                 sync_save_button(hwnd);
-                                status("已导入，保存后生效。请按需重新启用系统集成。");
+                                status(
+                                    "ui.settings_imported_review_system_integration_options_and",
+                                );
                             }
                             Err(e) => status(&e),
                         }
@@ -2049,13 +2102,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 .ok()
                                 .is_some_and(|p| Some(p) == std::fs::canonicalize(&source).ok())
                         {
-                            status("请选择另一个文件用于导出。");
+                            status("ui.choose_a_different_file_for_export");
                             return 0;
                         }
                         match TextFile::open(&path)
                             .and_then(|(mut file, _)| file.save(&prefs.text()))
                         {
-                            Ok(()) => status("设置已导出。"),
+                            Ok(()) => status("ui.settings_exported"),
                             Err(e) => status(&e),
                         }
                     }
@@ -2070,7 +2123,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         WM_CLOSE => {
             stop_capture();
             let dirty = form_is_dirty();
-            if dirty && !crate::input_dialog::confirm(hwnd, "关闭设置", "放弃尚未保存的设置？")
+            if dirty
+                && !crate::input_dialog::confirm(
+                    hwnd,
+                    "ui.close_settings",
+                    "ui.discard_unsaved_settings",
+                )
             {
                 return 0;
             }
@@ -2115,6 +2173,7 @@ pub fn open(
     let owner = owner as usize;
     std::thread::spawn(move || {
         let result = (|| -> Result<(), String> {
+            localization::refresh_packs();
             let (file, _) = TextFile::open(&path.with_extension("settings.ini"))?;
             let mut prefs = prefs;
             crate::localization::install(&prefs.get("Lang"));
@@ -2142,7 +2201,7 @@ pub fn open(
                 let hwnd = CreateWindowExW(
                     0,
                     class.as_ptr(),
-                    ui("ALTRunNext · 设置").as_ptr(),
+                    ui("settings.window_title").as_ptr(),
                     WS_POPUP | WS_SYSMENU,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
@@ -2154,7 +2213,7 @@ pub fn open(
                     std::ptr::null(),
                 );
                 if hwnd.is_null() {
-                    return Err("无法创建设置窗口".into());
+                    return Err("ui.could_not_create_the_settings_window".into());
                 }
                 theme::frame(hwnd);
                 let dpi = crate::window_geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
@@ -2241,11 +2300,29 @@ pub fn open(
                     STATUS,
                 );
                 SendMessageW(status, WM_SETFONT, small_font as usize, 0);
-                let close = control("BUTTON", "关闭", WS_TABSTOP, 1055, 1, 46, 41, TITLE_CLOSE);
+                let close = control(
+                    "BUTTON",
+                    "ui.close",
+                    WS_TABSTOP,
+                    1055,
+                    1,
+                    46,
+                    41,
+                    TITLE_CLOSE,
+                );
                 theme_ui::style_caption_close(close);
                 let preview = layout::PREVIEW;
                 let preview_controls = [
-                    control("STATIC", "启动面板预览", 0, layout::RIGHT, 152, 220, 23, 0),
+                    control(
+                        "STATIC",
+                        "ui.launcher_preview",
+                        0,
+                        layout::RIGHT,
+                        152,
+                        220,
+                        23,
+                        0,
+                    ),
                     control(
                         "STATIC",
                         "",
@@ -2273,7 +2350,7 @@ pub fn open(
                     preview_controls[2],
                     EM_SETCUEBANNER,
                     0,
-                    ui("输入快捷字").as_ptr() as isize,
+                    ui("ui.type_a_shortcut").as_ptr() as isize,
                 );
                 SetWindowTextW(preview_controls[2], wide("d").as_ptr());
                 let mut sections = Vec::new();
@@ -2294,7 +2371,7 @@ pub fn open(
                 let mut extra_controls = Vec::new();
                 let version = format!(
                     "{} {}",
-                    crate::localization::tr("版本"),
+                    crate::localization::tr("about.version"),
                     env!("CARGO_PKG_VERSION")
                 );
                 let about_page = layout::ABOUT_PAGE;
@@ -2320,11 +2397,11 @@ pub fn open(
                         small_font,
                         ABOUT_SECONDARY,
                     ),
-                    ("作者", 230, 226, 180, 24, centered_text, font, 0),
+                    ("about.author", 230, 226, 180, 24, centered_text, font, 0),
                     ("weimeng54", 590, 226, 467, 24, centered_text | 2, font, 0),
-                    ("联系邮箱", 230, 281, 180, 24, centered_text, font, 0),
+                    ("about.email", 230, 281, 180, 24, centered_text, font, 0),
                     (
-                        "项目链接",
+                        "about.project_links",
                         214,
                         348,
                         500,
@@ -2362,7 +2439,7 @@ pub fn open(
                     SendMessageW(heading, WM_SETFONT, section_font as usize, 0);
                     let address = control(
                         "STATIC",
-                        url.trim_start_matches("https://"),
+                        url,
                         centered_text,
                         230,
                         y + 34,
@@ -2384,13 +2461,25 @@ pub fn open(
                 for (page, caption, bounds) in [
                     (
                         0,
-                        "保存后重新打开设置即可查看。",
+                        "ui.save_and_reopen_settings_to_see_the",
                         BoxRect::new(666, 513, 392, 24),
                     ),
-                    (3, "可试输快捷字，例如 db", BoxRect::new(866, 152, 207, 21)),
-                    (3, "保存后应用到启动面板。", BoxRect::new(524, 435, 549, 22)),
-                    (4, "可试输快捷字，例如 db", BoxRect::new(866, 152, 207, 21)),
-                    (4, "面板字体", BoxRect::new(228, 196, 72, 26)),
+                    (
+                        3,
+                        "ui.try_a_shortcut_such_as_db_2",
+                        BoxRect::new(866, 152, 207, 21),
+                    ),
+                    (
+                        3,
+                        "ui.save_to_apply_the_changes_to_the",
+                        BoxRect::new(524, 435, 549, 22),
+                    ),
+                    (
+                        4,
+                        "ui.try_a_shortcut_such_as_db_2",
+                        BoxRect::new(866, 152, 207, 21),
+                    ),
+                    (4, "ui.panel_font", BoxRect::new(228, 196, 72, 26)),
                 ] {
                     let style = if bounds.x == 866 { 2 } else { 0 };
                     let control = control(
@@ -2409,13 +2498,13 @@ pub fn open(
                     extra_controls.push((page, control));
                 }
                 for (id, label, x, y, w, h, page) in [
-                    (SEGMENT, "跟随系统", 230, 195, 84, 30, 3),
-                    (SEGMENT + 1, "浅色", 317, 195, 84, 30, 3),
-                    (SEGMENT + 2, "深色", 404, 195, 84, 30, 3),
-                    (SEGMENT + 3, "纯色", 230, 299, 128, 30, 3),
-                    (SEGMENT + 4, "图片", 361, 299, 127, 30, 3),
+                    (SEGMENT, "settings.follow_system", 230, 195, 84, 30, 3),
+                    (SEGMENT + 1, "ui.light", 317, 195, 84, 30, 3),
+                    (SEGMENT + 2, "ui.dark", 404, 195, 84, 30, 3),
+                    (SEGMENT + 3, "ui.solid", 230, 299, 128, 30, 3),
+                    (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
                     (FONT_FAMILY, "", 310, 191, 180, 34, 4),
-                    (MORE_COLORS, "其他颜色", 215, 517, 288, 40, 4),
+                    (MORE_COLORS, "ui.other_colors", 215, 517, 288, 40, 4),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
                     if (SEGMENT..SEGMENT + 5).contains(&id) {
@@ -2443,14 +2532,23 @@ pub fn open(
                 ));
                 extra_controls.push((
                     3,
-                    control("STATIC", "面板底色", 0, 227, 340, 140, 22, SOLID_LABEL),
+                    control(
+                        "STATIC",
+                        "ui.panel_color",
+                        0,
+                        227,
+                        340,
+                        140,
+                        22,
+                        SOLID_LABEL,
+                    ),
                 ));
                 for (index, caption) in [
-                    "主题默认色",
+                    "ui.theme_default_color",
                     PRESETS[0].0,
                     PRESETS[1].0,
                     PRESETS[2].0,
-                    "自定义…",
+                    "ui.custom",
                 ]
                 .into_iter()
                 .enumerate()
@@ -2579,7 +2677,7 @@ pub fn open(
                                 SendMessageW(handle, TBM_SETRANGEMAX, 1, 100);
                                 theme_ui::style_slider(handle, dpi);
                                 handle
-                            } else if !options.is_empty() {
+                            } else if *key == "Lang" || !options.is_empty() {
                                 let handle = control(
                                     "COMBOBOX",
                                     "",
@@ -2589,7 +2687,7 @@ pub fn open(
                                     value_x,
                                     input_y,
                                     placement.value_width.max(1),
-                                    148,
+                                    if *key == "Lang" { 280 } else { 148 },
                                     FIELD + index,
                                 );
                                 SendMessageW(
@@ -2653,7 +2751,7 @@ pub fn open(
                             if hotkey {
                                 field.clear = control(
                                     "BUTTON",
-                                    "清除",
+                                    "ui.clear",
                                     WS_TABSTOP,
                                     right - 56,
                                     input_y,
@@ -2665,11 +2763,11 @@ pub fn open(
                                 field.pick = control(
                                     "BUTTON",
                                     if *key == "BGFileName" {
-                                        "选图…"
+                                        "ui.browse"
                                     } else if color {
                                         label
                                     } else {
-                                        "选择…"
+                                        "ui.choose"
                                     },
                                     WS_TABSTOP,
                                     if color { right - 50 } else { right - 73 },
@@ -2686,11 +2784,11 @@ pub fn open(
                 }
                 let footer_y = layout::HEIGHT - layout::FOOTER + 13;
                 for (label, id, x, width) in [
-                    ("恢复默认", 2311, 17, 132),
-                    ("导入设置…", 2312, 157, 136),
-                    ("导出设置…", 2313, 301, 136),
-                    ("关闭", 2314, 882, 65),
-                    ("保存并应用", 2310, 955, 130),
+                    ("ui.reset_defaults", 2311, 17, 132),
+                    ("ui.import_settings", 2312, 157, 136),
+                    ("ui.export_settings", 2313, 301, 136),
+                    ("ui.close", 2314, 882, 65),
+                    ("ui.save_and_apply", 2310, 955, 130),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, footer_y, width, 37, id);
                     if id == 2310 {
@@ -2745,6 +2843,7 @@ pub fn open(
                         saved: prefs.clone(),
                         draft: prefs.clone(),
                         fields,
+                        languages: Vec::new(),
                         file,
                         data: path,
                         sender,
@@ -2752,6 +2851,22 @@ pub fn open(
                     });
                 });
                 load_form(&prefs);
+                let (language_choices, pack_errors) = localization::options();
+                let requested_language = prefs.get("Lang");
+                if !pack_errors.is_empty() {
+                    status(&localization::message(
+                        "language.load_failed",
+                        &[("file", &pack_errors.join(", "))],
+                    ));
+                } else if !language_choices
+                    .iter()
+                    .any(|(code, _)| code == &requested_language)
+                {
+                    status(&localization::message(
+                        "language.unavailable_fallback",
+                        &[("locale", &requested_language)],
+                    ));
+                }
                 show_page(if about { layout::ABOUT_PAGE } else { 0 });
                 WINDOW.store(hwnd as usize, Ordering::Release);
                 ShowWindow(hwnd, SW_SHOW);

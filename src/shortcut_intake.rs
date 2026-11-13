@@ -62,14 +62,14 @@ pub fn program_name(path: &str) -> &str {
 }
 
 pub fn pick_program(owner: HWND) -> Result<Option<String>, String> {
-    let mut filter = ui("可执行程序");
+    let mut filter = ui("ui.executable_programs");
     filter.extend(wide("*.exe"));
     filter.push(0);
     let Some(path) = crate::manager::pick_path_filtered(owner, false, false, Some(&filter)) else {
         return Ok(None);
     };
     if !path.is_file() || !altrun_probe::management::is_executable(&path) {
-        return Err("请选择有效的 EXE 程序".into());
+        return Err("ui.select_a_valid_exe_application".into());
     }
     altrun_probe::management::absolute_path(&path).map(Some)
 }
@@ -106,12 +106,14 @@ fn sync(hwnd: HWND, state: *mut Dialog) {
         let document = match &entry.open_target {
             Some(OpenTarget::Document(program)) => {
                 let name = program.as_deref().map(program_name);
-                let caption =
-                    name.map_or_else(|| crate::localization::tr("系统默认"), str::to_owned);
+                let caption = name.map_or_else(
+                    || crate::localization::tr("ui.system_default"),
+                    str::to_owned,
+                );
                 label(
                     hwnd,
                     OPEN_LABEL,
-                    &format!("{}  ·  {caption}", crate::localization::tr("打开方式")),
+                    &format!("{}  ·  {caption}", crate::localization::tr("ui.open_with")),
                 );
                 EnableWindow(get(hwnd, DEFAULT), i32::from(name.is_some()));
                 true
@@ -243,7 +245,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 ] {
                     theme_ui::fill(dc, &bar, theme::chrome());
                 }
-                theme_ui::panel_caption(dc, (*state).dpi, (*state).caption, "添加快捷项");
+                theme_ui::panel_caption(dc, (*state).dpi, (*state).caption, "ui.add_shortcut");
                 EndPaint(hwnd, &paint);
                 return 0;
             }
@@ -349,7 +351,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                                     MessageBoxW(
                                         owner,
                                         ui(&error).as_ptr(),
-                                        ui("试打开").as_ptr(),
+                                        ui("ui.try_opening").as_ptr(),
                                         MB_OK | MB_ICONERROR,
                                     );
                                 }
@@ -432,7 +434,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            ui("添加快捷项").as_ptr(),
+            ui("ui.add_shortcut").as_ptr(),
             WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
             rect.left,
             rect.top,
@@ -446,7 +448,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         if hwnd.is_null() {
             UnregisterClassW(class.as_ptr(), instance);
             OPEN.with(|open| open.set(false));
-            crate::native::show_error("无法创建添加快捷项窗口。");
+            crate::native::show_error("ui.could_not_open_the_add_shortcut_window");
             return;
         }
         state.dpi = crate::window_geometry::fit(hwnd, width, height);
@@ -477,12 +479,12 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         let button = |text, id, bounds| {
             control("BUTTON", text, id, bounds, WS_TABSTOP | BS_OWNERDRAW as u32)
         };
-        theme_ui::style_caption_close(button("关闭", CLOSE, (width - 47, 1, 46, 41)));
+        theme_ui::style_caption_close(button("ui.close", CLOSE, (width - 47, 1, 46, 41)));
         if batch {
             for (caption, x, w) in [
-                ("快捷字", 34, 166),
-                ("名称", 212, 212),
-                ("目标路径", 436, width - 460),
+                ("ui.alias", 34, 166),
+                ("ui.name", 212, 212),
+                ("ui.target_path", 436, width - 460),
             ] {
                 control("STATIC", caption, 0, (x, 55, w, 24), 0);
             }
@@ -508,9 +510,9 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         }
         let label_style = theme_ui::STATIC_CENTER_IMAGE;
         for (caption, id, dy) in [
-            ("快捷字", ALIAS, 0),
-            ("名称", NAME, 48),
-            ("目标路径", PATH, 96),
+            ("ui.alias", ALIAS, 0),
+            ("ui.name", NAME, 48),
+            ("ui.target_path", PATH, 96),
         ] {
             control("STATIC", caption, 0, (22, form + dy, 113, 36), label_style);
             let style = WS_TABSTOP
@@ -524,13 +526,17 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         }
         control(
             "STATIC",
-            "打开方式",
+            "ui.open_with",
             OPEN_LABEL,
             (22, form + 154, width - 326, 36),
             label_style,
         );
-        button("使用系统默认", DEFAULT, (width - 299, form + 154, 132, 36));
-        button("选择程序…", PROGRAM, (width - 156, form + 154, 134, 36));
+        button(
+            "ui.use_system_default",
+            DEFAULT,
+            (width - 299, form + 154, 132, 36),
+        );
+        button("ui.choose_app", PROGRAM, (width - 156, form + 154, 134, 36));
         control(
             "STATIC",
             "",
@@ -538,10 +544,10 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             (22, height - 99, width - 44, 34),
             label_style,
         );
-        let test = button("试打开", TEST, (22, height - 48, 100, 36));
+        let test = button("ui.try_opening", TEST, (22, height - 48, 100, 36));
         EnableWindow(test, i32::from(launch_enabled));
-        button("取消", CANCEL, (width - 257, height - 48, 86, 36));
-        button("添加快捷项", SAVE, (width - 159, height - 48, 137, 36));
+        button("ui.cancel", CANCEL, (width - 257, height - 48, 86, 36));
+        button("ui.add_shortcut", SAVE, (width - 159, height - 48, 137, 36));
         sync(hwnd, &mut state);
         EnableWindow(owner, 0);
         ShowWindow(hwnd, SW_SHOW);

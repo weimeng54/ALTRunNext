@@ -11,7 +11,7 @@ impl EntryKind {
             "command" => Ok(Self::Command),
             "separator" => Ok(Self::Separator),
             "remark" => Ok(Self::Remark),
-            _ => Err("未知快捷项类型".into()),
+            _ => Err("ui.unknown_shortcut_type".into()),
         }
     }
     pub fn name(self) -> &'static str {
@@ -83,7 +83,7 @@ impl ParamType {
             "raw" => Ok(Self::Raw),
             "url_query" => Ok(Self::AnsiUrl),
             "utf8_query" => Ok(Self::Utf8Url),
-            _ => Err("未知参数类型".into()),
+            _ => Err("ui.unknown_parameter_type".into()),
         }
     }
     pub fn name(self) -> &'static str {
@@ -109,7 +109,7 @@ impl OpenTarget {
             ("path", "") => Ok(Some(Self::Path)),
             ("document", "") => Ok(Some(Self::Document(None))),
             ("document", program) => Ok(Some(Self::Document(Some(program.into())))),
-            _ => Err("无法识别文件打开方式".into()),
+            _ => Err("ui.unrecognized_file_opening_method".into()),
         }
     }
 
@@ -123,11 +123,11 @@ impl OpenTarget {
 
 pub(crate) fn validate(e: &Entry) -> Result<(), String> {
     if e.alias.trim().is_empty() || (e.kind == EntryKind::Command && e.command.trim().is_empty()) {
-        return Err("快捷字和命令不能为空".into());
+        return Err("ui.an_alias_and_a_command_are_required".into());
     }
     for s in [&e.alias, &e.name, &e.command, &e.id, &e.working_directory] {
         if s.chars().any(|c| matches!(c, '\0' | '\t' | '\r' | '\n')) {
-            return Err("快捷项不能包含换行、制表符或空字符".into());
+            return Err("ui.shortcuts_cannot_contain_line_breaks_tabs_or".into());
         }
     }
     if let Some(target) = &e.open_target {
@@ -137,13 +137,13 @@ pub(crate) fn validate(e: &Entry) -> Result<(), String> {
             || (!executable && e.param_type != ParamType::None)
             || !crate::management::valid_absolute_path(&e.command)
         {
-            return Err("请填写完整的文件或文件夹路径".into());
+            return Err("ui.enter_the_full_file_or_folder_path".into());
         }
         if let OpenTarget::Document(Some(program)) = target
             && (!crate::management::valid_absolute_path(program)
                 || !crate::management::is_executable(Path::new(program)))
         {
-            return Err("请选择有效的 EXE 程序".into());
+            return Err("ui.select_a_valid_exe_application".into());
         }
     }
     Ok(())
@@ -151,7 +151,15 @@ pub(crate) fn validate(e: &Entry) -> Result<(), String> {
 pub fn serialize(entries: &[Entry]) -> Result<String, String> {
     let mut output = String::new();
     for (i, e) in entries.iter().enumerate() {
-        validate(e).map_err(|s| format!("第 {} 项：{s}", i + 1))?;
+        validate(e).map_err(|s| {
+            crate::localization::message(
+                "ui.shortcut_row_detail",
+                &[
+                    ("row", &(i + 1).to_string()),
+                    ("detail", &crate::localization::tr(&s)),
+                ],
+            )
+        })?;
         output.push_str(&format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t1",
             e.alias,
@@ -177,11 +185,12 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
 }
 pub fn decode(bytes: &[u8]) -> Result<String, String> {
     if let Some(raw) = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]) {
-        return String::from_utf8(raw.to_vec()).map_err(|_| "UTF-8 文件包含无效字符".into());
+        return String::from_utf8(raw.to_vec())
+            .map_err(|_| "ui.the_utf_8_file_contains_invalid_characters".into());
     }
     if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
         if !bytes.len().is_multiple_of(2) {
-            return Err("UTF-16 文件长度不正确".into());
+            return Err("ui.the_utf_16_file_has_an_invalid".into());
         }
         let be = bytes[0] == 0xfe;
         let text: Vec<_> = bytes[2..]
@@ -196,12 +205,13 @@ pub fn decode(bytes: &[u8]) -> Result<String, String> {
                 }
             })
             .collect();
-        return String::from_utf16(&text).map_err(|_| "UTF-16 文件包含无效字符".into());
+        return String::from_utf16(&text)
+            .map_err(|_| "ui.the_utf_16_file_contains_invalid_characters".into());
     }
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Ok(text.into());
     }
-    Err("文件应使用 UTF-8 或 UTF-16 编码".into())
+    Err("ui.use_utf_8_or_utf_16_text".into())
 }
 
 pub struct ShortcutImport {
@@ -214,13 +224,18 @@ pub fn import_shortcuts(path: &Path) -> Result<ShortcutImport, String> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
         .and_then(|file| file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes))
-        .map_err(|error| format!("无法读取快捷项：{error}"))?;
+        .map_err(|error| {
+            crate::localization::message(
+                "ui.could_not_read_shortcuts_error",
+                &[("error", &error.to_string())],
+            )
+        })?;
     decode_shortcut_import(&bytes)
 }
 
 pub fn decode_shortcut_import(bytes: &[u8]) -> Result<ShortcutImport, String> {
     if bytes.len() > 16 * 1024 * 1024 {
-        return Err("快捷项文件超过 16 MiB".into());
+        return Err("ui.the_shortcuts_file_exceeds_16_mib".into());
     }
     let text = match decode(bytes) {
         Ok(text) => text,
@@ -250,7 +265,7 @@ pub fn decode_shortcut_import(bytes: &[u8]) -> Result<ShortcutImport, String> {
         .iter()
         .any(|entry| entry.kind == EntryKind::Command)
     {
-        return Err("文件中没有可导入的快捷项".into());
+        return Err("ui.there_are_no_shortcuts_to_import".into());
     }
     Ok(import)
 }
@@ -261,10 +276,13 @@ fn parse_original_shortcuts(text: &str) -> Result<ShortcutImport, String> {
     for (row, line) in text.lines().enumerate() {
         let line = line.trim();
         if line.contains('\0') {
-            return Err(format!("第 {} 行包含无效字符", row + 1));
+            return Err(crate::localization::message(
+                "ui.line_row_contains_invalid_characters",
+                &[("row", &(row + 1).to_string())],
+            ));
         }
         if line.starts_with('[') && line.ends_with(']') {
-            return Err("请选择快捷项文件，而不是设置文件".into());
+            return Err("ui.choose_a_shortcuts_file_import_settings_from".into());
         }
         if line.starts_with([';', '#']) {
             ignored_lines += 1;
@@ -279,7 +297,12 @@ fn parse_original_shortcuts(text: &str) -> Result<ShortcutImport, String> {
             ignored_lines += 1;
             continue;
         };
-        let invalid = || format!("第 {} 行的快捷项格式无效", row + 1);
+        let invalid = || {
+            crate::localization::message(
+                "ui.the_shortcut_on_line_row_has_an",
+                &[("row", &(row + 1).to_string())],
+            )
+        };
         let (first, rest) = line.split_once(delimiter).ok_or_else(invalid)?;
         let first = first.trim();
         let header = first.strip_prefix('F').filter(|digits| {
@@ -320,7 +343,15 @@ fn parse_original_shortcuts(text: &str) -> Result<ShortcutImport, String> {
             open_target: None,
             kind: EntryKind::Command,
         };
-        validate(&entry).map_err(|error| format!("第 {} 行：{error}", row + 1))?;
+        validate(&entry).map_err(|error| {
+            crate::localization::message(
+                "ui.line_row_detail",
+                &[
+                    ("row", &(row + 1).to_string()),
+                    ("detail", &crate::localization::tr(&error)),
+                ],
+            )
+        })?;
         entries.push(entry);
     }
     Ok(ShortcutImport {
@@ -343,9 +374,14 @@ impl Snapshot {
         })
     }
     pub fn open(path: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("无法读取快捷项：{e}"))?;
+        let bytes = std::fs::read(path).map_err(|e| {
+            crate::localization::message(
+                "ui.could_not_read_shortcuts_error",
+                &[("error", &e.to_string())],
+            )
+        })?;
         if bytes.len() > 16 * 1024 * 1024 {
-            return Err("快捷项文件超过 16 MiB".into());
+            return Err("ui.the_shortcuts_file_exceeds_16_mib".into());
         }
         let text = decode(&bytes)?;
         let entries = crate::parse_entries(&text)?;
@@ -363,9 +399,7 @@ impl Snapshot {
             Err(e) => return Err(e.to_string()),
         };
         if current != self.original {
-            return Err(
-                "数据文件已被其他程序修改。请先保留草稿并重新打开，避免覆盖外部修改。".into(),
-            );
+            return Err("ui.the_data_file_changed_outside_altrunnext_keep".into());
         }
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let stage = self.path.with_extension(format!(
@@ -383,11 +417,21 @@ impl Snapshot {
             .create_new(true)
             .write(true)
             .open(&stage)
-            .map_err(|e| format!("无法创建临时文件：{e}"))?;
+            .map_err(|e| {
+                crate::localization::message(
+                    "ui.could_not_create_a_temporary_file_e",
+                    &[("e", &e.to_string())],
+                )
+            })?;
         let _cleanup = Cleanup(stage.clone());
         file.write_all(content.as_bytes())
             .and_then(|_| file.sync_all())
-            .map_err(|e| format!("写入失败，原文件未替换：{e}"))?;
+            .map_err(|e| {
+                crate::localization::message(
+                    "ui.could_not_write_the_changes_the_original",
+                    &[("e", &e.to_string())],
+                )
+            })?;
         drop(file);
         replace(&stage, &self.path, self.original.is_some())?;
         self.original = Some(content.into_bytes());
@@ -431,9 +475,9 @@ pub(crate) fn replace(stage: &Path, destination: &Path, existed: bool) -> Result
             }
         };
         if ok == 0 {
-            return Err(format!(
-                "保存失败（错误 {}），请保留草稿并检查文件权限",
-                unsafe { GetLastError() }
+            return Err(crate::localization::message(
+                "ui.could_not_save_error_code_keep_a",
+                &[("code", &unsafe { GetLastError() }.to_string())],
             ));
         }
         Ok(())

@@ -111,11 +111,11 @@ impl Preview {
     pub fn matches(&self, query: &str) -> Vec<(&'static str, &'static str, &'static str)> {
         let query = query.to_ascii_lowercase();
         let mut results: Vec<_> = [
-            ("Doubao", "豆包", r"D:\Program Files\Doubao\Doubao.exe"),
-            ("download", "下载目录", r"%USERPROFILE%\Downloads"),
-            ("desktop", "桌面", r"%USERPROFILE%\Desktop"),
-            ("notepad", "记事本", "notepad.exe"),
-            ("calc", "计算器", "calc.exe"),
+            ("Doubao", "ui.doubao", r"D:\Program Files\Doubao\Doubao.exe"),
+            ("download", "ui.downloads", r"%USERPROFILE%\Downloads"),
+            ("desktop", "ui.desktop", r"%USERPROFILE%\Desktop"),
+            ("notepad", "ui.notepad", "notepad.exe"),
+            ("calc", "ui.calculator", "calc.exe"),
         ]
         .into_iter()
         .filter_map(|entry| {
@@ -293,7 +293,7 @@ impl Preview {
                 theme_ui::line_text(
                     dc,
                     area(16, y, bounds.w - 32, 30),
-                    &crate::localization::tr("没有匹配项"),
+                    &crate::localization::tr("ui.no_matches"),
                     theme::muted(),
                     0,
                 );

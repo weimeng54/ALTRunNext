@@ -37,7 +37,7 @@ pub fn acquire(path: &Path, paths: &[PathBuf]) -> Result<Option<Instance>, Strin
             wide(&format!("Local\\ALTRunModern.{identity:016x}")).as_ptr(),
         );
         if handle.is_null() {
-            return Err("无法创建单实例锁".into());
+            return Err("ui.could_not_create_the_instance_lock".into());
         }
         if GetLastError() != ERROR_ALREADY_EXISTS {
             return Ok(Some(Instance { handle, identity }));
@@ -68,7 +68,7 @@ pub fn acquire(path: &Path, paths: &[PathBuf]) -> Result<Option<Instance>, Strin
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
         if search.window.is_null() {
-            return Err("已有实例正在启动，请稍后重试".into());
+            return Err("ui.altrunnext_is_already_starting_try_again_shortly".into());
         }
         let args = std::env::args().collect::<Vec<_>>();
         let action = if args
@@ -98,7 +98,7 @@ pub fn acquire(path: &Path, paths: &[PathBuf]) -> Result<Option<Instance>, Strin
                 .iter()
                 .any(|p| p.to_string_lossy().contains(['\0', '\r', '\n']))
         {
-            return Err("传入路径过多或含无效字符".into());
+            return Err("ui.too_many_paths_were_supplied_or_a".into());
         }
         let bytes = wide(&text);
         let data = COPYDATASTRUCT {
@@ -119,7 +119,7 @@ pub fn acquire(path: &Path, paths: &[PathBuf]) -> Result<Option<Instance>, Strin
         ) == 0
             || result == 0
         {
-            return Err("已有实例暂时无法接收请求".into());
+            return Err("ui.the_running_instance_cannot_receive_requests_right".into());
         }
         Ok(None)
     }
@@ -131,7 +131,7 @@ pub fn publish(hwnd: HWND, identity: usize) {
 }
 pub fn decode(l: LPARAM) -> Result<Vec<PathBuf>, String> {
     if l == 0 {
-        return Err("缺少消息".into());
+        return Err("ui.missing_message".into());
     }
     let data = unsafe { &*(l as *const COPYDATASTRUCT) };
     if data.dwData != MAGIC
@@ -140,7 +140,7 @@ pub fn decode(l: LPARAM) -> Result<Vec<PathBuf>, String> {
         || data.cbData % 2 != 0
         || data.lpData.is_null()
     {
-        return Err("无效路径消息".into());
+        return Err("ui.invalid_path_message".into());
     }
     let bytes =
         unsafe { std::slice::from_raw_parts(data.lpData as *const u8, data.cbData as usize) };
@@ -151,11 +151,12 @@ pub fn decode(l: LPARAM) -> Result<Vec<PathBuf>, String> {
         .map(|p| u16::from_ne_bytes(*p))
         .collect::<Vec<_>>();
     if units.last() != Some(&0) {
-        return Err("无效路径消息".into());
+        return Err("ui.invalid_path_message".into());
     }
-    let text = String::from_utf16(&units[..units.len() - 1]).map_err(|_| "路径编码无效")?;
+    let text =
+        String::from_utf16(&units[..units.len() - 1]).map_err(|_| "ui.invalid_path_encoding")?;
     if text.contains(['\0', '\r']) {
-        return Err("无效路径字符".into());
+        return Err("ui.invalid_path_character".into());
     }
     Ok(text
         .lines()

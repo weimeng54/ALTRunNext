@@ -15,6 +15,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
     let data = root.join("shortcuts.tsv");
     let original = "已有\tExisting\tnotepad.exe\t0\n";
     std::fs::write(&data, original).unwrap();
+    std::fs::write(data.with_extension("settings.ini"), "[GUI]\nLang=zh-Hans\n").unwrap();
     let file = root.join("已有.txt");
     let folder = root.join("资料 文件夹");
     std::fs::write(&file, "fixture").unwrap();
