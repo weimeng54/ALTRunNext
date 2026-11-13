@@ -25,6 +25,20 @@ fn assert_surface(dialog: windows_sys::Win32::Foundation::HWND, expected: u32) {
     }
 }
 
+fn send_to(exe: &std::ffi::OsStr, data: &std::path::Path, paths: &[&std::path::Path]) {
+    let mut process = Running(
+        Command::new(exe)
+            .arg("--data")
+            .arg(data)
+            .arg("--add")
+            .args(paths)
+            .spawn()
+            .unwrap(),
+    );
+    wait(|| process.0.try_wait().unwrap().is_some());
+    assert!(process.0.wait().unwrap().success());
+}
+
 #[test]
 fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
     let root = std::env::current_dir()
@@ -45,19 +59,16 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     let process = Running(
         Command::new(&exe)
-            .args(["--safe-mode", "--ui-scale", "150", "--data"])
+            .args(["--show", "--safe-mode", "--ui-scale", "150", "--data"])
             .arg(&data)
             .spawn()
             .unwrap(),
     );
-    let second = Command::new(&exe)
-        .arg("--data")
-        .arg(&data)
-        .arg("--add")
-        .args([&file, &folder])
-        .status()
-        .unwrap();
-    assert!(second.success());
+    wait(|| {
+        let launcher = window("ALTRun.Native.PerformanceProbe", process.0.id());
+        !launcher.is_null() && unsafe { IsWindowVisible(launcher) != 0 }
+    });
+    send_to(&exe, &data, &[&file, &folder]);
     let mut dialog = std::ptr::null_mut();
     wait(|| {
         dialog = window("ALTRun.Native.AddShortcut", process.0.id());
@@ -106,16 +117,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         .unwrap();
     assert!(setup.success());
     std::fs::write(&settings, "[GUI]\nLang=zh-Hans\nTheme=dark\n").unwrap();
-    assert!(
-        Command::new(&exe)
-            .arg("--data")
-            .arg(&data)
-            .arg("--add")
-            .args([&link, &document_link])
-            .status()
-            .unwrap()
-            .success()
-    );
+    send_to(&exe, &data, &[&link, &document_link]);
     wait(|| {
         dialog = window("ALTRun.Native.AddShortcut", process.0.id());
         !dialog.is_null() && unsafe { IsWindowVisible(dialog) != 0 }
