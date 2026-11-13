@@ -113,7 +113,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
     )
     .unwrap();
     let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
-        .unwrap_or_else(|| env!("CARGO_BIN_EXE_altrun-probe").into());
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     let child = Running(
         Command::new(exe)
             .arg("--show")

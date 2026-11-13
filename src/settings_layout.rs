@@ -111,7 +111,7 @@ pub fn field(key: &str) -> Placement {
             857,
             53,
             0,
-            "添加 ALTRun 到「发送到」菜单",
+            "在「发送到」菜单显示 ALTRunNext",
             "右键文件或文件夹，即可添加为启动命令。",
         ),
         "PlayPopupNotify" => (215, 459, 420, 43, 0, "", ""),

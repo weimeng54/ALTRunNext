@@ -1,4 +1,4 @@
-# ALTRun desktop design
+# ALTRunNext desktop design
 
 Windows keyboard launcher. The panel shows the selected name, search input, numbered alias/name rows and CMD. The user can type and launch as soon as the panel appears.
 

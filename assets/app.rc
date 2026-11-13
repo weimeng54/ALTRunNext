@@ -10,8 +10,9 @@ BEGIN
  BEGIN
   BLOCK "040904B0"
   BEGIN
-   VALUE "FileDescription", "ALTRun Modern Native Launcher\0"
-   VALUE "ProductName", "ALTRun Modern\0"
+   VALUE "FileDescription", "ALTRunNext Native Launcher\0"
+   VALUE "ProductName", "ALTRunNext\0"
+   VALUE "OriginalFilename", "ALTRunNext.exe\0"
    VALUE "FileVersion", "0.2.0\0"
   END
  END

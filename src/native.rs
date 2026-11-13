@@ -120,7 +120,7 @@ pub fn show_error(message: &str) {
         MessageBoxW(
             null_mut(),
             wide(message).as_ptr(),
-            wide("ALTRun").as_ptr(),
+            wide("ALTRunNext").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
     }
@@ -134,7 +134,7 @@ fn selected_text() -> (HWND, HWND, Vec<u16>, Vec<u16>) {
         (
             s.title,
             s.command,
-            wide(e.map(|e| e.name.as_str()).unwrap_or("ALTRun")),
+            wide(e.map(|e| e.name.as_str()).unwrap_or("ALTRunNext")),
             wide(&e.map(|e| format!("CMD  {}", e.command)).unwrap_or_default()),
         )
     })
@@ -784,7 +784,7 @@ fn show_menu(hwnd: HWND, tray: bool) {
                 (ID_MANAGE, "管理快捷项"),
                 (ID_SETTINGS, "设置…"),
                 (0, ""),
-                (ID_EXIT, "退出 ALTRun"),
+                (ID_EXIT, "退出 ALTRunNext"),
             ]
         } else {
             &[
@@ -844,7 +844,8 @@ fn tray_icon(hwnd: HWND, operation: u32) {
                 .find(|(_, (_, key))| key.is_some())
                 .map(|(name, _)| state.preferences.get(name))
         });
-        let tip = wide(&binding.map_or_else(|| "ALTRun".into(), |key| format!("ALTRun · {key}")));
+        let tip =
+            wide(&binding.map_or_else(|| "ALTRunNext".into(), |key| format!("ALTRunNext · {key}")));
         let len = tip.len().min(icon.szTip.len() - 1);
         icon.szTip[..len].copy_from_slice(&tip[..len]);
         if Shell_NotifyIconW(operation, &icon) == 0 && operation == NIM_ADD {
@@ -1646,7 +1647,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     MessageBoxW(
                         hwnd,
                         ui("请先保存或关闭快捷项管理窗口，再退出启动器。").as_ptr(),
-                        wide("ALTRun").as_ptr(),
+                        wide("ALTRunNext").as_ptr(),
                         MB_OK | MB_ICONINFORMATION,
                     );
                 }
@@ -1781,7 +1782,7 @@ pub fn run() -> Result<(), String> {
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             class.as_ptr(),
-            wide("ALTRun").as_ptr(),
+            wide("ALTRunNext").as_ptr(),
             WS_POPUP | WS_BORDER | WS_CLIPCHILDREN,
             400,
             220,
@@ -2223,7 +2224,7 @@ fn recent() {
 }
 fn about() {
     unsafe {
-        MessageBoxW(null_mut(),ui("ALTRun 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRun · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
+        MessageBoxW(null_mut(),ui("ALTRunNext 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRunNext · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
     }
 }
 fn open_settings() {
@@ -2859,7 +2860,7 @@ fn lifecycle(clean: bool) {
         if unsafe {
             MessageBoxW(
                 hwnd,
-                ui("关闭开机启动并移除“发送到”入口，然后退出 ALTRun？").as_ptr(),
+                ui("关闭开机启动并移除“发送到”入口，然后退出 ALTRunNext？").as_ptr(),
                 ui("移除系统集成").as_ptr(),
                 MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
             )

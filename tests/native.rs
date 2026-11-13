@@ -141,7 +141,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
     std::fs::write(&data, fixture).unwrap();
     for scale in ["100", "125", "150", "200"] {
         let _child = Running(
-            Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
+            Command::new(env!("CARGO_BIN_EXE_ALTRunNext"))
                 .arg("--show")
                 .arg("--enable-launch")
                 .arg("--ui-scale")

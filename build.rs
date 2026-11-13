@@ -29,5 +29,5 @@ fn main() {
         .status()
         .expect("Could not run cloud resource compiler");
     assert!(status.success(), "Windows resources failed to compile");
-    println!("cargo:rustc-link-arg-bin=altrun-probe={}", output.display());
+    println!("cargo:rustc-link-arg-bin=ALTRunNext={}", output.display());
 }

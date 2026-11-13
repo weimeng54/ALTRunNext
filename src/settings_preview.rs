@@ -219,7 +219,7 @@ impl Preview {
             }
         }
         let selected = matches.get(self.selected).or_else(|| matches.first());
-        let title = selected.map_or("ALTRun", |row| row.1);
+        let title = selected.map_or("ALTRunNext", |row| row.1);
         let draw_font = |key: &str, fallback| {
             Font::parse(&self.prefs.get(key)).ok().map_or_else(
                 || make_font(fallback, 400, "Microsoft YaHei UI", dpi),

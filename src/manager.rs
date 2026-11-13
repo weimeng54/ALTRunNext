@@ -833,7 +833,7 @@ fn run(
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
     {
-        return Err("请选择 ALTRun 的 TSV 快捷项数据文件。".into());
+        return Err("请选择 ALTRunNext 的 TSV 快捷项数据文件。".into());
     }
     let file = if path.exists() {
         Snapshot::open(&path)?
@@ -859,7 +859,7 @@ fn run(
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
-            ui("ALTRun · 管理快捷项").as_ptr(),
+            ui("ALTRunNext · 管理快捷项").as_ptr(),
             WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
             450,
             180,
@@ -1889,7 +1889,7 @@ fn paint_manager(hwnd: HWND) {
         ] {
             crate::theme_ui::fill(dc, &line, theme::divider());
         }
-        crate::theme_ui::panel_caption(dc, dpi, caption, "ALTRun 管理快捷项");
+        crate::theme_ui::panel_caption(dc, dpi, caption, "ALTRunNext 管理快捷项");
         SetBkMode(dc, TRANSPARENT as i32);
         SetTextColor(dc, theme::text());
         SelectObject(dc, font);

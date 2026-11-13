@@ -1585,7 +1585,7 @@ fn run_local_session(folder: &std::path::Path) -> Result<(), String> {
         }
     }
     let child = Probe(
-        std::process::Command::new(folder.join("altrun-probe.exe"))
+        std::process::Command::new(folder.join("ALTRunNext.exe"))
             .arg("--data")
             .arg(data)
             .spawn()

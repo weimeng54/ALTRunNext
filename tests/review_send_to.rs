@@ -20,7 +20,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
     std::fs::write(&file, "fixture").unwrap();
     std::fs::create_dir_all(&folder).unwrap();
     let (process, _) = start(&data, Some("--safe-mode"));
-    let second = Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
+    let second = Command::new(env!("CARGO_BIN_EXE_ALTRunNext"))
         .arg("--data")
         .arg(&data)
         .arg("--add")

@@ -10,8 +10,14 @@ fn imports_current_exports_and_previous_app_settings() {
     assert!(settings.flag("TraceEnable"));
     assert!(settings.flag("AllowDynamicTarget"));
     let output = settings.text();
-    assert!(output.starts_with("; ALTRun settings format 1\n"));
+    assert!(output.starts_with("; ALTRunNext settings format 1\n"));
     assert_eq!(Preferences::import(&output).unwrap(), settings);
+    assert_eq!(
+        Preferences::import("; ALTRun settings format 1\n[GUI]\nTheme=dark\n")
+            .unwrap()
+            .get("Theme"),
+        "dark"
+    );
 }
 
 #[test]

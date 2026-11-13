@@ -1,4 +1,4 @@
-# ALTRun native interaction contract
+# ALTRunNext native interaction contract
 
 Audience: Windows users who launch apps by keyboard. The app provides Simplified Chinese and English. Perceived responsiveness is the acceptance criterion.
 
@@ -27,7 +27,7 @@ Theme values live in theme.rs and are documented in DESIGN.md. Native controls o
 
 Settings run on an independent UI thread. Appearance previews are limited to the settings window until Save. Hotkey reservation failure preserves current bindings. File failure cancels reservations and restores integrations where possible. Startup and Send To changes occur only on Save. Reload or backup restore cannot overwrite a newer saved library.
 
-Stable IDs associate counts, favourites, recents and parameters across edits and reorderings. State writes coalesce off the UI thread; errors are visible, and shutdown flushes the writer. Search uses literal input with exact and prefix matches ranked first. A launch requires an explicit action, and ALTRun stays available after launching.
+Stable IDs associate counts, favourites, recents and parameters across edits and reorderings. State writes coalesce off the UI thread; errors are visible, and shutdown flushes the writer. Search uses literal input with exact and prefix matches ranked first. A launch requires an explicit action, and ALTRunNext stays available after launching.
 
 No-match Enter confirms adding; cancelling leaves the search visible. F2/Delete require a selected result, Insert prefills the query. Parameter entry freezes its target and supports history; Esc returns without execution. Sorting changes the management view. Manual moves and confirmed removals remain drafts until Save. Unknown/network/special targets are not automatically classified as missing.
 

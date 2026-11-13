@@ -46,7 +46,7 @@ pub fn window(class: &str, pid: u32) -> HWND {
     }
 }
 pub fn start(data: &Path, mode: Option<&str>) -> (Running, HWND) {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_altrun-probe"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ALTRunNext"));
     command.args(["--show", "--data"]).arg(data);
     if let Some(mode) = mode {
         command.arg(mode);

@@ -34,7 +34,7 @@ fn startup_shows_launcher_and_exits_cleanly_when_hotkey_is_taken() {
     );
     let _key = ReservedHotkey;
     let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
-        .unwrap_or_else(|| env!("CARGO_BIN_EXE_altrun-probe").into());
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     let mut process = Running(
         Command::new(exe)
             .args(["--safe-mode", "--data"])

@@ -144,3 +144,53 @@ fn integration_status_and_rollback_use_isolated_namespaces() {
     integration.apply(false, false).unwrap();
     assert_eq!(integration.status().unwrap(), (false, false));
 }
+
+#[test]
+#[cfg(windows)]
+fn send_to_rename_migrates_same_profile_and_leaves_other_links_alone() {
+    use altrun_probe::integration::Integration;
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target/integration-rename");
+    let root = root.join(std::process::id().to_string());
+    std::fs::create_dir_all(&root).unwrap();
+    let registry = format!(r"Software\ALTRunNext\Tests\{}", std::process::id());
+    let previous = Integration {
+        registry: registry.clone(),
+        name: "ALTRunModern-123456789abcdef0".into(),
+        send_to: root.join("ALTRunModern-123456789abcdef0.lnk"),
+        executable: std::env::current_exe().unwrap(),
+        data: root.join("shortcuts.tsv"),
+    };
+    let renamed = Integration {
+        registry: registry.clone(),
+        name: "ALTRunNext-123456789abcdef0".into(),
+        send_to: root.join("ALTRunNext.lnk"),
+        executable: previous.executable.clone(),
+        data: previous.data.clone(),
+    };
+    let other = Integration {
+        registry,
+        name: "ALTRunNext-fedcba9876543210".into(),
+        send_to: renamed.send_to.clone(),
+        executable: renamed.executable.clone(),
+        data: root.join("other.tsv"),
+    };
+    let original = root.join("ALTRun.lnk");
+    std::fs::write(&original, b"leave alone").unwrap();
+    previous.apply(true, true).unwrap();
+    assert_eq!(renamed.status().unwrap(), (true, true));
+    renamed.apply(true, true).unwrap();
+    assert_eq!(previous.status().unwrap(), (false, false));
+    assert_eq!(renamed.status().unwrap(), (true, true));
+    assert_eq!(other.status().unwrap(), (false, false));
+    other.apply(false, false).unwrap();
+    assert!(renamed.send_to.exists());
+    other.apply(false, true).unwrap();
+    assert_eq!(other.status().unwrap(), (false, true));
+    renamed.apply(false, false).unwrap();
+    assert!(other.send_to.exists());
+    other.apply(false, false).unwrap();
+    assert!(!other.send_to.exists());
+    assert_eq!(std::fs::read(original).unwrap(), b"leave alone");
+}

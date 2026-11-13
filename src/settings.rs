@@ -1013,9 +1013,7 @@ fn apply() {
             let integration = altrun_probe::integration::Integration::for_data(&s.data)?;
             let previous = integration.status()?;
             let requested = (prefs.flag("AutoRun"), prefs.flag("AddToSendTo"));
-            if previous != requested {
-                integration.apply(requested.0, requested.1)?;
-            }
+            integration.apply(requested.0, requested.1)?;
             if let Err(error) = s.file.save(&prefs.text()) {
                 if previous != requested {
                     let _ = integration.apply(previous.0, previous.1);
@@ -1455,7 +1453,7 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
     ] {
         theme_ui::fill(dc, &line, divider);
     }
-    theme_ui::panel_caption(dc, dpi, caption, "ALTRun 设置");
+    theme_ui::panel_caption(dc, dpi, caption, "ALTRunNext 设置");
     unsafe {
         let clip = SaveDC(dc);
         if clip != 0 {
@@ -2026,7 +2024,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 let hwnd = CreateWindowExW(
                     0,
                     class.as_ptr(),
-                    ui("ALTRun · 设置").as_ptr(),
+                    ui("ALTRunNext · 设置").as_ptr(),
                     WS_POPUP | WS_SYSMENU,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,

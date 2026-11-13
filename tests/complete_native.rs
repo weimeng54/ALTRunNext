@@ -321,7 +321,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         .with_file_name("cmd.exe");
     std::fs::write(&data,format!("self\tSynthetic launch\t\"{}\" /D /C echo ok>\"{}\"\t0\nabab\tRepeated alias\t__missing__.exe\t0\nparam\tParameter fixture\t__missing__.exe %p\t0\n",shell.display(),marker.display())).unwrap();
     let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
-        .unwrap_or_else(|| env!("CARGO_BIN_EXE_altrun-probe").into());
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     let child = Running(
         Command::new(&exe)
             .args(["--show", "--enable-launch", "--data"])
@@ -645,7 +645,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             }
             !settings_window.is_null() && IsWindowVisible(settings_window) != 0
         });
-        assert_eq!(text(settings_window), "ALTRun · Settings");
+        assert_eq!(text(settings_window), "ALTRunNext · Settings");
         assert_eq!(text(GetDlgItem(settings_window, 2310)), "Save and apply");
         command(settings_window, 2314);
         wait(|| IsWindow(settings_window) == 0);

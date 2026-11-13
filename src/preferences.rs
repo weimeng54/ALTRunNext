@@ -25,13 +25,13 @@ macro_rules! spec {
     };
 }
 pub const DEFAULT_POPUP_SOUND: &str = "Popup.wav";
-const SETTINGS_HEADER_PREFIX: &str = "; ALTRun settings format ";
-const SETTINGS_HEADER: &str = "; ALTRun settings format 1";
-pub const SETTINGS_IMPORT_FORMAT_ERROR: &str = "设置仅支持导入新版 ALTRun 导出的 INI 文件";
+const SETTINGS_HEADER_PREFIX: &str = "; ALTRunNext settings format ";
+const SETTINGS_HEADER: &str = "; ALTRunNext settings format 1";
+pub const SETTINGS_IMPORT_FORMAT_ERROR: &str = "请选择 ALTRunNext 导出的 INI 设置文件";
 
 pub const SPECS: &[Spec] = &[
     spec!("AutoRun", "开机启动", Bool, "0"),
-    spec!("AddToSendTo", "添加 ALTRun 到“发送到”菜单", Bool, "0"),
+    spec!("AddToSendTo", "在「发送到」菜单显示 ALTRunNext", Bool, "0"),
     spec!("MatchAnywhere", "允许中间和模糊匹配", Bool, "1"),
     spec!("EnglishSearch", "搜索框默认使用英文输入", Bool, "1"),
     spec!("NumberKey", "数字快捷执行", Bool, "1"),
@@ -144,8 +144,11 @@ impl Preferences {
         let mut current_format = false;
         let mut previous_format = false;
         for line in text.lines().map(str::trim) {
-            if line.starts_with(SETTINGS_HEADER_PREFIX) {
-                if line != SETTINGS_HEADER {
+            if let Some(version) = line
+                .strip_prefix(SETTINGS_HEADER_PREFIX)
+                .or_else(|| line.strip_prefix("; ALTRun settings format "))
+            {
+                if version != "1" {
                     return Err("不支持此设置文件版本".into());
                 }
                 current_format = true;
@@ -160,7 +163,7 @@ impl Preferences {
             let Some((key, _)) = line.split_once('=') else {
                 continue;
             };
-            // Exports made before the format marker always included these ALTRun
+            // Exports made before the format marker always included these ALTRunNext
             // settings, which were absent from the original application's INI.
             let keys: &[&str] = if section.eq_ignore_ascii_case("GUI") {
                 &[
