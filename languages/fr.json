@@ -21,6 +21,7 @@
     "settings.display_language": "Langue d’affichage",
     "settings.follow_system": "Suivre le système",
     "settings.window_title": "ALTRunNext · Paramètres",
+    "shortcut.unreadable_link": "Impossible de lire la cible de « {file} ». Sélectionnez le fichier ou dossier d’origine.",
     "ui.a_setting_cannot_contain_line_breaks_or": "Une valeur ne peut pas contenir de saut de ligne ni de caractère nul.",
     "ui.a_shortcut_can_have_only_one_main": "Un raccourci clavier ne peut avoir qu’une seule touche principale.",
     "ui.about_f1": "À propos\tF1",

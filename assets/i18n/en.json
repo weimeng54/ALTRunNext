@@ -21,6 +21,7 @@
     "settings.display_language": "Display language",
     "settings.follow_system": "Follow system",
     "settings.window_title": "ALTRunNext · Settings",
+    "shortcut.unreadable_link": "Could not read the target of “{file}”. Choose the original file or folder.",
     "ui.a_setting_cannot_contain_line_breaks_or": "A setting cannot contain line breaks or null characters.",
     "ui.a_shortcut_can_have_only_one_main": "A shortcut can have only one main key.",
     "ui.about_f1": "About\tF1",

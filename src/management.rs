@@ -129,6 +129,55 @@ pub fn absolute_path(path: &Path) -> Result<String, String> {
 }
 
 pub fn from_path(path: &Path) -> Result<Entry, String> {
+    #[cfg(windows)]
+    if is_shell_link(path) {
+        let mut current = path.to_owned();
+        let mut arguments = String::new();
+        let mut working_directory = String::new();
+        for _ in 0..8 {
+            let Some(target) = crate::shell_link::read(&current)
+                .filter(|target| valid_absolute_path(&target.path))
+            else {
+                break;
+            };
+            if arguments.is_empty() {
+                arguments = target.arguments;
+            }
+            if working_directory.is_empty() && valid_absolute_path(&target.working_directory) {
+                working_directory = target.working_directory;
+            }
+            current = target.path.into();
+            if !is_shell_link(&current) {
+                let mut entry = from_direct_path(&current)?;
+                if !arguments.is_empty() {
+                    entry.open_target = Some(OpenTarget::LinkArguments(arguments));
+                }
+                entry.working_directory = working_directory;
+                crate::library::validate(&entry)?;
+                return Ok(entry);
+            }
+        }
+        return Err(crate::localization::message(
+            "shortcut.unreadable_link",
+            &[(
+                "file",
+                &path
+                    .file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy(),
+            )],
+        ));
+    }
+    from_direct_path(path)
+}
+
+#[cfg(windows)]
+fn is_shell_link(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"))
+}
+
+fn from_direct_path(path: &Path) -> Result<Entry, String> {
     let text = absolute_path(path)?;
     let directory = path.is_dir();
     let name = if directory {

@@ -21,6 +21,7 @@
     "settings.display_language": "Idioma de la interfaz",
     "settings.follow_system": "Según el sistema",
     "settings.window_title": "ALTRunNext · Ajustes",
+    "shortcut.unreadable_link": "No se pudo leer el destino de «{file}». Selecciona el archivo o la carpeta original.",
     "ui.a_setting_cannot_contain_line_breaks_or": "Los valores no pueden contener saltos de línea ni caracteres nulos.",
     "ui.a_shortcut_can_have_only_one_main": "Cada atajo admite una sola tecla principal.",
     "ui.about_f1": "Acerca de\tF1",

@@ -251,9 +251,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
             }
             WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC | WM_CTLCOLORLISTBOX => {
                 let id = GetDlgCtrlID(l as HWND) as usize;
-                let background = if id == STATUS {
-                    theme::chrome()
-                } else if matches!(id, ALIAS | NAME | PATH | ROWS) {
+                let background = if matches!(id, ALIAS | NAME | PATH | ROWS) {
                     theme::paper()
                 } else {
                     theme::surface()

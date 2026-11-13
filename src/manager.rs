@@ -137,9 +137,6 @@ struct Editor {
     font: HFONT,
     heading: HFONT,
     caption: HFONT,
-    background: HBRUSH,
-    paper: HBRUSH,
-    selection: HBRUSH,
     dpi: i32,
     error: bool,
     parent: usize,
@@ -233,7 +230,7 @@ fn supports_parameter(entry: &Entry) -> bool {
             Some(OpenTarget::Path) => {
                 altrun_probe::management::is_executable(std::path::Path::new(&entry.command))
             }
-            Some(OpenTarget::Document(_)) => false,
+            Some(OpenTarget::Document(_) | OpenTarget::LinkArguments(_)) => false,
         }
 }
 
@@ -745,13 +742,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     return;
                 };
                 unsafe {
-                    FillRect(
+                    crate::theme_ui::fill(
                         d.hDC,
                         &d.rcItem,
                         if d.itemState & ODS_SELECTED != 0 {
-                            s.selection
+                            theme::selection()
                         } else {
-                            s.paper
+                            theme::paper()
                         },
                     );
                     if d.itemState & ODS_SELECTED != 0 {
@@ -856,7 +853,6 @@ fn run(
     crate::localization::install(&prefs.get("Lang"));
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
-        let background = CreateSolidBrush(theme::surface());
         let mut class: WNDCLASSW = zeroed();
         class.lpfnWndProc = Some(procedure);
         class.hInstance = instance;
@@ -1110,8 +1106,6 @@ fn run(
             SAVE,
         );
         let draft = file.entries.clone();
-        let paper = CreateSolidBrush(theme::paper());
-        let selection = CreateSolidBrush(theme::selection());
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
                 launch_enabled,
@@ -1134,9 +1128,6 @@ fn run(
                 font,
                 heading,
                 caption,
-                background,
-                paper,
-                selection,
                 dpi,
                 error: false,
                 parent,
@@ -1208,14 +1199,7 @@ fn run(
         }
         EDITOR.with(|c| {
             if let Some(s) = c.borrow_mut().take() {
-                for object in [
-                    s.font,
-                    s.heading,
-                    s.caption,
-                    s.background,
-                    s.paper,
-                    s.selection,
-                ] {
+                for object in [s.font, s.heading, s.caption] {
                     DeleteObject(object);
                 }
             }
@@ -1248,6 +1232,28 @@ fn apply_intake(hwnd: HWND) {
             .unwrap_or_default();
         if paths.is_empty() {
             break;
+        }
+        let settings_path = EDITOR.with(|c| {
+            c.borrow()
+                .as_ref()
+                .unwrap()
+                .file
+                .path
+                .with_extension("settings.ini")
+        });
+        if let Ok((_, text)) = altrun_probe::state_store::TextFile::open(&settings_path)
+            && let Ok(prefs) = altrun_probe::preferences::Preferences::parse(&text)
+        {
+            theme::install_chrome(&prefs);
+            theme::frame(hwnd);
+            unsafe {
+                RedrawWindow(
+                    hwnd,
+                    std::ptr::null(),
+                    null_mut(),
+                    RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME,
+                );
+            }
         }
         match paths
             .iter()

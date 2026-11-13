@@ -21,6 +21,7 @@
     "settings.display_language": "显示语言",
     "settings.follow_system": "跟随系统",
     "settings.window_title": "ALTRunNext · 设置",
+    "shortcut.unreadable_link": "无法读取“{file}”指向的目标。请选择原始文件或文件夹。",
     "ui.a_setting_cannot_contain_line_breaks_or": "设置值不能含换行或空字符",
     "ui.a_shortcut_can_have_only_one_main": "快捷键只能有一个主键",
     "ui.about_f1": "关于\tF1",

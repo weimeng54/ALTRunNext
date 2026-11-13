@@ -21,6 +21,7 @@
     "settings.display_language": "Anzeigesprache",
     "settings.follow_system": "Wie System",
     "settings.window_title": "ALTRunNext · Einstellungen",
+    "shortcut.unreadable_link": "Das Ziel von „{file}“ konnte nicht gelesen werden. Wählen Sie die Originaldatei oder den Ordner.",
     "ui.a_setting_cannot_contain_line_breaks_or": "Ein Einstellungswert darf keine Zeilenumbrüche oder Nullzeichen enthalten.",
     "ui.a_shortcut_can_have_only_one_main": "Ein Tastenkürzel darf nur eine Haupttaste enthalten.",
     "ui.about_f1": "Info\tF1",

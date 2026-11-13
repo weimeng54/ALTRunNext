@@ -21,6 +21,7 @@
     "settings.display_language": "表示言語",
     "settings.follow_system": "システム設定に従う",
     "settings.window_title": "ALTRunNext · 設定",
+    "shortcut.unreadable_link": "「{file}」のリンク先を読み取れません。元のファイルまたはフォルダーを選択してください。",
     "ui.a_setting_cannot_contain_line_breaks_or": "設定値に改行やヌル文字を含めることはできません。",
     "ui.a_shortcut_can_have_only_one_main": "ホットキーの主キーは 1 つだけ指定できます。",
     "ui.about_f1": "アプリについて\tF1",

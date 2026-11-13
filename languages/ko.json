@@ -21,6 +21,7 @@
     "settings.display_language": "표시 언어",
     "settings.follow_system": "시스템 설정 따르기",
     "settings.window_title": "ALTRunNext · 설정",
+    "shortcut.unreadable_link": "“{file}”의 대상을 읽을 수 없습니다. 원본 파일이나 폴더를 선택하세요.",
     "ui.a_setting_cannot_contain_line_breaks_or": "설정값에 줄 바꿈이나 널 문자를 넣을 수 없습니다.",
     "ui.a_shortcut_can_have_only_one_main": "단축키의 기본 키는 하나만 지정할 수 있습니다.",
     "ui.about_f1": "앱 정보\tF1",

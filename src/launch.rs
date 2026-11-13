@@ -85,6 +85,7 @@ pub fn resolve_entry(
             (entry.command.clone(), parameters)
         }
         OpenTarget::Document(None) => (entry.command.clone(), String::new()),
+        OpenTarget::LinkArguments(arguments) => (entry.command.clone(), arguments.clone()),
         OpenTarget::Document(Some(program)) => {
             if !Path::new(program).is_file() {
                 return Err("ui.the_selected_app_could_not_be_found".into());
@@ -98,9 +99,13 @@ pub fn resolve_entry(
             )
         }
     };
-    let directory = crate::management::is_executable(Path::new(&file))
-        .then(|| Path::new(&file).parent())
-        .flatten()
+    let directory = (!entry.working_directory.is_empty())
+        .then(|| Path::new(&entry.working_directory))
+        .or_else(|| {
+            crate::management::is_executable(Path::new(&file))
+                .then(|| Path::new(&file).parent())
+                .flatten()
+        })
         .filter(|path| {
             *path != Path::new(&context.base_directory)
                 && std::env::current_exe()

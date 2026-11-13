@@ -100,6 +100,7 @@ impl ParamType {
 pub enum OpenTarget {
     Path,
     Document(Option<String>),
+    LinkArguments(String),
 }
 
 impl OpenTarget {
@@ -109,6 +110,9 @@ impl OpenTarget {
             ("path", "") => Ok(Some(Self::Path)),
             ("document", "") => Ok(Some(Self::Document(None))),
             ("document", program) => Ok(Some(Self::Document(Some(program.into())))),
+            ("link", arguments) if !arguments.is_empty() => {
+                Ok(Some(Self::LinkArguments(arguments.into())))
+            }
             _ => Err("ui.unrecognized_file_opening_method".into()),
         }
     }
@@ -117,6 +121,7 @@ impl OpenTarget {
         match self {
             Self::Path => ("path", ""),
             Self::Document(program) => ("document", program.as_deref().unwrap_or("")),
+            Self::LinkArguments(arguments) => ("link", arguments),
         }
     }
 }
@@ -144,6 +149,11 @@ pub(crate) fn validate(e: &Entry) -> Result<(), String> {
                 || !crate::management::is_executable(Path::new(program)))
         {
             return Err("ui.select_a_valid_exe_application".into());
+        }
+        if let OpenTarget::LinkArguments(arguments) = target
+            && (arguments.is_empty() || arguments.contains(['\0', '\t', '\r', '\n']))
+        {
+            return Err("ui.the_command_or_arguments_contain_invalid_control".into());
         }
     }
     Ok(())

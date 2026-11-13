@@ -260,6 +260,8 @@ pub mod local_target;
 pub mod localization;
 pub mod management;
 pub mod preferences;
+#[cfg(windows)]
+mod shell_link;
 pub mod state_store;
 pub mod textcodec;
 pub mod usage;
