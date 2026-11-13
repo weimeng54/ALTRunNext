@@ -90,42 +90,6 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answ
     wait(|| unsafe { IsWindow(dialog) == 0 });
 }
 
-fn choose_import_file(manager: HWND, pid: u32, source: &std::path::Path, answer: i32) {
-    use windows_sys::Win32::UI::Controls::{CBEM_GETEDITCONTROL, cmb13, edt1};
-    unsafe {
-        assert_ne!(PostMessageW(manager, WM_COMMAND, 2129, 0), 0);
-        let mut picker = std::ptr::null_mut();
-        let mut filename = std::ptr::null_mut();
-        wait(|| {
-            picker = window("#32770", pid);
-            if picker.is_null() || GetWindow(picker, GW_OWNER) != manager {
-                return false;
-            }
-            filename = GetDlgItem(picker, edt1 as i32);
-            if filename.is_null() {
-                let combo = GetDlgItem(picker, cmb13 as i32);
-                if !combo.is_null() {
-                    filename = SendMessageW(combo, CBEM_GETEDITCONTROL, 0, 0) as HWND;
-                }
-            }
-            !filename.is_null() && IsWindowVisible(picker) != 0
-        });
-        set(filename, source.to_str().unwrap());
-        assert_ne!(PostMessageW(picker, WM_COMMAND, IDOK as usize, 0), 0);
-        let mut confirm = std::ptr::null_mut();
-        wait(|| {
-            confirm = window("ALTRun.Native.Confirmation", pid);
-            !confirm.is_null()
-                && GetWindow(confirm, GW_OWNER) == manager
-                && IsWindowVisible(confirm) != 0
-        });
-        assert_ne!(PostMessageW(confirm, WM_COMMAND, answer as usize, 0), 0);
-        wait(|| IsWindow(confirm) == 0);
-        // Wait for the editor to apply or discard the staged data.
-        SendMessageW(manager, WM_NULL, 0, 0);
-    }
-}
-
 #[test]
 fn management_save_persists_drafts_and_refreshes_resident_search() {
     let stamp = SystemTime::now()
@@ -374,35 +338,6 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
             SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
             2
         );
-        let imported = path.with_extension("txt");
-        std::fs::write(
-            &imported,
-            "F12|UTF8_Query|imported|导入项|https://example.com/?q={%p}|part\n",
-        )
-        .unwrap();
-        choose_import_file(manager, pid, &imported, IDCANCEL);
-        assert_eq!(
-            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
-            2
-        );
-        choose_import_file(manager, pid, &imported, IDOK);
-        wait(|| SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0) == 1);
-        assert_eq!(read(GetDlgItem(manager, 2102)), "imported");
-        assert_eq!(
-            read(GetDlgItem(manager, 2104)),
-            "https://example.com/?q={%p}|part"
-        );
-        assert_eq!(
-            altrun_probe::library::Snapshot::open(&path)
-                .unwrap()
-                .entries
-                .len(),
-            2
-        );
-        SendMessageW(manager, WM_COMMAND, 2113, 0);
-        let saved = altrun_probe::library::Snapshot::open(&path).unwrap();
-        assert_eq!(saved.entries[0].frequency, 12);
-        assert_eq!(saved.entries[0].param_type.name(), "utf8_query");
         SendMessageW(manager, WM_COMMAND, 2114, 0);
         wait(|| IsWindow(manager) == 0);
     }

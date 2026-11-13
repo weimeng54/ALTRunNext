@@ -38,7 +38,7 @@ fn executable_added_from_explorer_keeps_path_and_arguments_separate() {
         &launch::LaunchContext::default(),
     )
     .unwrap();
-    assert_eq!(request.file, path.to_str().unwrap());
+    assert_eq!(std::path::Path::new(&request.file), path);
     assert_eq!(request.parameters, r#""D:\A folder\document.txt""#);
     assert!(
         launch::resolve_entry(&entry, Some("a\nb"), &launch::LaunchContext::default(),).is_err()
