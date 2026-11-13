@@ -94,11 +94,11 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
     assert_eq!(entries[2].command, folder.to_str().unwrap());
     assert_eq!(entries[2].open_target, Some(OpenTarget::Path));
 
-    let executable = root.join("实际 程序.exe");
+    let executable = root.join("Actual Program.exe");
     std::fs::copy(altrun_probe::safe_notepad_path().unwrap(), &executable).unwrap();
-    let link = root.join("不同的快捷方式名称.LNK");
-    let document = root.join("真实 文档.txt");
-    let document_link = root.join("文档别名.lnk");
+    let link = root.join("Different Shortcut.lnk");
+    let document = root.join("Actual Document.txt");
+    let document_link = root.join("Document Shortcut.lnk");
     std::fs::write(&document, "fixture").unwrap();
     let setup = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", concat!(
@@ -123,8 +123,8 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         !dialog.is_null() && unsafe { IsWindowVisible(dialog) != 0 }
     });
     unsafe {
-        assert_eq!(text(GetDlgItem(dialog, 3101)), "实际 程序");
-        assert_eq!(text(GetDlgItem(dialog, 3102)), "实际 程序");
+        assert_eq!(text(GetDlgItem(dialog, 3101)), "Actual Program");
+        assert_eq!(text(GetDlgItem(dialog, 3102)), "Actual Program");
         assert_eq!(text(GetDlgItem(dialog, 3103)), executable.to_str().unwrap());
         assert_eq!(IsWindowVisible(GetDlgItem(dialog, 3105)), 0);
         assert_surface(dialog, 25 | (30 << 8) | (37 << 16));
@@ -137,8 +137,8 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
             3104 | ((LBN_SELCHANGE as usize) << 16),
             list as isize,
         );
-        assert_eq!(text(GetDlgItem(dialog, 3101)), "真实 文档");
-        assert_eq!(text(GetDlgItem(dialog, 3102)), "真实 文档.txt");
+        assert_eq!(text(GetDlgItem(dialog, 3101)), "Actual Document");
+        assert_eq!(text(GetDlgItem(dialog, 3102)), "Actual Document.txt");
         assert_eq!(text(GetDlgItem(dialog, 3103)), document.to_str().unwrap());
         assert_ne!(IsWindowVisible(GetDlgItem(dialog, 3105)), 0);
         command(dialog, 1);
