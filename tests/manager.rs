@@ -86,9 +86,16 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32, after_drag: impl FnOnce())
         let first = column_width(0);
         let wider = first + dpi;
         let divider = first - 1;
+        let mut origin = POINT::default();
+        ClientToScreen(header, &mut origin);
+        let mut old_cursor = POINT::default();
+        GetCursorPos(&mut old_cursor);
+        SetCursorPos(origin.x + divider, origin.y + 8);
         mouse(WM_LBUTTONDOWN, 1, divider);
+        SetCursorPos(origin.x + divider + dpi, origin.y + 8);
         mouse(WM_MOUSEMOVE, 1, divider + dpi);
         mouse(WM_LBUTTONUP, 0, divider + dpi);
+        SetCursorPos(old_cursor.x, old_cursor.y);
         assert_eq!(
             column_width(0),
             wider,
@@ -106,8 +113,10 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32, after_drag: impl FnOnce())
         SendMessageW(list, WM_HSCROLL, SB_LEFT as usize, 0);
         assert_eq!(GetScrollPos(list, SB_HORZ), 0);
 
+        SetCursorPos(origin.x + wider - 1, origin.y + 8);
         mouse(WM_LBUTTONDBLCLK, 1, wider - 1);
         mouse(WM_LBUTTONUP, 0, wider - 1);
+        SetCursorPos(old_cursor.x, old_cursor.y);
         assert!(column_width(0) < wider, "double-click must fit the content");
         SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, first as isize);
     }
