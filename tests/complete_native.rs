@@ -465,7 +465,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             assert!(setting(dialog, key).is_null(), "{key}");
         }
         let region = CreateRectRgn(0, 0, 1, 1);
-        assert_ne!(GetWindowRgn(dialog, region), 0);
+        wait(|| GetWindowRgn(dialog, region) != 0);
         assert_eq!(PtInRegion(region, 0, 0), 0);
         assert_ne!(PtInRegion(region, 60, 20), 0);
         DeleteObject(region);

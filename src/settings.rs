@@ -2158,6 +2158,12 @@ pub fn open(
                 }
                 theme::frame(hwnd);
                 let dpi = crate::window_geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
+                theme_ui::round_panel(
+                    hwnd,
+                    scaled(layout::WIDTH, dpi),
+                    scaled(layout::HEIGHT, dpi),
+                    dpi,
+                );
                 let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
                 let heading_font = make_font(27, 700, "Microsoft YaHei UI", dpi);
                 let about_font = make_font(23, 700, "Microsoft YaHei UI", dpi);
@@ -2747,14 +2753,8 @@ pub fn open(
                 });
                 load_form(&prefs);
                 show_page(if about { layout::ABOUT_PAGE } else { 0 });
-                theme_ui::round_panel(
-                    hwnd,
-                    scaled(layout::WIDTH, dpi),
-                    scaled(layout::HEIGHT, dpi),
-                    dpi,
-                );
-                ShowWindow(hwnd, SW_SHOW);
                 WINDOW.store(hwnd as usize, Ordering::Release);
+                ShowWindow(hwnd, SW_SHOW);
                 SetFocus(tabs);
                 let mut msg: MSG = std::mem::zeroed();
                 while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
