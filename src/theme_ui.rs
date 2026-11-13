@@ -191,7 +191,12 @@ fn update_scrollbar(list: HWND, scrollbar: HWND, horizontal: bool) {
         };
         let mut bounds = RECT::default();
         GetWindowRect(scrollbar, &mut bounds);
-        let track = bar.rcScrollBar;
+        let mut track = bar.rcScrollBar;
+        if horizontal && let Some(vertical) = vertical_scrollbar(list) {
+            // The native size box between the two scrollbars uses the system
+            // background. Extend the themed track across that corner.
+            track.right = track.right.max(vertical.rcScrollBar.right);
+        }
         if !visible || EqualRect(&bounds, &track) == 0 {
             let mut origin = POINT {
                 x: track.left,
