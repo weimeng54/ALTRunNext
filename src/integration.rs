@@ -152,6 +152,10 @@ impl Integration {
         format!("--enable-launch --data \"{}\" --add", self.data.display())
     }
 
+    fn link_icon(&self) -> String {
+        format!("{},0", self.executable.display())
+    }
+
     fn link_state(&self) -> Result<LinkState, String> {
         if !self
             .send_to
@@ -161,10 +165,11 @@ impl Integration {
             return Ok(LinkState::Other);
         }
         let script = format!(
-            "$ErrorActionPreference='Stop';$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut({});if($s.Arguments -ne {}){{exit 3}};if($s.TargetPath -ne {}){{exit 4}}",
+            "$ErrorActionPreference='Stop';$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut({});if($s.Arguments -ne {}){{exit 3}};if($s.TargetPath -ne {} -or $s.IconLocation -ne {}){{exit 4}}",
             ps_quote(&self.send_to.to_string_lossy()),
             ps_quote(&self.link_arguments()),
             ps_quote(&self.executable.to_string_lossy()),
+            ps_quote(&self.link_icon()),
         );
         match run_script(&script)?.code() {
             Some(0) => Ok(LinkState::Current),
@@ -190,10 +195,11 @@ impl Integration {
             std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
         }
         let script = format!(
-            "$ErrorActionPreference='Stop';$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut({});$s.TargetPath={};$s.Arguments={};$s.WorkingDirectory={};$s.Save()",
+            "$ErrorActionPreference='Stop';$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut({});$s.TargetPath={};$s.Arguments={};$s.IconLocation={};$s.WorkingDirectory={};$s.Save()",
             ps_quote(&self.send_to.to_string_lossy()),
             ps_quote(&self.executable.to_string_lossy()),
             ps_quote(&self.link_arguments()),
+            ps_quote(&self.link_icon()),
             ps_quote(
                 &self
                     .data

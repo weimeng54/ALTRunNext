@@ -8,7 +8,9 @@ use std::{
 };
 use windows_sys::Win32::System::{DataExchange::*, Memory::*};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    IsWindowEnabled, RegisterHotKey, UnregisterHotKey,
+};
 use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
 #[repr(C)]
 #[derive(Default)]
@@ -181,6 +183,7 @@ fn settings_design(hwnd: HWND) {
         "appearance",
         "type",
         "position",
+        "about",
     ];
     for (theme, segment) in [("light", 2331), ("dark", 2332)] {
         select_page(hwnd, 3);
@@ -431,7 +434,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
         let size = |rect: RECT| (rect.right - rect.left, rect.bottom - rect.top);
         let initial_size = size(bounds(dialog));
-        for page in 1..=5 {
+        for page in 1..=6 {
             select_page(dialog, page);
             assert_eq!(size(bounds(dialog)), initial_size, "settings page {page}");
             assert_eq!(
@@ -439,7 +442,30 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 0
             );
         }
-        assert_eq!(SendMessageW(GetDlgItem(dialog, 2301), LB_GETCOUNT, 0, 0), 6);
+        assert_eq!(SendMessageW(GetDlgItem(dialog, 2301), LB_GETCOUNT, 0, 0), 7);
+        assert_eq!(IsWindowEnabled(GetDlgItem(dialog, 2310)), 0);
+        for id in 2360..=2363 {
+            assert_ne!(IsWindowVisible(GetDlgItem(dialog, id)), 0);
+        }
+        SendMessageW(GetDlgItem(dialog, 2360), BM_CLICK, 0, 0);
+        wait(|| OpenClipboard(null_mut()) != 0);
+        let address = GetClipboardData(13);
+        assert!(!address.is_null());
+        let pointer = GlobalLock(address) as *const u16;
+        assert!(!pointer.is_null());
+        let contents = std::slice::from_raw_parts(pointer, GlobalSize(address) / 2);
+        let end = contents
+            .iter()
+            .position(|&ch| ch == 0)
+            .unwrap_or(contents.len());
+        let address_text = String::from_utf16(&contents[..end]).unwrap();
+        GlobalUnlock(address);
+        CloseClipboard();
+        assert_eq!(address_text, "weimeng54@qq.com");
+        select_page(dialog, 0);
+        assert_eq!(IsWindowVisible(GetDlgItem(dialog, 2360)), 0);
+        command(launcher, 18007);
+        wait(|| SendMessageW(GetDlgItem(dialog, 2301), LB_GETCURSEL, 0, 0) == 6);
         for key in [
             "WorkingDirectory",
             "ParamHistoryLimit",

@@ -33,3 +33,5 @@ Appearance and Fonts and Colors show a live launcher preview with sample command
 The manager reveals the parameter format only when a shortcut asks for input at launch. Document shortcuts offer an open-with choice. Explorer opens a compact quick-add dialog, with a scrollable table for multiple items. New file-system targets store absolute paths independently of command text. Lists expose text to native accessibility. Windows fit the active monitor's work area. The launcher can optionally remember a manually dragged position.
 
 The launcher uses a two-column result list with a configurable visible row count. Numeric edits share one rounded field with inset up and down arrows. The image strength slider and its numeric field stay in sync.
+
+About is the final settings page. The profile card shows the installed version, author and a copyable email. The links card opens Releases, source and issue reporting in the default browser. The blue terminal mark is shared by the executable, tray, Send To shortcut, title bars and About card.

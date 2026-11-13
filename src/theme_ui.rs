@@ -6,6 +6,7 @@ use crate::{
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
+    System::LibraryLoader::GetModuleHandleW,
     UI::{
         Controls::*,
         Input::KeyboardAndMouse::GetFocus,
@@ -212,33 +213,68 @@ unsafe extern "system" fn scrollbar_proc(
     }
 }
 
-fn caption_mark(dc: HDC, dpi: i32) {
-    let px = |value| scaled(value, dpi);
-    let bounds = RECT {
-        left: px(16),
-        top: px(12),
-        right: px(34),
-        bottom: px(30),
-    };
-    rounded(dc, bounds, px(10), theme::accent(), theme::accent());
-    let point = |x, y| POINT {
-        x: bounds.left + px(x),
-        y: bounds.top + px(y),
-    };
-    let chevron = [point(4, 5), point(9, 9), point(4, 13)];
-    let baseline = [point(10, 13), point(15, 13)];
-    unsafe {
-        let pen = CreatePen(PS_SOLID, px(1).max(1), theme::on_accent());
-        let old = SelectObject(dc, pen);
-        Polyline(dc, chevron.as_ptr(), chevron.len() as i32);
-        Polyline(dc, baseline.as_ptr(), baseline.len() as i32);
-        SelectObject(dc, old);
-        DeleteObject(pen);
+struct AppIcon(HICON);
+
+impl Drop for AppIcon {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                DestroyIcon(self.0);
+            }
+        }
+    }
+}
+
+pub fn app_icon(size: i32) -> HICON {
+    thread_local! {
+        static ICONS: std::cell::RefCell<std::collections::BTreeMap<i32, AppIcon>> =
+            const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+    }
+    ICONS.with(|icons| {
+        icons
+            .borrow_mut()
+            .entry(size)
+            .or_insert_with(|| {
+                AppIcon(unsafe {
+                    LoadImageW(
+                        GetModuleHandleW(std::ptr::null()),
+                        1usize as _,
+                        IMAGE_ICON,
+                        size,
+                        size,
+                        0,
+                    ) as HICON
+                })
+            })
+            .0
+    })
+}
+
+pub fn draw_app_icon(dc: HDC, bounds: RECT) {
+    let size = bounds.right - bounds.left;
+    let icon = app_icon(size);
+    if !icon.is_null() {
+        unsafe {
+            DrawIconEx(
+                dc,
+                bounds.left,
+                bounds.top,
+                icon,
+                size,
+                size,
+                0,
+                std::ptr::null_mut(),
+                DI_NORMAL,
+            );
+        }
     }
 }
 
 pub fn panel_caption(dc: HDC, dpi: i32, font: HFONT, title: &str) {
-    caption_mark(dc, dpi);
+    draw_app_icon(
+        dc,
+        crate::settings_layout::BoxRect::new(16, 12, 18, 18).pixels(dpi),
+    );
     unsafe {
         let old = SelectObject(dc, font);
         line_text(

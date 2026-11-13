@@ -28,7 +28,7 @@ shortcuts.tsv / shortcuts.settings.ini / shortcuts.state.tsv
 「外观」支持浅色、深色和跟随系统。背景图可选择强度与裁切位置，预览可试输快捷字。
 「字体与颜色」可以分别调整标题、输入框和结果列表的字体，保存后应用到启动面板。
 
-项目：https://github.com/weimeng54/altrun
+项目：https://github.com/weimeng54/ALTRunNext
 依赖许可证见 licenses。
 
 English quick start

@@ -16,7 +16,7 @@ import datetime
 import re
 import hashlib
 
-REPO = 'weimeng54/altrun'
+REPO = 'weimeng54/ALTRunNext'
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):

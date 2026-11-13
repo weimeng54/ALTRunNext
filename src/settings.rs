@@ -25,7 +25,7 @@ use windows_sys::Win32::{
     UI::{
         Controls::{Dialogs::*, *},
         Input::KeyboardAndMouse::*,
-        Shell::{DefSubclassProc, SetWindowSubclass},
+        Shell::{DefSubclassProc, SetWindowSubclass, ShellExecuteW},
         WindowsAndMessaging::*,
     },
 };
@@ -56,6 +56,33 @@ const PICK: usize = 2500;
 const CLEAR: usize = 2600;
 const STRENGTH_UNIT: usize = 2355;
 const OWNER_STATIC: u32 = 0x0d;
+const OPEN_ABOUT: u32 = WM_APP + 2;
+const COPY_EMAIL: usize = 2360;
+const OPEN_RELEASES: usize = 2361;
+const OPEN_SOURCE: usize = 2362;
+const OPEN_ISSUES: usize = 2363;
+const ABOUT_SECONDARY: usize = 2364;
+const CONTACT_EMAIL: &str = "weimeng54@qq.com";
+const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
+    (
+        OPEN_RELEASES,
+        "下载最新版",
+        "打开发布页",
+        "https://github.com/weimeng54/ALTRunNext/releases",
+    ),
+    (
+        OPEN_SOURCE,
+        "查看源码",
+        "打开仓库",
+        "https://github.com/weimeng54/ALTRunNext",
+    ),
+    (
+        OPEN_ISSUES,
+        "反馈问题",
+        "打开问题页",
+        "https://github.com/weimeng54/ALTRunNext/issues",
+    ),
+];
 
 pub enum Change {
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
@@ -133,6 +160,11 @@ const PAGES: &[Page] = &[
         name: "窗口位置",
         hint: "窗口默认在当前屏幕居中。",
         keys: &["PositionMode", "HideDelay"],
+    },
+    Page {
+        name: "关于",
+        hint: "",
+        keys: &[],
     },
 ];
 
@@ -453,7 +485,7 @@ fn show_page(page: usize) {
         SendMessageW(tabs, LB_SETCURSEL, page, 0);
         SetWindowTextW(title, ui(design.name).as_ptr());
         SetWindowTextW(hint, ui(design.hint).as_ptr());
-        show_without_redraw(hint, true);
+        show_without_redraw(hint, !design.hint.is_empty());
         SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visible = field.page == page
@@ -476,6 +508,7 @@ fn show_page(page: usize) {
             show_without_redraw(hwnd, matches!(page, 3 | 4));
         }
     }
+    sync_save_button(window);
     update_background_mode();
     update_preview();
     if matches!(page, 3 | 4) {
@@ -728,6 +761,49 @@ fn validated_form() -> Option<Preferences> {
             None
         }
     }
+}
+
+fn form_is_dirty() -> bool {
+    read_form().map_or(true, |prefs| {
+        EDITOR.with(|c| c.borrow().as_ref().unwrap().saved != prefs)
+    })
+}
+
+fn sync_save_button(window: HWND) {
+    let about = EDITOR.with(|c| c.borrow().as_ref().unwrap().page == layout::ABOUT_PAGE);
+    unsafe {
+        EnableWindow(
+            GetDlgItem(window, 2310),
+            i32::from(!about || form_is_dirty()),
+        );
+    }
+}
+
+fn about_action(hwnd: HWND, id: usize) -> bool {
+    if id == COPY_EMAIL {
+        match crate::native::copy_text(hwnd, CONTACT_EMAIL) {
+            Ok(()) => status("已复制邮箱地址。"),
+            Err(error) => status(&error),
+        }
+        return true;
+    }
+    let Some((_, _, _, url)) = PROJECT_LINKS.iter().find(|(action, _, _, _)| *action == id) else {
+        return false;
+    };
+    let result = unsafe {
+        ShellExecuteW(
+            hwnd,
+            wide("open").as_ptr(),
+            wide(url).as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as usize <= 32 {
+        status("无法打开链接，请在浏览器中访问该地址。");
+    }
+    true
 }
 
 fn strength_label(field: Field, strength: i32) {
@@ -1032,6 +1108,7 @@ fn apply() {
             load_form(&prefs);
             refresh_style(&prefs);
             update_preview();
+            sync_save_button(EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd));
             status(if language_changed {
                 "语言已保存。重新打开设置即可查看。"
             } else {
@@ -1255,7 +1332,7 @@ fn draw(item: &DRAWITEMSTRUCT) {
                 theme::control_surface()
             };
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
-            theme_ui::button_on(item, id == 2310, background, dpi);
+            theme_ui::button_on(item, matches!(id, 2310 | OPEN_RELEASES), background, dpi);
         }
         return;
     }
@@ -1454,6 +1531,29 @@ fn paint_settings(hwnd: HWND, dc: HDC) {
         theme_ui::fill(dc, &line, divider);
     }
     theme_ui::panel_caption(dc, dpi, caption, "ALTRunNext 设置");
+    if page == layout::ABOUT_PAGE {
+        for (bounds, rules) in [
+            (layout::ABOUT_PROFILE, &[80, 133][..]),
+            (layout::ABOUT_LINKS, &[68, 136][..]),
+        ] {
+            let rect = bounds.pixels(dpi);
+            theme_ui::rounded(dc, rect, px(18), theme::control_surface(), divider);
+            for &offset in rules {
+                let y = px(bounds.y + offset);
+                theme_ui::fill(
+                    dc,
+                    &RECT {
+                        left: rect.left + 1,
+                        top: y,
+                        right: rect.right - 1,
+                        bottom: y + 1,
+                    },
+                    divider,
+                );
+            }
+        }
+        theme_ui::draw_app_icon(dc, BoxRect::new(230, 151, 42, 42).pixels(dpi));
+    }
     unsafe {
         let clip = SaveDC(dc);
         if clip != 0 {
@@ -1620,7 +1720,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         if l as HWND == s.hint
                             || l as HWND == s.status
                             || filename
-                            || control_id == APPEARANCE_NOTE
+                            || matches!(control_id, APPEARANCE_NOTE | ABOUT_SECONDARY)
                             || IsWindowEnabled(l as HWND) == 0
                         {
                             theme::muted()
@@ -1698,9 +1798,16 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 DefWindowProcW(hwnd, msg, w, l)
             }
         }
+        OPEN_ABOUT => {
+            show_page(layout::ABOUT_PAGE);
+            0
+        }
         WM_COMMAND => {
             let id = w & 65535;
             let code = (w >> 16) as u32;
+            if code == BN_CLICKED && about_action(hwnd, id) {
+                return 0;
+            }
             if (SEGMENT..SEGMENT + 5).contains(&id) && code == BN_CLICKED {
                 unsafe {
                     if id < SEGMENT + 3 {
@@ -1900,6 +2007,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     ) {
                         load_form(&Preferences::default());
                         update_preview();
+                        sync_save_button(hwnd);
                         status("已载入默认设置，保存后生效。");
                     }
                 }
@@ -1921,6 +2029,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 prefs.set("AddToSendTo", "0").unwrap();
                                 load_form(&prefs);
                                 update_preview();
+                                sync_save_button(hwnd);
                                 status("已导入，保存后生效。请按需重新启用系统集成。");
                             }
                             Err(e) => status(&e),
@@ -1959,9 +2068,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         WM_CLOSE => {
             stop_capture();
-            let dirty = read_form().map_or(true, |prefs| {
-                EDITOR.with(|c| c.borrow().as_ref().unwrap().saved != prefs)
-            });
+            let dirty = form_is_dirty();
             if dirty && !crate::input_dialog::confirm(hwnd, "关闭设置", "放弃尚未保存的设置？")
             {
                 return 0;
@@ -1981,7 +2088,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         _ => unsafe { DefWindowProcW(hwnd, msg, w, l) },
     }
 }
-pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender<Change>) {
+pub fn open(
+    path: PathBuf,
+    prefs: Preferences,
+    owner: HWND,
+    sender: mpsc::Sender<Change>,
+    about: bool,
+) {
     if WINDOW
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
@@ -1989,6 +2102,9 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
         let h = WINDOW.load(Ordering::Acquire);
         if h > 1 {
             unsafe {
+                if about {
+                    PostMessageW(h as HWND, OPEN_ABOUT, 0, 0);
+                }
                 ShowWindow(h as HWND, SW_SHOW);
                 SetForegroundWindow(h as HWND);
             }
@@ -2019,6 +2135,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 wc.hInstance = instance;
                 wc.lpszClassName = class.as_ptr();
                 wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
+                wc.hIcon = theme_ui::app_icon(GetSystemMetrics(SM_CXICON));
                 wc.hbrBackground = null_mut();
                 RegisterClassW(&wc);
                 let hwnd = CreateWindowExW(
@@ -2167,6 +2284,82 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     sections.push((card.page, group));
                 }
                 let mut extra_controls = Vec::new();
+                let version = format!(
+                    "{} {}",
+                    crate::localization::tr("版本"),
+                    env!("CARGO_PKG_VERSION")
+                );
+                let about_page = layout::ABOUT_PAGE;
+                let centered_text = theme_ui::STATIC_CENTER_IMAGE;
+                for (label, x, y, width, height, style, face, id) in [
+                    (
+                        "ALTRunNext",
+                        286,
+                        145,
+                        500,
+                        35,
+                        centered_text,
+                        heading_font,
+                        0,
+                    ),
+                    (
+                        version.as_str(),
+                        286,
+                        176,
+                        500,
+                        23,
+                        centered_text,
+                        small_font,
+                        ABOUT_SECONDARY,
+                    ),
+                    ("作者", 230, 226, 180, 24, centered_text, font, 0),
+                    ("weimeng54", 590, 226, 467, 24, centered_text | 2, font, 0),
+                    ("联系邮箱", 230, 281, 180, 24, centered_text, font, 0),
+                    (CONTACT_EMAIL, 570, 281, 398, 24, centered_text | 2, font, 0),
+                    (
+                        "项目链接",
+                        214,
+                        348,
+                        500,
+                        26,
+                        centered_text,
+                        section_font,
+                        0,
+                    ),
+                ] {
+                    let child = control("STATIC", label, style, x, y, width, height, id);
+                    SendMessageW(child, WM_SETFONT, face as usize, 0);
+                    extra_controls.push((about_page, child));
+                }
+                extra_controls.push((
+                    about_page,
+                    control("BUTTON", "复制", WS_TABSTOP, 987, 275, 70, 36, COPY_EMAIL),
+                ));
+                for (row, (id, label, button, url)) in PROJECT_LINKS.into_iter().enumerate() {
+                    let y = layout::ABOUT_LINKS.y + row as i32 * 68;
+                    let heading = control("STATIC", label, centered_text, 230, y + 10, 640, 25, 0);
+                    SendMessageW(heading, WM_SETFONT, section_font as usize, 0);
+                    let address = control(
+                        "STATIC",
+                        url.trim_start_matches("https://"),
+                        centered_text,
+                        230,
+                        y + 34,
+                        640,
+                        24,
+                        ABOUT_SECONDARY,
+                    );
+                    SendMessageW(address, WM_SETFONT, small_font as usize, 0);
+                    let action = control("BUTTON", button, WS_TABSTOP, 931, y + 16, 126, 36, id);
+                    if id == OPEN_RELEASES {
+                        SendMessageW(action, WM_SETFONT, section_font as usize, 0);
+                    }
+                    extra_controls.extend([
+                        (about_page, heading),
+                        (about_page, address),
+                        (about_page, action),
+                    ]);
+                }
                 for (page, caption, bounds) in [
                     (
                         0,
@@ -2537,7 +2730,7 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                     });
                 });
                 load_form(&prefs);
-                show_page(0);
+                show_page(if about { layout::ABOUT_PAGE } else { 0 });
                 theme_ui::round_panel(
                     hwnd,
                     scaled(layout::WIDTH, dpi),

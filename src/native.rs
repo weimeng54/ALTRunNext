@@ -792,7 +792,7 @@ fn show_menu(hwnd: HWND, tray: bool) {
                 (ID_OPEN_FOLDER, "打开所在文件夹\tCtrl+D"),
                 (ID_RECENT, "最近启动\tCtrl+L"),
                 (0, ""),
-                (ID_ABOUT, "帮助和关于\tF1"),
+                (ID_ABOUT, "关于\tF1"),
                 (ID_HIDE, "隐藏"),
             ]
         };
@@ -834,7 +834,8 @@ fn tray_icon(hwnd: HWND, operation: u32) {
         icon.uID = 1;
         icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         icon.uCallbackMessage = TRAY;
-        icon.hIcon = LoadIconW(GetModuleHandleW(std::ptr::null()), 1usize as _);
+        icon.hIcon =
+            crate::theme_ui::app_icon(GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()));
         let binding = STATE.with(|c| {
             let state = c.borrow();
             let state = state.as_ref()?;
@@ -1775,7 +1776,7 @@ pub fn run() -> Result<(), String> {
         wc.lpszClassName = class.as_ptr();
         wc.hbrBackground = null_mut();
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
-        wc.hIcon = LoadIconW(instance, 1usize as _);
+        wc.hIcon = crate::theme_ui::app_icon(GetSystemMetrics(SM_CXICON));
         if RegisterClassW(&wc) == 0 {
             return Err("Cannot register native window".into());
         }
@@ -2149,10 +2150,9 @@ pub(crate) fn clipboard_text() -> Option<String> {
         result
     }
 }
-fn copy_text(value: &str) -> Result<(), String> {
+pub(crate) fn copy_text(owner: HWND, value: &str) -> Result<(), String> {
     use windows_sys::Win32::System::{DataExchange::*, Memory::*};
     let bytes = wide(value);
-    let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
     unsafe {
         let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len() * 2);
         if handle.is_null() {
@@ -2223,11 +2223,12 @@ fn recent() {
     render_hits();
 }
 fn about() {
-    unsafe {
-        MessageBoxW(null_mut(),ui("ALTRunNext 0.2\n原生 Windows 快速启动器\n\nAlt+R：默认呼出 / 隐藏\nEnter：执行；Esc：清空 / 隐藏\n↑↓ / Tab：选择；Ctrl+L：最近项目\nCtrl+数字：执行对应项\nCtrl+C：复制命令；Ctrl+D：打开目录\nF2 / Insert / Delete：管理快捷项\nAlt+S：快捷项管理\n\n数据与设置保存在快捷项文件旁；无网络搜索。\n项目：https://github.com/weimeng54/altrun").as_ptr(),ui("ALTRunNext · 帮助和关于").as_ptr(),MB_OK|MB_ICONINFORMATION);
-    }
+    open_settings_page(true);
 }
 fn open_settings() {
+    open_settings_page(false);
+}
+fn open_settings_page(about: bool) {
     let (path, prefs, hwnd, sender) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -2238,7 +2239,7 @@ fn open_settings() {
             s.settings_sender.clone(),
         )
     });
-    crate::settings::open(path, prefs, hwnd, sender);
+    crate::settings::open(path, prefs, hwnd, sender, about);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }
@@ -2623,7 +2624,8 @@ fn selected_action(copy: bool) {
     });
     if let Some((entry, context)) = entry {
         if copy {
-            if let Err(e) = copy_text(&entry.command) {
+            let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
+            if let Err(e) = copy_text(owner, &entry.command) {
                 show_inline_error(&e);
             }
         } else {
