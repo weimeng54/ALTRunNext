@@ -876,7 +876,6 @@ fn run(
             std::ptr::null(),
         );
         if hwnd.is_null() {
-            DeleteObject(background);
             return Err("ui.could_not_create_the_shortcut_manager_window".into());
         }
         theme::frame(hwnd);
