@@ -2150,9 +2150,10 @@ pub(crate) fn clipboard_text() -> Option<String> {
         result
     }
 }
-pub(crate) fn copy_text(owner: HWND, value: &str) -> Result<(), String> {
+fn copy_text(value: &str) -> Result<(), String> {
     use windows_sys::Win32::System::{DataExchange::*, Memory::*};
     let bytes = wide(value);
+    let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
     unsafe {
         let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len() * 2);
         if handle.is_null() {
@@ -2624,8 +2625,7 @@ fn selected_action(copy: bool) {
     });
     if let Some((entry, context)) = entry {
         if copy {
-            let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
-            if let Err(e) = copy_text(owner, &entry.command) {
+            if let Err(e) = copy_text(&entry.command) {
                 show_inline_error(&e);
             }
         } else {

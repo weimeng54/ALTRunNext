@@ -1,20 +1,55 @@
 # ALTRunNext
 
-Windows 11 x64 原生快捷启动器，使用 Rust、Win32 和 GDI。默认 420 DIP 紧凑面板，显示标题、输入框、编号、快捷字、名称和 CMD 预览。呼出和搜索使用常驻控件与内存索引。
+[简体中文](#简体中文) · [English](#english)
 
-双击便携包里的 `ALTRunNext.exe` 后按 **Alt+R** 呼出，Enter 启动。Alt+S 打开快捷项管理，Ctrl+L 查看最近启动。托盘右键提供打开面板、管理快捷项、设置和退出。在设置的「快捷键」页可以直接录制按键，在「常规」页可以开启或取消资源管理器的「发送到」入口。正式构建默认执行所选命令，`--safe-mode` 为预览模式。Debug 默认不执行，兼容 `--enable-launch`。
+## 简体中文
 
-资源管理器的入口显示为「发送到 → ALTRunNext」。多个便携副本共用这个入口，最后开启的副本接收文件。使用同一份快捷项数据升级时，在设置里保存一次即可更新此前注册的入口。
+ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 **Alt+R** 呼出，输入快捷字，按 **Enter** 打开程序、文件、文件夹或网址。例如，可以用 `db` 找到快捷字为 `doubao` 的项目。
 
-搜索按快捷字匹配，精确和前缀优先，也支持包含和模糊匹配。需要参数的快捷项可开启「启动时输入参数」。通过「发送到」添加的文件、文件夹和程序保存为完整路径，普通文件可以选用系统默认应用或指定 EXE。支持文件拖入、批量添加、快捷项管理、备份和单实例。
+### 快速开始
 
-「常规 → 显示语言」内置简体中文和 English。「外观」可切换浅色、深色或跟随系统，实时预览图片强度与等比裁切。「字体与颜色」可分别设置标题、输入框和结果字体。
+1. 从 [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases) 获取便携 ZIP，解压到有写入权限的文件夹，然后运行 `ALTRunNext.exe`。发布页暂无版本时，可从源码构建。
+2. 按 **Alt+R** 打开启动面板，使用 **↑ / ↓** 选择结果，按 **Enter** 启动，按 **Esc** 收起面板。
+3. 右键单击托盘图标，选择「管理快捷项」添加项目，或打开「设置」调整热键、语言、主题和呼出声音。
 
-快捷项保存在 `shortcuts.tsv`，设置和历史存放在同一目录。「导入快捷项」自动识别 TSV 和原版 `ShortCutList.txt`，导出使用新版 TSV。设置导入和导出使用新版 INI。保存会更新启动面板，并留下 `.bak`。如果文件被其他程序修改，草稿会保留。用 `ALTRunNext.exe --data "目录\shortcuts.tsv"` 可打开另一套数据。
+### 添加和备份快捷项
 
-源码在 D 盘编辑，GitHub Actions Windows runner 编译、检查和打包；本机不安装 Rust、MSVC 或 SDK。国内镜像优先，不可用时回退同版本官方源。个人配置、路径、剪贴板和转储不进入仓库。
+- 在「设置 → 常规」开启并保存「添加 ALTRunNext 到发送到菜单」。在资源管理器中右键单击目标，选择「显示更多选项 → 发送到 → ALTRunNext」，确认后保存。文件可以使用系统默认应用，也可以为该快捷项指定打开程序。在设置里关闭此选项即可移除菜单入口。
+- 在「管理快捷项 → 工具」导入快捷项，程序会自动识别当前 TSV 或原版 ALTRun 的 `ShortCutList.txt`。确认导入后点击「保存」应用。快捷项导出为 TSV，设置的导入和导出使用 ALTRunNext 的 INI。
+- 便携版把设置、快捷项和使用历史保存在数据目录。升级或迁移前，可备份整个解压目录。
 
-- [设计说明](DESIGN.md) · [交互约定](UX-CONTRACT.md)
-- [验证与构建证据](docs/validation/performance-gate.md)
+### 从源码构建
 
-原生回归覆盖焦点、IME、设置保存、执行和资源增长。便携包附依赖许可证。
+在 Windows 上安装 Rust（MSVC 工具链）、Visual Studio Build Tools 的 C++ 桌面开发组件和 Windows SDK。在仓库根目录运行以下命令，生成的程序位于 `target/x86_64-pc-windows-msvc/release/ALTRunNext.exe`。
+
+```powershell
+cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
+```
+
+作者 [weimeng54](https://github.com/weimeng54) · [联系邮箱](mailto:weimeng54@qq.com) · [反馈问题](https://github.com/weimeng54/ALTRunNext/issues)
+
+## English
+
+ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, type an alias, and press **Enter** to open an app, file, folder, or website. Fuzzy matching lets you find an alias like `doubao` by typing `db`.
+
+### Getting started
+
+1. Get the portable ZIP from [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases), extract it to a writable folder, and run `ALTRunNext.exe`. If there is no release yet, build from source.
+2. Press **Alt+R** to open the launcher, **↑ / ↓** to select a result, **Enter** to launch it, and **Esc** to hide the panel.
+3. Right-click the tray icon to manage shortcuts or open Settings. Settings include hotkeys, language, theme, and the popup sound.
+
+### Adding and backing up shortcuts
+
+- In **Settings → General**, enable and save the Send To integration. In File Explorer, right-click a target and choose **Show more options → Send to → ALTRunNext**, then review and save the shortcut. A file can open in the system default app or an app selected for that shortcut. Turn off the setting to remove the menu entry.
+- Open **Manage shortcuts → Tools** to import a shortcut list. ALTRunNext detects its TSV format and the original ALTRun `ShortCutList.txt` automatically. Confirm the import and select **Save** to apply it. Shortcuts are exported as TSV, and settings use the ALTRunNext INI format.
+- The portable app stores settings, shortcuts, and usage history in its data directory. Back up the extracted folder before upgrading or moving it.
+
+### Building from source
+
+On Windows, install Rust with the MSVC toolchain, Visual Studio Build Tools with Desktop development with C++, and the Windows SDK. Run the following command from the repository root. The executable is written to `target/x86_64-pc-windows-msvc/release/ALTRunNext.exe`.
+
+```powershell
+cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
+```
+
+Maintained by [weimeng54](https://github.com/weimeng54) · [Email](mailto:weimeng54@qq.com) · [Report an issue](https://github.com/weimeng54/ALTRunNext/issues)

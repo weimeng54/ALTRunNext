@@ -57,12 +57,13 @@ const CLEAR: usize = 2600;
 const STRENGTH_UNIT: usize = 2355;
 const OWNER_STATIC: u32 = 0x0d;
 const OPEN_ABOUT: u32 = WM_APP + 3;
-const COPY_EMAIL: usize = 2360;
+const EMAIL_LINK: usize = 2360;
 const OPEN_RELEASES: usize = 2361;
 const OPEN_SOURCE: usize = 2362;
 const OPEN_ISSUES: usize = 2363;
 const ABOUT_SECONDARY: usize = 2364;
 const CONTACT_EMAIL: &str = "weimeng54@qq.com";
+const CONTACT_URI: &str = "mailto:weimeng54@qq.com";
 const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
     (
         OPEN_RELEASES,
@@ -189,6 +190,7 @@ struct Editor {
     rail: HBRUSH,
     font: HFONT,
     heading_font: HFONT,
+    about_font: HFONT,
     section_font: HFONT,
     small_font: HFONT,
     caption_font: HFONT,
@@ -779,17 +781,7 @@ fn sync_save_button(window: HWND) {
     }
 }
 
-fn about_action(hwnd: HWND, id: usize) -> bool {
-    if id == COPY_EMAIL {
-        match crate::native::copy_text(hwnd, CONTACT_EMAIL) {
-            Ok(()) => status("已复制邮箱地址。"),
-            Err(error) => status(&error),
-        }
-        return true;
-    }
-    let Some((_, _, _, url)) = PROJECT_LINKS.iter().find(|(action, _, _, _)| *action == id) else {
-        return false;
-    };
+fn open_about_link(hwnd: HWND, url: &str, error: &str) {
     let result = unsafe {
         ShellExecuteW(
             hwnd,
@@ -801,9 +793,8 @@ fn about_action(hwnd: HWND, id: usize) -> bool {
         )
     };
     if result as usize <= 32 {
-        status("无法打开链接，请在浏览器中访问该地址。");
+        status(error);
     }
-    true
 }
 
 fn strength_label(field: Field, strength: i32) {
@@ -1681,6 +1672,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         WM_NOTIFY if l != 0 => {
             let header = unsafe { &*(l as *const NMHDR) };
+            if header.idFrom == EMAIL_LINK && matches!(header.code, NM_CLICK | NM_RETURN) {
+                open_about_link(hwnd, CONTACT_URI, "无法打开默认邮件应用。");
+                return 0;
+            }
             if header.code == NM_CUSTOMDRAW
                 && let Some(spec) = header
                     .idFrom
@@ -1717,7 +1712,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 unsafe {
                     SetTextColor(
                         w as HDC,
-                        if l as HWND == s.hint
+                        if control_id == EMAIL_LINK {
+                            theme::accent()
+                        } else if l as HWND == s.hint
                             || l as HWND == s.status
                             || filename
                             || matches!(control_id, APPEARANCE_NOTE | ABOUT_SECONDARY)
@@ -1805,7 +1802,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         WM_COMMAND => {
             let id = w & 65535;
             let code = (w >> 16) as u32;
-            if code == BN_CLICKED && about_action(hwnd, id) {
+            if code == BN_CLICKED
+                && let Some((_, _, _, url)) =
+                    PROJECT_LINKS.iter().find(|(action, _, _, _)| *action == id)
+            {
+                open_about_link(hwnd, url, "无法打开链接，请在浏览器中访问该地址。");
                 return 0;
             }
             if (SEGMENT..SEGMENT + 5).contains(&id) && code == BN_CLICKED {
@@ -2159,6 +2160,7 @@ pub fn open(
                 let dpi = crate::window_geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
                 let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
                 let heading_font = make_font(27, 700, "Microsoft YaHei UI", dpi);
+                let about_font = make_font(23, 700, "Microsoft YaHei UI", dpi);
                 let section_font = make_font(14, 650, "Microsoft YaHei UI", dpi);
                 let small_font = make_font(13, 400, "Microsoft YaHei UI", dpi);
                 let caption_font = make_font(13, 600, "Microsoft YaHei UI", dpi);
@@ -2166,7 +2168,7 @@ pub fn open(
                 let hotkey_font = make_font(14, 600, "Consolas", dpi);
                 let common = INITCOMMONCONTROLSEX {
                     dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                    dwICC: ICC_BAR_CLASSES,
+                    dwICC: ICC_BAR_CLASSES | ICC_LINK_CLASS,
                 };
                 InitCommonControlsEx(&common);
                 let control = |class: &str, label: &str, style: u32, x, y, width, height, id| {
@@ -2299,7 +2301,7 @@ pub fn open(
                         500,
                         35,
                         centered_text,
-                        heading_font,
+                        about_font,
                         0,
                     ),
                     (
@@ -2315,7 +2317,6 @@ pub fn open(
                     ("作者", 230, 226, 180, 24, centered_text, font, 0),
                     ("weimeng54", 590, 226, 467, 24, centered_text | 2, font, 0),
                     ("联系邮箱", 230, 281, 180, 24, centered_text, font, 0),
-                    (CONTACT_EMAIL, 570, 281, 398, 24, centered_text | 2, font, 0),
                     (
                         "项目链接",
                         214,
@@ -2331,10 +2332,24 @@ pub fn open(
                     SendMessageW(child, WM_SETFONT, face as usize, 0);
                     extra_controls.push((about_page, child));
                 }
-                extra_controls.push((
-                    about_page,
-                    control("BUTTON", "复制", WS_TABSTOP, 987, 275, 70, 36, COPY_EMAIL),
-                ));
+                let email = control(
+                    "SysLink",
+                    &format!(r#"<a href="{CONTACT_URI}">{CONTACT_EMAIL}</a>"#),
+                    WS_TABSTOP | LWS_TRANSPARENT | LWS_RIGHT,
+                    785,
+                    283,
+                    272,
+                    25,
+                    EMAIL_LINK,
+                );
+                let link_colors = LITEM {
+                    mask: LIF_ITEMINDEX | LIF_STATE,
+                    state: LIS_DEFAULTCOLORS,
+                    stateMask: LIS_DEFAULTCOLORS,
+                    ..Default::default()
+                };
+                SendMessageW(email, LM_SETITEM, 0, &link_colors as *const LITEM as isize);
+                extra_controls.push((about_page, email));
                 for (row, (id, label, button, url)) in PROJECT_LINKS.into_iter().enumerate() {
                     let y = layout::ABOUT_LINKS.y + row as i32 * 68;
                     let heading = control("STATIC", label, centered_text, 230, y + 10, 640, 25, 0);
@@ -2700,6 +2715,7 @@ pub fn open(
                         rail,
                         font,
                         heading_font,
+                        about_font,
                         section_font,
                         small_font,
                         caption_font,
@@ -2774,6 +2790,7 @@ pub fn open(
                     if let Some(e) = c.borrow_mut().take() {
                         DeleteObject(e.font);
                         DeleteObject(e.heading_font);
+                        DeleteObject(e.about_font);
                         DeleteObject(e.section_font);
                         DeleteObject(e.small_font);
                         DeleteObject(e.caption_font);

@@ -556,7 +556,13 @@ fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, me
     let rect = item.rcItem;
     let pressed = item.itemState & ODS_SELECTED != 0;
     let disabled = item.itemState & ODS_DISABLED != 0;
-    let colour = if disabled {
+    let colour = if disabled && primary && !theme::high_contrast() {
+        if theme::is_dark() {
+            theme::rgb(32, 38, 46)
+        } else {
+            theme::rgb(227, 234, 242)
+        }
+    } else if disabled {
         theme::surface()
     } else if primary && !pressed {
         theme::accent()
@@ -565,7 +571,13 @@ fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, me
     } else {
         theme::control_surface()
     };
-    let text = if disabled {
+    let text = if disabled && primary && !theme::high_contrast() {
+        if theme::is_dark() {
+            theme::rgb(139, 152, 166)
+        } else {
+            theme::rgb(105, 122, 142)
+        }
+    } else if disabled {
         theme::muted()
     } else if primary && !pressed {
         theme::on_accent()
@@ -578,7 +590,9 @@ fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, me
         rect,
         scaled(12, dpi),
         colour,
-        if item.itemState & ODS_FOCUS != 0 {
+        if disabled && primary {
+            theme::divider()
+        } else if item.itemState & ODS_FOCUS != 0 {
             theme::accent()
         } else {
             theme::border()

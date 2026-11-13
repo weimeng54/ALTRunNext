@@ -447,21 +447,11 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         for id in 2360..=2363 {
             assert_ne!(IsWindowVisible(GetDlgItem(dialog, id)), 0);
         }
-        SendMessageW(GetDlgItem(dialog, 2360), BM_CLICK, 0, 0);
-        wait(|| OpenClipboard(null_mut()) != 0);
-        let address = GetClipboardData(13);
-        assert!(!address.is_null());
-        let pointer = GlobalLock(address) as *const u16;
-        assert!(!pointer.is_null());
-        let contents = std::slice::from_raw_parts(pointer, GlobalSize(address) / 2);
-        let end = contents
-            .iter()
-            .position(|&ch| ch == 0)
-            .unwrap_or(contents.len());
-        let address_text = String::from_utf16(&contents[..end]).unwrap();
-        GlobalUnlock(address);
-        CloseClipboard();
-        assert_eq!(address_text, "weimeng54@qq.com");
+        let email = GetDlgItem(dialog, 2360);
+        let mut class = [0u16; 16];
+        let len = GetClassNameW(email, class.as_mut_ptr(), class.len() as i32);
+        assert_eq!(String::from_utf16_lossy(&class[..len as usize]), "SysLink");
+        assert!(text(email).contains("mailto:weimeng54@qq.com"));
         select_page(dialog, 0);
         assert_eq!(IsWindowVisible(GetDlgItem(dialog, 2360)), 0);
         command(launcher, 18007);

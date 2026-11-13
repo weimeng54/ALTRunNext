@@ -1,13 +1,13 @@
 name: Native launcher validation
 on:
   push:
-    branches: ['codex/performance-spike']
-    paths: ['src/**', 'tests/**', 'tools/**', 'assets/**', '.cargo/**', 'build.rs', 'Cargo.*', 'rust-toolchain.toml', 'scripts/**', '.github/workflows/performance-probe.yml']
+    branches: ['main', 'codex/performance-spike']
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: probe-${{ github.ref }}
+  group: windows-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   windows:
@@ -48,71 +48,16 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           rustc -Vv
-          if (Test-Path .github/refresh-cargo-lock) {
-            cargo generate-lockfile
-            if ($LASTEXITCODE -ne 0) {
-              Remove-Item "$env:USERPROFILE/.cargo/config.toml" -ErrorAction SilentlyContinue
-              cargo generate-lockfile
-              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            }
-          }
           if (!(Invoke-Mirror 'cargo' @('fetch', '--locked'))) {
             Remove-Item "$env:USERPROFILE/.cargo/config.toml" -ErrorAction SilentlyContinue
             cargo fetch --locked
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: Formatting
-        if: always()
-        shell: pwsh
-        run: |
-          cargo fmt --all --check
-          $formatExit = $LASTEXITCODE
-          if ($formatExit -ne 0) {
-            cargo fmt --all
-            git diff --binary -- src tests build.rs | Out-File -Encoding utf8NoBOM rustfmt.patch
-            # Tests/build must use committed source, even when formatting fails.
-            git restore --source=HEAD --worktree -- src tests build.rs
-            exit $formatExit
-          }
-      - name: Desktop-frame observer self-test
-        if: ${{ !cancelled() }}
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -no_logo -arch=amd64
-          if errorlevel 1 exit /b 1
-          if not exist target mkdir target
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /Fe:target\altrun-frame-calibrate.exe /Fo:target\altrun-frame-calibrate.obj tools\altrun-frame-calibrate.cpp /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup
-          if errorlevel 1 exit /b 1
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /Fe:target\altrun-frame-capture.dll /Fo:target\frame_capture.obj tools\frame_capture.cpp /link /IMPLIB:target\frame_capture.lib
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /Fe:target\frame_capture_test.exe /Fo:target\frame_capture_test.obj tools\frame_capture_test.cpp
-          if errorlevel 1 exit /b 1
-          target\frame_capture_test.exe
-          if errorlevel 1 exit /b 1
-          if not exist target\debug\deps mkdir target\debug\deps
-          copy /y target\altrun-frame-capture.dll target\debug\deps\altrun-frame-capture.dll
-          copy /y target\altrun-frame-capture.dll target\debug\altrun-frame-capture.dll
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /Fe:target\debug\deps\frame_capture_fixture.dll /Fo:target\frame_capture_fixture.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_fixture.lib
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /DALTRUN_BAD_ABI /Fe:target\debug\deps\frame_capture_badabi.dll /Fo:target\frame_capture_badabi.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_badabi.lib
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /DALTRUN_POISON_POINTER=1 /Fe:target\debug\deps\frame_capture_poison_1.dll /Fo:target\frame_capture_poison_1.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_poison_1.lib
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /DALTRUN_POISON_POINTER=2 /Fe:target\debug\deps\frame_capture_poison_2.dll /Fo:target\frame_capture_poison_2.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_poison_2.lib
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /DALTRUN_POISON_POINTER=3 /Fe:target\debug\deps\frame_capture_poison_3.dll /Fo:target\frame_capture_poison_3.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_poison_3.lib
-          if errorlevel 1 exit /b 1
-          cl.exe /nologo /O2 /MT /EHsc /W4 /WX /std:c++20 /LD /DALTRUN_POISON_POINTER=4 /Fe:target\debug\deps\frame_capture_poison_4.dll /Fo:target\frame_capture_poison_4.obj tests\native\frame_capture_fixture.cpp /link /IMPLIB:target\frame_capture_poison_4.lib
-          if errorlevel 1 exit /b 1
-          target\altrun-frame-calibrate.exe --self-test --output "%CD%\target\frame-self-test.json"
-      - name: Unit tests (performance gate logic)
-        if: ${{ !cancelled() }}
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Run tests
         timeout-minutes: 4
         run: python scripts/test_watchdog.py
-      - name: Evidence gate tests
-        if: ${{ !cancelled() }}
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Lints
         if: ${{ !cancelled() }}
         run: cargo clippy --all-targets --locked -- -D warnings
@@ -155,8 +100,6 @@ jobs:
             dist/
             target/ALTRunNext-Win11-x64.zip
             Cargo.lock
-            rustfmt.patch
             target/ui/
-            target/frame-self-test.json
             target/test-progress.log
           retention-days: 3

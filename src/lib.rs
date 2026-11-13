@@ -251,17 +251,12 @@ pub fn windows_system_directory() -> Result<std::path::PathBuf, String> {
     }
 }
 #[cfg(windows)]
-pub mod capture_bridge;
-pub mod desktop_frame;
-pub mod desktop_observation;
-#[cfg(windows)]
 pub mod integration;
 pub mod launch;
 pub mod library;
 pub mod library_updates;
 pub mod local_target;
 pub mod management;
-pub mod observation;
 pub mod preferences;
 pub mod state_store;
 pub mod textcodec;
