@@ -490,65 +490,33 @@ fn show_page(page: usize) {
                 editor.format_expanded,
             )
         });
-    let shown = unsafe { IsWindowVisible(window) != 0 };
     unsafe {
-        if shown {
-            SendMessageW(window, WM_SETREDRAW, 0, 0);
-        }
         SendMessageW(tabs, LB_SETCURSEL, page, 0);
         SetWindowTextW(title, ui(design.name).as_ptr());
         SetWindowTextW(hint, ui(design.hint).as_ptr());
-        ShowWindow(hint, SW_SHOWNA);
+        show_without_redraw(hint, true);
         SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
         for (spec, field) in SPECS.iter().zip(fields()) {
-            let visibility = if field.page == page
+            let visible = field.page == page
                 && !hidden_field(spec.key)
                 && (spec.key != "ListFormat" || format_expanded)
-                && (!extra_color(spec.key) || more_colors)
-            {
-                SW_SHOWNA
-            } else {
-                SW_HIDE
-            };
+                && (!extra_color(spec.key) || more_colors);
             for hwnd in [field.label, field.value, field.pick, field.clear] {
-                if !hwnd.is_null() {
-                    ShowWindow(
-                        hwnd,
-                        if matches!(spec.kind, Kind::Text)
-                            && spec.key.ends_with("Color")
-                            && hwnd == field.value
-                        {
-                            SW_HIDE
-                        } else {
-                            visibility
-                        },
-                    );
-                }
+                let is_color_value = hwnd == field.value
+                    && matches!(spec.kind, Kind::Text)
+                    && spec.key.ends_with("Color");
+                show_without_redraw(hwnd, visible && !is_color_value);
             }
         }
         for (group, hwnd) in sections {
-            ShowWindow(hwnd, if group == page { SW_SHOWNA } else { SW_HIDE });
+            show_without_redraw(hwnd, group == page);
         }
         for (group, hwnd) in extras {
             let format_hidden = GetDlgCtrlID(hwnd) == FORMAT_GUIDE as i32 && !format_expanded;
-            ShowWindow(
-                hwnd,
-                if group == page && !format_hidden {
-                    SW_SHOWNA
-                } else {
-                    SW_HIDE
-                },
-            );
+            show_without_redraw(hwnd, group == page && !format_hidden);
         }
         for hwnd in preview {
-            ShowWindow(
-                hwnd,
-                if matches!(page, 3 | 4) {
-                    SW_SHOWNA
-                } else {
-                    SW_HIDE
-                },
-            );
+            show_without_redraw(hwnd, matches!(page, 3 | 4));
         }
     }
     update_background_mode();
@@ -560,9 +528,6 @@ fn show_page(page: usize) {
         align_preview();
     }
     unsafe {
-        if shown {
-            SendMessageW(window, WM_SETREDRAW, 1, 0);
-        }
         RedrawWindow(
             window,
             std::ptr::null(),
@@ -2278,15 +2243,8 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 if hwnd.is_null() {
                     return Err("无法创建设置窗口".into());
                 }
-                WINDOW.store(hwnd as usize, Ordering::Release);
                 theme::frame(hwnd);
                 let dpi = crate::window_geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT, None);
-                theme_ui::round_panel(
-                    hwnd,
-                    scaled(layout::WIDTH, dpi),
-                    scaled(layout::HEIGHT, dpi),
-                    dpi,
-                );
                 let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
                 let heading_font = make_font(27, 700, "Microsoft YaHei UI", dpi);
                 let section_font = make_font(14, 650, "Microsoft YaHei UI", dpi);
@@ -2925,7 +2883,14 @@ pub fn open(path: PathBuf, prefs: Preferences, owner: HWND, sender: mpsc::Sender
                 });
                 load_form(&prefs);
                 show_page(0);
+                theme_ui::round_panel(
+                    hwnd,
+                    scaled(layout::WIDTH, dpi),
+                    scaled(layout::HEIGHT, dpi),
+                    dpi,
+                );
                 ShowWindow(hwnd, SW_SHOW);
+                WINDOW.store(hwnd as usize, Ordering::Release);
                 SetFocus(tabs);
                 let mut msg: MSG = std::mem::zeroed();
                 while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
