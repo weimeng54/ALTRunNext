@@ -33,6 +33,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                     .map_err(|_| format!("Invalid frequency at row {}", i + 1))?,
                 id: fields
                     .get(5)
+                    .copied()
                     .filter(|s| !s.is_empty())
                     .map(library::normalize_id)
                     .unwrap_or_else(|| library::derived_id(fields[0], fields[1], fields[2], i)),

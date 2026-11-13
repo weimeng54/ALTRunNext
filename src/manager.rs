@@ -618,10 +618,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             if id == LIST && notification == LBN_SELCHANGE as usize {
                 let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
                 let selected = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
-                if selected >= 0 {
-                    if select_view_row(selected as usize) {
-                        sync_fields();
-                    }
+                if selected >= 0 && select_view_row(selected as usize) {
+                    sync_fields();
                 }
             } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
                 || id == KIND && notification == CBN_SELCHANGE as usize
