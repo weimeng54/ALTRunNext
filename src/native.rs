@@ -27,7 +27,6 @@ const ID_CLEAN: usize = 18009;
 const ID_COPY: usize = 18010;
 const ID_OPEN_FOLDER: usize = 18011;
 const ID_SHOW: usize = 18012;
-const MATCH_DONE: u32 = WM_APP + 13;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
 const STATE_ERROR: u32 = WM_APP + 17;
@@ -36,7 +35,6 @@ const TITLE_STRIP: i32 = 29;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const TITLE: usize = 1000;
 const STATIC_OWNER_DRAW: u32 = 0x0000000d;
-type MatchResult = (u64, Result<Vec<Option<usize>>, String>);
 type BackdropResult = (crate::skin::Request, Result<crate::skin::Bitmap, String>);
 type PendingSettings = (u64, altrun_probe::preferences::Preferences, Bindings);
 
@@ -47,7 +45,6 @@ struct PopupSound {
 
 struct State {
     sound_sender: std::sync::mpsc::SyncSender<PopupSound>,
-    match_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     input_paper: HBRUSH,
     font_colours: [u32; 3],
     alias_font: HFONT,
@@ -64,11 +61,8 @@ struct State {
     hotkeys: Vec<(i32, Option<altrun_probe::preferences::Hotkey>)>,
     pending_settings: Option<PendingSettings>,
     generation: u64,
-    match_sender: std::sync::mpsc::Sender<(u64, String, Vec<String>, bool)>,
-    match_results: std::sync::mpsc::Receiver<MatchResult>,
     current_query: String,
     default_list_ready: bool,
-    matching: bool,
     last_key: u16,
     context: altrun_probe::launch::LaunchContext,
     successful: Option<(String, String, Option<String>)>,
@@ -172,35 +166,11 @@ fn refresh() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
-        s.match_generation
-            .store(s.generation, std::sync::atomic::Ordering::Relaxed);
         s.current_query = query.clone();
-        s.matching = false;
         s.default_list_ready = query.is_empty();
-        s.hits = match s.index.query_options(
-            &query,
-            s.preferences.flag("Regex"),
-            s.preferences.flag("MatchAnywhere"),
-            s.preferences.flag("StandardRegex"),
-        ) {
-            Ok(hits) => hits,
-            Err(e) if e == "advanced" => {
-                let pattern = if s.preferences.flag("StandardRegex") {
-                    query.clone()
-                } else {
-                    altrun_probe::matching::expand_wildcards(&query)
-                };
-                let _ = s.match_sender.send((
-                    s.generation,
-                    pattern,
-                    s.index.aliases().to_vec(),
-                    !s.preferences.flag("MatchAnywhere"),
-                ));
-                s.matching = true;
-                Vec::new()
-            }
-            Err(_) => Vec::new(),
-        };
+        s.hits = s
+            .index
+            .query_options(&query, s.preferences.flag("MatchAnywhere"));
         if !s.default_list_ready {
             promote_preference(s);
         }
@@ -216,7 +186,7 @@ fn promote_preference(s: &mut State) {
         && pos != 0
         && s.index.same_match_priority(
             &s.current_query,
-            s.preferences.flag("Regex"),
+            s.preferences.flag("MatchAnywhere"),
             s.hits[0],
             s.hits[pos],
         )
@@ -230,9 +200,9 @@ fn render_hits() {
     let (hwnd, list, command, dpi, count) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.hwnd, s.list, s.command, s.dpi, visible_count(s))
+        (s.hwnd, s.list, s.command, s.dpi, s.hits.len())
     });
-    let (mut width, row, mut max_rows, show_command, radius, edit, title) = STATE.with(|c| {
+    let (mut width, row, mut max_rows, show_command, edit, title) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
@@ -240,7 +210,6 @@ fn render_hits() {
             s.preferences.number("RowHeight"),
             s.preferences.number("MaxRows"),
             s.preferences.flag("ShowCommandLine"),
-            s.preferences.number("RoundBorderRadius"),
             s.edit,
             s.title,
         )
@@ -297,54 +266,29 @@ fn render_hits() {
             scaled(22, dpi),
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
+        let buttons = STATE.with(|c| c.borrow().as_ref().unwrap().buttons);
+        let mut offset = 10;
+        for button in buttons.into_iter().rev() {
+            offset += 24;
+            SetWindowPos(
+                button,
+                null_mut(),
+                scaled(width - offset, dpi),
+                scaled(4, dpi),
+                scaled(22, dpi),
+                scaled(22, dpi),
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
         SetWindowPos(
             title,
             null_mut(),
             scaled(12, dpi),
             scaled(6, dpi),
-            scaled(width - 24, dpi),
+            scaled(width - offset - 20, dpi),
             scaled(20, dpi),
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        let (buttons, flags) = STATE.with(|c| {
-            let s = c.borrow();
-            let s = s.as_ref().unwrap();
-            (
-                s.buttons,
-                [
-                    s.preferences.flag("ShowShortCutButton"),
-                    s.preferences.flag("ShowConfigButton"),
-                    s.preferences.flag("ShowCloseButton"),
-                ],
-            )
-        });
-        let mut offset = 10;
-        for (i, button) in buttons.into_iter().enumerate().rev() {
-            ShowWindow(button, if flags[i] { SW_SHOWNOACTIVATE } else { SW_HIDE });
-            if flags[i] {
-                offset += 24;
-                SetWindowPos(
-                    button,
-                    null_mut(),
-                    scaled(width - offset, dpi),
-                    scaled(4, dpi),
-                    scaled(22, dpi),
-                    scaled(22, dpi),
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-            }
-        }
-        if offset > 10 {
-            SetWindowPos(
-                title,
-                null_mut(),
-                scaled(12, dpi),
-                scaled(6, dpi),
-                scaled(width - offset - 20, dpi),
-                scaled(20, dpi),
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
         SetWindowPos(
             list,
             null_mut(),
@@ -374,18 +318,17 @@ fn render_hits() {
         );
         let mut rect: RECT = zeroed();
         GetWindowRect(hwnd, &mut rect);
-        if radius > 0 {
-            let region = CreateRoundRectRgn(
-                0,
-                0,
-                rect.right - rect.left + 1,
-                rect.bottom - rect.top + 1,
-                scaled(radius * 2, dpi),
-                scaled(radius * 2, dpi),
-            );
-            SetWindowRgn(hwnd, region, 1);
-        } else {
-            SetWindowRgn(hwnd, null_mut(), 1);
+        let diameter = scaled(16, dpi);
+        let region = CreateRoundRectRgn(
+            0,
+            0,
+            rect.right - rect.left + 1,
+            rect.bottom - rect.top + 1,
+            diameter,
+            diameter,
+        );
+        if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
+            DeleteObject(region);
         }
         SendMessageW(list, WM_SETREDRAW, 1, 0);
         InvalidateRect(list, std::ptr::null(), 0);
@@ -414,7 +357,7 @@ fn move_selection(delta: isize) {
     let (list, selected) = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        s.selected = advance(s.selected, visible_count(s), delta);
+        s.selected = advance(s.selected, s.hits.len(), delta);
         (s.list, s.selected)
     });
     unsafe {
@@ -575,13 +518,8 @@ fn launch_selected() {
         return;
     }
     let Some(index) = selected else {
-        let (query, matching) = STATE.with(|c| {
-            let s = c.borrow();
-            let s = s.as_ref().unwrap();
-            (s.current_query.clone(), s.matching)
-        });
+        let query = STATE.with(|c| c.borrow().as_ref().unwrap().current_query.clone());
         if enabled
-            && !matching
             && !query.is_empty()
             && unsafe {
                 MessageBoxW(
@@ -612,7 +550,8 @@ fn launch_selected() {
     }
     if entry.param_type.needs_input(&entry.command)
         && !parameter_mode
-        && (altrun_probe::launch::has_parameter(&entry.command)
+        && (entry.open_target.is_some()
+            || altrun_probe::launch::has_parameter(&entry.command)
             || !altrun_probe::launch::has_context(&entry.command))
     {
         let query = edit_text(edit);
@@ -1342,52 +1281,23 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
                 s.moving = false;
-                s.usage.positions.insert(
-                    "launcher".into(),
-                    (
-                        rect.left,
-                        rect.top,
-                        rect.right - rect.left,
-                        rect.bottom - rect.top,
-                    ),
-                );
-                s.usage_writer.publish(s.usage.text());
+                if s.preferences.get("PositionMode") == "remember" {
+                    s.usage.positions.insert(
+                        "launcher".into(),
+                        (
+                            rect.left,
+                            rect.top,
+                            rect.right - rect.left,
+                            rect.bottom - rect.top,
+                        ),
+                    );
+                    s.usage_writer.publish(s.usage.text());
+                }
                 s.preferences.number("HideDelay")
             });
             if delay > 0 && unsafe { IsWindowVisible(hwnd) != 0 } {
                 unsafe {
                     SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None);
-                }
-            }
-            0
-        }
-        MATCH_DONE => {
-            let result = STATE.with(|c| {
-                let mut s = c.borrow_mut();
-                let s = s.as_mut().unwrap();
-                let mut latest = None;
-                while let Ok((generation, result)) = s.match_results.try_recv() {
-                    if generation == s.generation {
-                        latest = Some(result);
-                    }
-                }
-                if let Some(result) = latest {
-                    s.matching = false;
-                    s.hits = result
-                        .as_ref()
-                        .map(|p| s.index.rank_positions(p, &s.current_query))
-                        .unwrap_or_default();
-                    promote_preference(s);
-                    s.selected = 0;
-                    Some(result.err())
-                } else {
-                    None
-                }
-            });
-            if let Some(error) = result {
-                render_hits();
-                if let Some(error) = error {
-                    show_inline_error(&error);
                 }
             }
             0
@@ -1457,9 +1367,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             STATE.with(|c| {
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
-                if let Some(rect) = geometry.rect {
-                    s.usage.positions.insert("manager".into(), rect);
-                }
                 s.usage
                     .selection
                     .insert("manager".into(), geometry.selected);
@@ -1540,7 +1447,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let none = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
-                    s.hits.is_empty() && !s.matching && s.parameter_entry.is_none()
+                    s.hits.is_empty() && s.parameter_entry.is_none()
                 });
                 if none && !composing && !previous.is_empty() {
                     let digit = match key {
@@ -1561,7 +1468,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                             let mut s = c.borrow_mut();
                             let s = s.as_mut().unwrap();
                             s.hits = previous;
-                            s.selected = previous_selected.min(visible_count(s).saturating_sub(1));
+                            s.selected = previous_selected.min(s.hits.len().saturating_sub(1));
                         });
                         if let Some(digit) = digit {
                             choose_number(digit);
@@ -1656,23 +1563,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         a.as_ptr(),
                         (a.len() - 1) as i32,
                     );
-                    let format = s.preferences.get("ListFormat");
-                    if format != "%-25s| %s"
-                        && let Ok(line) =
-                            altrun_probe::list_format::render(&format, &e.alias, &e.name)
-                    {
-                        let mut rect = d.rcItem;
-                        rect.left = scaled(34, s.dpi);
-                        SetTextColor(d.hDC, theme::text());
-                        DrawTextW(
-                            d.hDC,
-                            wide(&line).as_ptr(),
-                            -1,
-                            &mut rect,
-                            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
-                        );
-                        return;
-                    }
                     SetTextColor(d.hDC, s.font_colours[2]);
                     SelectObject(d.hDC, s.alias_font);
                     let mut rect = RECT {
@@ -1788,6 +1678,16 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 
 pub fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--ui-scale") {
+        let dpi = match args.get(i + 1).map(String::as_str) {
+            Some("100") => 96,
+            Some("125") => 120,
+            Some("150") => 144,
+            Some("200") => 192,
+            _ => return Err("--ui-scale accepts 100, 125, 150 or 200".into()),
+        };
+        crate::window_geometry::set_test_dpi(dpi);
+    }
     let data_path = if let Some(i) = args.iter().position(|a| a == "--data") {
         std::path::absolute(args.get(i + 1).ok_or("--data needs a path")?)
             .map_err(|e| e.to_string())?
@@ -1827,11 +1727,6 @@ pub fn run() -> Result<(), String> {
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("state.tsv"))?;
     let usage = altrun_probe::usage::Usage::parse(&state_text)?;
     let (settings_sender, settings_updates) = std::sync::mpsc::channel();
-    let (match_sender, match_tasks) =
-        std::sync::mpsc::channel::<(u64, String, Vec<String>, bool)>();
-    let (match_sender_result, match_results) = std::sync::mpsc::channel();
-    let match_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let worker_generation = match_generation.clone();
     let (skin_sender, skin_results) = std::sync::mpsc::channel();
     let (sound_sender, sound_tasks) = std::sync::mpsc::sync_channel::<PopupSound>(1);
     std::thread::spawn(move || {
@@ -1902,15 +1797,7 @@ pub fn run() -> Result<(), String> {
         }
         crate::instance::publish(hwnd, instance_lock.identity);
         DragAcceptFiles(hwnd, 1);
-        let dpi = if let Some(i) = args.iter().position(|a| a == "--ui-scale") {
-            match args.get(i + 1).map(String::as_str) {
-                Some("150") => 144,
-                Some("100") => 96,
-                _ => return Err("--ui-scale accepts 100 or 150".into()),
-            }
-        } else {
-            GetDpiForWindow(hwnd).max(96) as i32
-        };
+        let dpi = crate::window_geometry::window_dpi(hwnd);
         let rounded = 2_i32;
         DwmSetWindowAttribute(hwnd, 33, &rounded as *const _ as *const _, 4);
         let no_transitions = 1i32;
@@ -2034,12 +1921,8 @@ pub fn run() -> Result<(), String> {
                 hotkeys: Vec::new(),
                 pending_settings: None,
                 generation: 0,
-                match_sender,
-                match_results,
-                match_generation,
                 current_query: String::new(),
                 default_list_ready: false,
-                matching: false,
                 last_key: 0,
                 context: altrun_probe::launch::LaunchContext {
                     base_directory,
@@ -2088,34 +1971,6 @@ pub fn run() -> Result<(), String> {
                 library_updates,
             })
         });
-        let owner = hwnd as usize;
-        std::thread::spawn(move || {
-            while let Ok(mut task) = match_tasks.recv() {
-                while let Ok(newer) = match_tasks.try_recv() {
-                    task = newer;
-                }
-                let (generation, pattern, aliases, prefix) = task;
-                let result = std::env::current_exe()
-                    .map_err(|e| e.to_string())
-                    .and_then(|exe| {
-                        altrun_probe::isolated_matching::run_cancellable(
-                            &exe,
-                            &pattern,
-                            &aliases,
-                            prefix,
-                            std::time::Duration::from_millis(100),
-                            || {
-                                worker_generation.load(std::sync::atomic::Ordering::Relaxed)
-                                    != generation
-                            },
-                        )
-                    });
-                if match_sender_result.send((generation, result)).is_err() {
-                    break;
-                }
-                PostMessageW(owner as HWND, MATCH_DONE, 0, 0);
-            }
-        });
         STATE.with(|c| rebuild_index(c.borrow_mut().as_mut().unwrap()));
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
@@ -2130,15 +1985,6 @@ pub fn run() -> Result<(), String> {
             Err(error) => startup_warnings.push(error),
         }
         apply_appearance();
-        if STATE.with(|c| {
-            c.borrow()
-                .as_ref()
-                .unwrap()
-                .preferences
-                .flag("ShowStartNotification")
-        }) {
-            startup_notification(hwnd);
-        }
         if !intake.is_empty() {
             crate::manager::enqueue(intake, None);
             open_manager_window(false);
@@ -2233,7 +2079,6 @@ fn open_manager_window(show: bool) {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         crate::manager::WindowState {
-            rect: s.usage.positions.get("manager").copied(),
             selected: s
                 .usage
                 .selection
@@ -2257,13 +2102,6 @@ fn open_manager_window(show: bool) {
     crate::manager::open(path, entries, hwnd, sender, enabled, show);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
-    }
-}
-fn visible_count(s: &State) -> usize {
-    if !s.current_query.is_empty() && s.preferences.flag("ShowTopTen") {
-        s.hits.len().min(10)
-    } else {
-        s.hits.len()
     }
 }
 fn rebuild_index(s: &mut State) {
@@ -2375,7 +2213,7 @@ fn recent() {
             .iter()
             .filter_map(|id| {
                 s.entries.iter().position(|e| {
-                    &e.id == id && e.enabled && e.kind == altrun_probe::library::EntryKind::Command
+                    &e.id == id && e.kind == altrun_probe::library::EntryKind::Command
                 })
             })
             .collect();
@@ -2543,18 +2381,6 @@ fn apply_settings_messages() {
                             }
                         }
                     }
-                    if ["ManWinLeft", "ManWinTop"]
-                        .iter()
-                        .any(|key| s.preferences.get(key) != prefs.get(key))
-                    {
-                        s.usage.positions.remove("manager");
-                    }
-                    if ["WinLeft", "WinTop"]
-                        .iter()
-                        .any(|key| s.preferences.get(key) != prefs.get(key))
-                    {
-                        s.usage.positions.remove("launcher");
-                    }
                     s.preferences = prefs;
                     (
                         s.context.base_directory,
@@ -2693,10 +2519,6 @@ fn apply_appearance() {
                 DeleteObject(std::mem::replace(&mut s.command_font, preview));
             });
         }
-        let alpha = prefs.number("Alpha").clamp(0, 255) as u8;
-        let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_LAYERED) as i32);
-        SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
         let hint = search_hint(prefs.flag("ShowOperationHint"));
         SendMessageW(edit, EM_SETCUEBANNER, 0, hint.as_ptr() as isize);
         ShowWindow(
@@ -2745,11 +2567,11 @@ fn choose_number(digit: usize) {
     let chosen = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        if s.parameter_entry.is_some() || s.matching {
+        if s.parameter_entry.is_some() {
             return false;
         }
         let index = (digit + 9) % 10;
-        if index < visible_count(s) {
+        if index < s.hits.len() {
             s.selected = index;
             true
         } else {
@@ -2860,54 +2682,56 @@ fn load_skin() {
     }
 }
 fn position_panel() {
-    let (hwnd, prefs, remembered) = STATE.with(|c| {
+    use crate::window_geometry::{cursor_monitor, work_area};
+
+    let (hwnd, remembered) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (
-            s.hwnd,
-            s.preferences.clone(),
-            s.usage.positions.get("launcher").copied(),
-        )
+        let remembered = if s.preferences.get("PositionMode") == "remember" {
+            s.usage
+                .positions
+                .get("launcher")
+                .map(|&(x, y, _, _)| POINT { x, y })
+        } else {
+            None
+        };
+        (s.hwnd, remembered)
     });
     unsafe {
-        let mut rect: RECT = zeroed();
-        GetWindowRect(hwnd, &mut rect);
-        let mut cursor: POINT = zeroed();
-        GetCursorPos(&mut cursor);
-        let mode = prefs.get("PositionMode");
-        let (mut x, mut y) = if mode == "mouse" {
-            (cursor.x, cursor.y)
-        } else {
-            remembered
-                .map(|p| (p.0, p.1))
-                .unwrap_or((prefs.number("WinLeft"), prefs.number("WinTop")))
-        };
-        let monitor = if mode == "mouse" || mode == "center" {
-            MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
-        } else {
-            MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST)
-        };
-        let mut info: MONITORINFO = zeroed();
-        info.cbSize = std::mem::size_of_val(&info) as u32;
-        if GetMonitorInfoW(monitor, &mut info) != 0 {
-            let work = info.rcWork;
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
-            if mode == "center" {
-                x = work.left + (work.right - work.left - width) / 2;
-                y = work.top + (work.bottom - work.top - height) / 2;
+        let saved = remembered.and_then(|point| {
+            let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONULL);
+            let work = work_area(monitor)?;
+            (PtInRect(&work, point) != 0).then_some((monitor, work, point))
+        });
+        let (monitor, work, anchor) = match saved {
+            Some((monitor, work, point)) => (monitor, work, Some(point)),
+            None => {
+                let monitor = cursor_monitor(hwnd);
+                let Some(work) = work_area(monitor) else {
+                    return;
+                };
+                (monitor, work, None)
             }
-            x = x.clamp(work.left, (work.right - width).max(work.left));
-            y = y.clamp(work.top, (work.bottom - height).max(work.top));
-            SetWindowPos(
-                hwnd,
-                null_mut(),
-                x,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
+        };
+        let flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        if monitor != MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) {
+            // Move the hidden panel first so layout uses the destination monitor.
+            SetWindowPos(hwnd, null_mut(), work.left, work.top, 0, 0, flags);
+            render_hits();
+        }
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect);
+        let right = (work.right - (rect.right - rect.left)).max(work.left);
+        let bottom = (work.bottom - (rect.bottom - rect.top)).max(work.top);
+        let (x, y) = anchor.map_or(
+            (
+                work.left + (right - work.left) / 2,
+                work.top + (bottom - work.top) / 2,
+            ),
+            |p| (p.x.clamp(work.left, right), p.y.clamp(work.top, bottom)),
+        );
+        if x != rect.left || y != rect.top {
+            SetWindowPos(hwnd, null_mut(), x, y, 0, 0, flags);
         }
     }
 }
@@ -3082,23 +2906,6 @@ fn lifecycle(clean: bool) {
     }
 }
 
-fn startup_notification(hwnd: HWND) {
-    unsafe {
-        let mut icon: NOTIFYICONDATAW = zeroed();
-        icon.cbSize = std::mem::size_of_val(&icon) as u32;
-        icon.hWnd = hwnd;
-        icon.uID = 1;
-        icon.uFlags = NIF_INFO;
-        icon.dwInfoFlags = NIIF_INFO;
-        let title = ui("ALTRun 已就绪");
-        let n = title.len().min(icon.szInfoTitle.len());
-        icon.szInfoTitle[..n].copy_from_slice(&title[..n]);
-        let message = ui("使用已配置的快捷键呼出；托盘菜单可管理快捷项和设置。");
-        let n = message.len().min(icon.szInfo.len());
-        icon.szInfo[..n].copy_from_slice(&message[..n]);
-        Shell_NotifyIconW(NIM_MODIFY, &icon);
-    }
-}
 fn trace_event(event: &'static str) {
     let path = STATE.with(|c| {
         let s = c.borrow();

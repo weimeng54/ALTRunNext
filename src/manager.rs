@@ -48,11 +48,9 @@ pub const UPDATED: u32 = WM_APP + 6;
 pub const GEOMETRY_CHANGED: u32 = WM_APP + 16;
 #[derive(Clone, Default)]
 pub struct WindowState {
-    pub rect: Option<(i32, i32, i32, i32)>,
     pub selected: String,
 }
 static WINDOW_STATE: std::sync::Mutex<WindowState> = std::sync::Mutex::new(WindowState {
-    rect: None,
     selected: String::new(),
 });
 pub fn configure(state: WindowState) {
@@ -70,11 +68,10 @@ const ALIAS: usize = 2102;
 const NAME: usize = 2103;
 const COMMAND: usize = 2104;
 const KIND: usize = 2105;
-const PARAMETER_CHOICES: [(ParamType, &str); 4] = [
-    (ParamType::None, "无参数"),
-    (ParamType::Raw, "原样参数"),
-    (ParamType::AnsiUrl, "Windows ANSI URL 编码"),
-    (ParamType::Utf8Url, "UTF-8 URL 编码"),
+const PARAMETER_CHOICES: [(ParamType, &str); 3] = [
+    (ParamType::Raw, "原样传入"),
+    (ParamType::Utf8Url, "UTF-8 网址编码"),
+    (ParamType::AnsiUrl, "旧系统编码（Windows ANSI）"),
 ];
 const ADD: usize = 2110;
 const DELETE: usize = 2111;
@@ -83,13 +80,13 @@ const CLOSE: usize = 2114;
 const OPEN_WITH: usize = 2115;
 const OPEN_DEFAULT: usize = 2118;
 const OPEN_LABEL: usize = 2174;
-const ENABLED: usize = 2116;
+const ASK_PARAMETER: usize = 2139;
 const ADD_FILE: usize = 2120;
 const ADD_FOLDER: usize = 2121;
 const VALIDATE: usize = 2124;
 const EXPORT: usize = 2128;
 const RESTORE: usize = 2129;
-const UNDO: usize = 2131;
+const SORT_ORIGINAL: usize = 2130;
 const SORT_ALIAS: usize = 2132;
 const SORT_NAME: usize = 2133;
 const MOVE_UP: usize = 2135;
@@ -121,19 +118,19 @@ static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
 struct Editor {
     launch_enabled: bool,
-    preferred_sort: usize,
-    enabled: HWND,
-    undo: Vec<Vec<Entry>>,
+    sort: usize,
+    view: Vec<usize>,
     file: Snapshot,
     draft: Vec<Entry>,
     selected: usize,
     loading: bool,
-    laid_out_kind: Option<(Option<library::EntryKind>, bool, bool)>,
+    laid_out_kind: Option<(Option<library::EntryKind>, bool, bool, bool)>,
     list: HWND,
     alias: HWND,
     name: HWND,
     command: HWND,
     kind: HWND,
+    ask_parameter: HWND,
     status: HWND,
     save: HWND,
     delete: HWND,
@@ -229,10 +226,32 @@ fn can_test(entry: &Entry) -> bool {
     entry.kind == library::EntryKind::Command && !entry.command.trim().is_empty()
 }
 
+fn supports_parameter(entry: &Entry) -> bool {
+    entry.kind == library::EntryKind::Command
+        && match entry.open_target {
+            None => true,
+            Some(OpenTarget::Path) => {
+                altrun_probe::management::is_executable(std::path::Path::new(&entry.command))
+            }
+            Some(OpenTarget::Document(_)) => false,
+        }
+}
+
 fn parameter_choice(entry: &Entry) -> usize {
+    let command = entry
+        .command
+        .trim_start()
+        .trim_start_matches(['@', '+', '-'])
+        .trim_start();
+    let prefix = command.get(..8).unwrap_or(command).to_ascii_lowercase();
+    let default = if prefix.starts_with("https://") || prefix.starts_with("http://") {
+        ParamType::Utf8Url
+    } else {
+        ParamType::Raw
+    };
     let visible_kind = match entry.param_type {
         ParamType::Auto if entry.param_type.needs_input(&entry.command) => ParamType::Raw,
-        ParamType::Auto => ParamType::None,
+        ParamType::Auto | ParamType::None => default,
         kind => kind,
     };
     PARAMETER_CHOICES
@@ -241,8 +260,22 @@ fn parameter_choice(entry: &Entry) -> usize {
         .expect("every visible parameter type is in the dropdown")
 }
 
+fn sync_parameter_controls(entry: Option<&Entry>, toggle: HWND, kind: HWND) {
+    unsafe {
+        let checked =
+            entry.is_some_and(|e| supports_parameter(e) && e.param_type.needs_input(&e.command));
+        if (SendMessageW(toggle, BM_GETCHECK, 0, 0) != 0) != checked {
+            SendMessageW(toggle, BM_SETCHECK, usize::from(checked), 0);
+        }
+        let index = entry.map_or(0, parameter_choice);
+        if SendMessageW(kind, CB_GETCURSEL, 0, 0) != index as isize {
+            SendMessageW(kind, CB_SETCURSEL, index, 0);
+        }
+    }
+}
+
 fn sync_fields() {
-    let (alias, name, command, kind, save, delete, entry, dirty) = EDITOR.with(|c| {
+    let (alias, name, command, kind, toggle, save, delete, entry, dirty) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         s.loading = true;
@@ -251,6 +284,7 @@ fn sync_fields() {
             s.name,
             s.command,
             s.kind,
+            s.ask_parameter,
             s.save,
             s.delete,
             s.draft.get(s.selected).cloned(),
@@ -258,10 +292,9 @@ fn sync_fields() {
         )
     });
     unsafe {
-        for hwnd in [alias, name, command, kind, delete] {
+        for hwnd in [alias, name, command, kind, toggle, delete] {
             EnableWindow(hwnd, i32::from(entry.is_some()));
         }
-        let enabled = EDITOR.with(|c| c.borrow().as_ref().unwrap().enabled);
         for (field, value) in [
             (alias, entry.as_ref().map_or("", |e| e.alias.as_str())),
             (name, entry.as_ref().map_or("", |e| e.name.as_str())),
@@ -271,12 +304,6 @@ fn sync_fields() {
                 SetWindowTextW(field, wide(value).as_ptr());
             }
         }
-        SendMessageW(
-            enabled,
-            BM_SETCHECK,
-            usize::from(entry.as_ref().is_some_and(|e| e.enabled)),
-            0,
-        );
         let program = entry.as_ref().and_then(|e| match &e.open_target {
             Some(OpenTarget::Document(Some(program))) => Some(program),
             _ => None,
@@ -287,8 +314,7 @@ fn sync_fields() {
             |p| crate::shortcut_intake::program_name(p).to_owned(),
         );
         SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
-        let index = entry.as_ref().map_or(0, parameter_choice);
-        SendMessageW(kind, CB_SETCURSEL, index, 0);
+        sync_parameter_controls(entry.as_ref(), toggle, kind);
         EnableWindow(
             GetDlgItem(hwnd, TEST as i32),
             i32::from(entry.as_ref().is_some_and(can_test)),
@@ -298,57 +324,104 @@ fn sync_fields() {
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading = false);
     sync_kind_layout();
 }
-fn refresh_list() {
+fn refresh_list_rows() {
     let (list, labels, selected) = EDITOR.with(|c| {
-        let s = c.borrow();
-        let s = s.as_ref().unwrap();
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        s.view = (0..s.draft.len()).collect();
+        match s.sort {
+            SORT_ALIAS => s
+                .view
+                .sort_by_cached_key(|&i| s.draft[i].alias.to_lowercase()),
+            SORT_NAME => s
+                .view
+                .sort_by_cached_key(|&i| s.draft[i].name.to_lowercase()),
+            _ => {}
+        }
         (
             s.list,
-            s.draft
+            s.view
                 .iter()
-                .map(|e| format!("{} · {}", e.alias, e.name))
+                .map(|&i| format!("{} · {}", s.draft[i].alias, s.draft[i].name))
                 .collect::<Vec<_>>(),
-            s.selected,
+            s.view.iter().position(|&i| i == s.selected),
         )
     });
     unsafe {
+        let top = SendMessageW(list, LB_GETTOPINDEX, 0, 0);
         SendMessageW(list, WM_SETREDRAW, 0, 0);
         SendMessageW(list, LB_RESETCONTENT, 0, 0);
         for label in &labels {
             SendMessageW(list, LB_ADDSTRING, 0, wide(label).as_ptr() as isize);
         }
-        SendMessageW(list, WM_SETREDRAW, 1, 0);
-        if !labels.is_empty() {
+        if top >= 0 && top < labels.len() as isize {
+            SendMessageW(list, LB_SETTOPINDEX, top as usize, 0);
+        }
+        if let Some(selected) = selected {
             SendMessageW(list, LB_SETCURSEL, selected, 0);
         }
+        SendMessageW(list, WM_SETREDRAW, 1, 0);
         InvalidateRect(list, std::ptr::null(), 0);
     }
+}
+
+fn refresh_list() {
+    refresh_list_rows();
     sync_fields();
 }
-fn update_draft(parameter_changed: bool) {
+
+fn select_view_row(row: usize) -> bool {
+    EDITOR.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        if let Some(&index) = s.view.get(row) {
+            s.selected = index;
+            true
+        } else {
+            false
+        }
+    })
+}
+
+fn update_draft(changed: usize) {
     let handles = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref()?;
         if s.loading {
             None
         } else {
-            Some((s.alias, s.name, s.command, s.kind))
+            Some((s.alias, s.name, s.command, s.kind, s.ask_parameter))
         }
     });
-    let Some((alias, name, command, kind)) = handles else {
+    let Some((alias, name, command, kind, toggle)) = handles else {
         return;
     };
     let (alias, name, command_text) = (text(alias), text(name), text(command));
-    let selected_parameter = if parameter_changed {
+    let selected_parameter = if changed == KIND {
         let index = unsafe { SendMessageW(kind, CB_GETCURSEL, 0, 0) } as usize;
         PARAMETER_CHOICES.get(index).map(|&(kind, _)| kind)
     } else {
         None
     };
-    let enabled = EDITOR.with(|c| {
-        let hwnd = c.borrow().as_ref().unwrap().enabled;
-        unsafe { SendMessageW(hwnd, BM_GETCHECK, 0, 0) != 0 }
-    });
+    let asks_parameter =
+        changed == ASK_PARAMETER && unsafe { SendMessageW(toggle, BM_GETCHECK, 0, 0) != 0 };
+    if changed == ASK_PARAMETER
+        && !asks_parameter
+        && EDITOR.with(|c| {
+            let state = c.borrow();
+            let s = state.as_ref().unwrap();
+            s.draft
+                .get(s.selected)
+                .is_some_and(|entry| entry.open_target.is_none())
+        })
+        && altrun_probe::launch::has_parameter(&command_text)
+    {
+        unsafe {
+            SendMessageW(toggle, BM_SETCHECK, 1, 0);
+        }
+        status("请先删除命令中的参数占位符，再关闭参数输入。", true);
+        return;
+    }
     let change = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
@@ -357,7 +430,6 @@ fn update_draft(parameter_changed: bool) {
         let row_changed = entry.alias != alias || entry.name != name;
         entry.name = name;
         if entry.kind == library::EntryKind::Command {
-            entry.enabled = enabled;
             entry.alias = alias;
             if entry.command != command_text {
                 entry.command = if entry.open_target.is_some() {
@@ -366,47 +438,37 @@ fn update_draft(parameter_changed: bool) {
                     command_text
                 };
             }
-            if let Some(parameter) = selected_parameter {
+            if !supports_parameter(entry) {
+                entry.param_type = ParamType::None;
+            } else if changed == ASK_PARAMETER {
+                entry.param_type = if asks_parameter {
+                    PARAMETER_CHOICES[parameter_choice(entry)].0
+                } else {
+                    ParamType::None
+                };
+            } else if let Some(parameter) = selected_parameter {
                 entry.param_type = parameter;
             }
         }
         if *entry == previous {
             return None;
         }
-        let testable = can_test(entry);
-        let auto_choice = (entry.param_type == ParamType::Auto
-            && entry.command != previous.command)
-            .then(|| parameter_choice(entry));
-        Some((
-            s.list,
-            s.selected,
-            s.save,
-            s.is_dirty(),
-            row_changed,
-            testable,
-            auto_choice,
-        ))
+        let entry = entry.clone();
+        Some((s.save, s.is_dirty(), row_changed, entry))
     });
-    let Some((list, selected, save, dirty, row_changed, testable, auto_choice)) = change else {
+    let Some((save, dirty, row_changed, entry)) = change else {
         return;
     };
     unsafe {
-        if let Some(choice) = auto_choice {
-            SendMessageW(kind, CB_SETCURSEL, choice, 0);
-        }
+        sync_parameter_controls(Some(&entry), toggle, kind);
         EnableWindow(save, i32::from(dirty));
         EnableWindow(
             GetDlgItem(GetParent(command), TEST as i32),
-            i32::from(testable),
+            i32::from(can_test(&entry)),
         );
-        if row_changed {
-            let mut row = RECT::default();
-            if SendMessageW(list, LB_GETITEMRECT, selected, &mut row as *mut _ as LPARAM)
-                != LB_ERR as isize
-            {
-                InvalidateRect(list, &row, 0);
-            }
-        }
+    }
+    if row_changed {
+        refresh_list_rows();
     }
     sync_kind_layout();
     status(
@@ -500,7 +562,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if msg == WM_CLOSE {
         let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
         if !dirty || confirm(hwnd, "有尚未保存的修改。放弃修改并关闭？") {
-            publish_geometry(hwnd);
+            publish_selection();
             unsafe {
                 DestroyWindow(hwnd);
             }
@@ -541,10 +603,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             paint_manager(hwnd);
             0
         }
-        WM_EXITSIZEMOVE => {
-            publish_geometry(hwnd);
-            0
-        }
         WM_DROPFILES => {
             let paths = drop_paths(w as _);
             add_paths(paths);
@@ -561,14 +619,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
                 let selected = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
                 if selected >= 0 {
-                    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().selected = selected as usize);
-                    sync_fields();
+                    if select_view_row(selected as usize) {
+                        sync_fields();
+                    }
                 }
             } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
                 || id == KIND && notification == CBN_SELCHANGE as usize
-                || id == ENABLED && notification == BN_CLICKED as usize
+                || id == ASK_PARAMETER && notification == BN_CLICKED as usize
             {
-                update_draft(id == KIND);
+                update_draft(id);
             } else if notification == BN_CLICKED as usize {
                 match id {
                     CAPTION_CLOSE => unsafe {
@@ -589,7 +648,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                                 id: library::new_id(),
                                 working_directory: String::new(),
                                 open_target: None,
-                                enabled: true,
                                 kind: library::EntryKind::Command,
                             });
                             s.selected = s.draft.len() - 1;
@@ -615,10 +673,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             EDITOR.with(|c| {
                                 let mut state = c.borrow_mut();
                                 let s = state.as_mut().unwrap();
-                                s.undo.push(s.draft.clone());
-                                if s.undo.len() > 20 {
-                                    s.undo.remove(0);
-                                }
                                 s.draft.remove(s.selected);
                                 s.selected = s.selected.min(s.draft.len().saturating_sub(1));
                             });
@@ -631,8 +685,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     CLOSE => unsafe {
                         PostMessageW(hwnd, WM_CLOSE, 0, 0);
                     },
-                    ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | UNDO | SORT_ALIAS
-                    | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
+                    ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | SORT_ORIGINAL
+                    | SORT_ALIAS | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
                     _ => {}
                 }
             }
@@ -679,7 +733,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             EDITOR.with(|c| {
                 let state = c.borrow();
                 let s = state.as_ref().unwrap();
-                let Some(entry) = s.draft.get(d.itemID as usize) else {
+                let Some(entry) = s.view.get(d.itemID as usize).and_then(|&i| s.draft.get(i))
+                else {
                     return;
                 };
                 unsafe {
@@ -823,14 +878,7 @@ fn run(
         }
         theme::frame(hwnd);
         let remembered = window_state();
-        let position = remembered.rect.map(|(x, y, _, _)| (x, y)).or_else(|| {
-            let defaults = altrun_probe::preferences::Preferences::default();
-            let x = prefs.number("ManWinLeft");
-            let y = prefs.number("ManWinTop");
-            (x != defaults.number("ManWinLeft") || y != defaults.number("ManWinTop"))
-                .then_some((x, y))
-        });
-        let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT, position);
+        let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT);
         crate::theme_ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(27, 700, "Microsoft YaHei UI", dpi);
@@ -841,7 +889,7 @@ fn run(
                     "快捷字" => 2170,
                     "名称" => 2171,
                     "命令或路径" => 2172,
-                    "参数类型" => 2173,
+                    "传参方式" => 2173,
                     _ => id,
                 }
             } else {
@@ -870,17 +918,17 @@ fn run(
                 ALIAS => (FIELD_LEFT, 154, HALF_FIELD, 36),
                 NAME => (FIELD_RIGHT - HALF_FIELD, 154, HALF_FIELD, 36),
                 COMMAND => (FIELD_LEFT, 238, FIELD_WIDTH, 36),
-                KIND => (FIELD_LEFT, 322, FIELD_WIDTH - 144, 220),
-                ENABLED => (FIELD_RIGHT - 128, 322, 128, 36),
-                OPEN_LABEL => (FIELD_LEFT, 380, FIELD_WIDTH, 21),
-                OPEN_WITH => (FIELD_LEFT, 406, FIELD_WIDTH - 144, 36),
-                OPEN_DEFAULT => (FIELD_RIGHT - 128, 406, 128, 36),
+                KIND => (FIELD_LEFT, 378, FIELD_WIDTH, 190),
+                ASK_PARAMETER => (FIELD_LEFT, 293, FIELD_WIDTH, 40),
+                OPEN_LABEL => (FIELD_LEFT, 296, FIELD_WIDTH, 21),
+                OPEN_WITH => (FIELD_LEFT, 322, FIELD_WIDTH - 144, 36),
+                OPEN_DEFAULT => (FIELD_RIGHT - 128, 322, 128, 36),
                 _ if label == "修改后点击保存。" => (112, FOOTER_TOP + 13, 600, 37),
                 _ if label == "管理快捷项" => (RAIL + 25, 60, FIELD_WIDTH, 41),
                 _ if label == "快捷字" => (FIELD_LEFT, 128, HALF_FIELD, 21),
                 _ if label == "名称" => (FIELD_RIGHT - HALF_FIELD, 128, HALF_FIELD, 21),
                 _ if label == "命令或路径" => (FIELD_LEFT, 212, FIELD_WIDTH, 21),
-                _ if label == "参数类型" => (FIELD_LEFT, 296, FIELD_WIDTH - 144, 21),
+                _ if label == "传参方式" => (FIELD_LEFT, 352, FIELD_WIDTH, 21),
                 _ => (x, y, width, height),
             };
             let child = CreateWindowExW(
@@ -974,7 +1022,18 @@ fn run(
             28,
             COMMAND,
         );
-        control("STATIC", "参数类型", 0, 280, 184, 464, 20, 0);
+        let ask_parameter = control(
+            "BUTTON",
+            "启动时输入参数",
+            BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+            0,
+            0,
+            0,
+            0,
+            ASK_PARAMETER,
+        );
+        crate::theme_ui::switch(ask_parameter, dpi, false);
+        control("STATIC", "传参方式", 0, 0, 0, 0, 0, 0);
         let kind = control(
             "COMBOBOX",
             "",
@@ -996,17 +1055,6 @@ fn run(
         control("STATIC", "打开方式", 0, 0, 0, 0, 0, OPEN_LABEL);
         control("BUTTON", "选择程序…", WS_TABSTOP, 0, 0, 0, 0, OPEN_WITH);
         control("BUTTON", "系统默认", WS_TABSTOP, 0, 0, 0, 0, OPEN_DEFAULT);
-        let enabled = control(
-            "BUTTON",
-            "启用",
-            BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-            596,
-            208,
-            145,
-            24,
-            ENABLED,
-        );
-        crate::theme_ui::switch(enabled, dpi, false);
         control("STATIC", "备注内容", 0, 0, 0, 0, 0, NOTE_LABEL);
         control(
             "STATIC",
@@ -1049,9 +1097,8 @@ fn run(
         EDITOR.with(|c| {
             *c.borrow_mut() = Some(Editor {
                 launch_enabled,
-                preferred_sort: SORT_ALIAS,
-                enabled,
-                undo: Vec::new(),
+                sort: SORT_ORIGINAL,
+                view: Vec::new(),
                 file,
                 draft,
                 selected: 0,
@@ -1062,6 +1109,7 @@ fn run(
                 name,
                 command,
                 kind,
+                ask_parameter,
                 status,
                 save,
                 delete,
@@ -1249,9 +1297,6 @@ fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
         s.file.save(&committed).map_err(|error| (0, error))?;
         s.selected = s.draft.len();
         s.draft.extend_from_slice(additions);
-        for previous in &mut s.undo {
-            previous.extend_from_slice(additions);
-        }
         Ok((s.sender.clone(), committed, s.parent))
     })?;
     sender.saved(committed);
@@ -1322,16 +1367,6 @@ pub fn drop_paths(handle: windows_sys::Win32::UI::Shell::HDROP) -> Vec<PathBuf> 
         paths
     }
 }
-fn remember() {
-    EDITOR.with(|c| {
-        let mut s = c.borrow_mut();
-        let s = s.as_mut().unwrap();
-        s.undo.push(s.draft.clone());
-        if s.undo.len() > 20 {
-            s.undo.remove(0);
-        }
-    });
-}
 fn add_paths(paths: Vec<PathBuf>) {
     let mut entries = Vec::new();
     for path in paths {
@@ -1346,7 +1381,6 @@ fn add_paths(paths: Vec<PathBuf>) {
     if entries.is_empty() {
         return;
     }
-    remember();
     EDITOR.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
@@ -1418,36 +1452,40 @@ pub(crate) fn pick_path_filtered(
     }
 }
 fn tool(hwnd: HWND, id: usize) {
-    if matches!(id, SORT_ALIAS | SORT_NAME | MOVE_UP | MOVE_DOWN) {
-        remember();
+    if matches!(id, SORT_ORIGINAL | SORT_ALIAS | SORT_NAME) {
         EDITOR.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
-            if matches!(id, SORT_ALIAS | SORT_NAME) {
-                s.preferred_sort = id;
+            s.sort = id;
+        });
+        refresh_list_rows();
+        return;
+    }
+    if matches!(id, MOVE_UP | MOVE_DOWN) {
+        let moved = EDITOR.with(|c| {
+            let mut state = c.borrow_mut();
+            let s = state.as_mut().unwrap();
+            if s.sort != SORT_ORIGINAL {
+                return false;
             }
-            let selected = s.draft.get(s.selected).map(|e| e.id.clone());
-            match id {
-                SORT_ALIAS => s.draft.sort_by_key(|e| e.alias.to_lowercase()),
-                SORT_NAME => s.draft.sort_by_key(|e| e.name.to_lowercase()),
-                MOVE_UP if s.selected > 0 => {
-                    let i = s.selected;
-                    s.draft.swap(i, i - 1);
-                }
-                MOVE_DOWN if s.selected + 1 < s.draft.len() => {
-                    let i = s.selected;
-                    s.draft.swap(i, i + 1);
-                }
-                _ => {}
-            }
-            if let Some(id) = selected
-                && let Some(index) = s.draft.iter().position(|e| e.id == id)
-            {
-                s.selected = index;
+            let next = if id == MOVE_UP {
+                s.selected.checked_sub(1)
+            } else {
+                Some(s.selected + 1)
+            };
+            if let Some(next) = next.filter(|&next| next < s.draft.len()) {
+                s.draft.swap(s.selected, next);
+                s.selected = next;
+                true
+            } else {
+                false
             }
         });
-        refresh_list();
-        pending_status("顺序已更新，保存后生效。");
+        if moved {
+            refresh_list_rows();
+            sync_fields();
+            pending_status("顺序已更新，保存后生效。");
+        }
         return;
     }
     if id == ADD_FILE || id == ADD_FOLDER {
@@ -1468,18 +1506,6 @@ fn tool(hwnd: HWND, id: usize) {
         std::path::Path::new(&context.base_directory)
     };
     match id {
-        UNDO => {
-            EDITOR.with(|c| {
-                let mut s = c.borrow_mut();
-                let s = s.as_mut().unwrap();
-                if let Some(rows) = s.undo.pop() {
-                    s.draft = rows;
-                    s.selected = s.selected.min(s.draft.len().saturating_sub(1));
-                }
-            });
-            refresh_list();
-            pending_status("已撤销上一次批量操作，保存后生效。");
-        }
         VALIDATE => {
             use crate::localization::tr;
             use altrun_probe::management::Validation;
@@ -1518,7 +1544,6 @@ fn tool(hwnd: HWND, id: usize) {
             };
             if crate::input_dialog::report(hwnd, "检查失效路径", report) && !missing.is_empty()
             {
-                remember();
                 EDITOR.with(|c| {
                     let mut s = c.borrow_mut();
                     let s = s.as_mut().unwrap();
@@ -1553,16 +1578,20 @@ fn tool(hwnd: HWND, id: usize) {
         }
         RESTORE => {
             if let Some(source) = pick_path(hwnd, false, false) {
-                match Snapshot::open(&source) {
+                match library::import_shortcuts(&source) {
                     Ok(snapshot) => {
-                        if confirm(
-                            hwnd,
-                            &format!(
-                                "导入 {} 条快捷项并替换当前草稿？点击「保存」后生效。",
-                                snapshot.entries.len()
-                            ),
-                        ) {
-                            remember();
+                        let mut message = crate::localization::tr(
+                            "导入 {count} 条快捷项并替换当前草稿？点击「保存」后生效。",
+                        )
+                        .replace("{count}", &snapshot.entries.len().to_string());
+                        if snapshot.ignored_lines > 0 {
+                            message.push('\n');
+                            message.push_str(
+                                &crate::localization::tr("已跳过 {count} 行空行或备注。")
+                                    .replace("{count}", &snapshot.ignored_lines.to_string()),
+                            );
+                        }
+                        if confirm(hwnd, &message) {
                             EDITOR.with(|c| {
                                 let mut s = c.borrow_mut();
                                 let s = s.as_mut().unwrap();
@@ -1580,11 +1609,7 @@ fn tool(hwnd: HWND, id: usize) {
     }
 }
 
-fn publish_geometry(hwnd: HWND) {
-    let mut rect: RECT = unsafe { zeroed() };
-    unsafe {
-        GetWindowRect(hwnd, &mut rect);
-    }
+fn publish_selection() {
     let (parent, selected) = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -1597,12 +1622,6 @@ fn publish_geometry(hwnd: HWND) {
         )
     });
     if let Ok(mut state) = WINDOW_STATE.lock() {
-        state.rect = Some((
-            rect.left,
-            rect.top,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-        ));
         state.selected = selected;
     }
     unsafe {
@@ -1639,7 +1658,8 @@ fn test_selected(hwnd: HWND) {
         context.base_directory = base.to_string_lossy().into_owned();
     }
     let needs_input = entry.param_type.needs_input(&entry.command)
-        && (altrun_probe::launch::has_parameter(&entry.command)
+        && (entry.open_target.is_some()
+            || altrun_probe::launch::has_parameter(&entry.command)
             || !altrun_probe::launch::has_context(&entry.command));
     let parameter = if needs_input {
         let Some(value) = crate::input_dialog::ask(hwnd, &format!("{} · 输入测试参数", entry.name))
@@ -1686,19 +1706,28 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
             };
             style.add(target, id, label, width, checked, disabled);
         };
-        let (rows, selected, can_undo, list) = EDITOR.with(|c| {
+        let (row_count, selected_row, sort_mode, list) = EDITOR.with(|c| {
             let s = c.borrow();
             let s = s.as_ref().unwrap();
-            (s.draft.clone(), s.selected, !s.undo.is_empty(), s.list)
+            (
+                s.view.len(),
+                s.view.iter().position(|&i| i == s.selected),
+                s.sort,
+                s.list,
+            )
         });
         let mut point = POINT { x: 0, y: 0 };
         if let Some(p) = position {
+            if row_count == 0 {
+                DestroyMenu(menu);
+                return;
+            }
             if p == -1 {
                 let mut rect: RECT = zeroed();
                 SendMessageW(
                     list,
                     LB_GETITEMRECT,
-                    selected,
+                    selected_row.unwrap_or_default(),
                     &mut rect as *mut _ as LPARAM,
                 );
                 point = POINT {
@@ -1724,11 +1753,10 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     return;
                 }
                 let index = (hit & 65535) as usize;
-                if index >= rows.len() {
+                if !select_view_row(index) {
                     DestroyMenu(menu);
                     return;
                 }
-                EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().selected = index);
                 SendMessageW(list, LB_SETCURSEL, index, 0);
                 sync_fields();
             }
@@ -1738,14 +1766,14 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 MOVE_UP,
                 "上移所选项",
                 false,
-                selected == 0 || rows.is_empty(),
+                sort_mode != SORT_ORIGINAL || selected == 0,
             );
             append(
                 menu,
                 MOVE_DOWN,
                 "下移所选项",
                 false,
-                selected + 1 >= rows.len(),
+                sort_mode != SORT_ORIGINAL || selected + 1 >= row_count,
             );
         } else {
             let mut rect: RECT = zeroed();
@@ -1761,42 +1789,17 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     append(menu, id, label, false, false);
                 }
             } else {
-                append(menu, VALIDATE, "检查失效路径…", false, rows.is_empty());
+                append(menu, VALIDATE, "检查失效路径…", false, row_count == 0);
                 append(menu, 0, "", false, true);
                 let sort = CreatePopupMenu();
-                let choices = [
-                    (
-                        SORT_ALIAS,
-                        "按快捷字",
-                        rows.windows(2)
-                            .all(|p| p[0].alias.to_lowercase() <= p[1].alias.to_lowercase()),
-                    ),
-                    (
-                        SORT_NAME,
-                        "按名称",
-                        rows.windows(2)
-                            .all(|p| p[0].name.to_lowercase() <= p[1].name.to_lowercase()),
-                    ),
-                ];
-                let preferred = EDITOR.with(|c| c.borrow().as_ref().unwrap().preferred_sort);
-                let selected_sort = choices
-                    .iter()
-                    .find(|(id, _, ok)| *id == preferred && *ok)
-                    .or_else(|| choices.iter().find(|(_, _, ok)| *ok))
-                    .map(|(id, _, _)| *id);
-                for (id, label, _) in choices {
-                    append(
-                        sort,
-                        id,
-                        label,
-                        selected_sort == Some(id) && !rows.is_empty(),
-                        rows.is_empty(),
-                    );
+                for (id, label) in [
+                    (SORT_ORIGINAL, "原顺序"),
+                    (SORT_ALIAS, "按快捷字"),
+                    (SORT_NAME, "按名称"),
+                ] {
+                    append(sort, id, label, sort_mode == id, row_count == 0);
                 }
                 style.submenu(menu, sort, "排序");
-                if can_undo {
-                    append(menu, UNDO, "撤销上次批量操作", false, false);
-                }
                 append(menu, 0, "", false, true);
                 append(menu, EXPORT, "导出快捷项…", false, false);
                 append(menu, RESTORE, "导入快捷项…", false, false);
@@ -1924,35 +1927,39 @@ fn sync_kind_layout() {
         let s = state.as_mut().unwrap();
         let entry = s.draft.get(s.selected);
         let kind = entry.map(|e| e.kind);
-        let typed = entry.is_some_and(|e| e.open_target.is_some());
+        let parameter_supported = entry.is_some_and(supports_parameter);
+        let parameter_visible =
+            parameter_supported && entry.is_some_and(|e| e.param_type.needs_input(&e.command));
         let document =
             entry.is_some_and(|e| matches!(e.open_target, Some(OpenTarget::Document(_))));
-        if s.laid_out_kind == Some((kind, typed, document)) {
+        if s.laid_out_kind == Some((kind, parameter_supported, parameter_visible, document)) {
             return None;
         }
-        s.laid_out_kind = Some((kind, typed, document));
+        s.laid_out_kind = Some((kind, parameter_supported, parameter_visible, document));
         Some((
             unsafe { GetParent(s.list) },
             kind,
-            typed,
+            parameter_supported,
+            parameter_visible,
             document,
             s.name,
             s.dpi,
         ))
     });
-    let Some((hwnd, kind, typed, document, name, dpi)) = layout else {
+    let Some((hwnd, kind, parameter_supported, parameter_visible, document, name, dpi)) = layout
+    else {
         return;
     };
     unsafe {
         for (id, show) in [
             (ALIAS, true),
             (COMMAND, true),
-            (KIND, !typed),
-            (ENABLED, true),
+            (KIND, parameter_visible),
+            (ASK_PARAMETER, parameter_supported),
             (2170, true),
             (2171, true),
             (2172, true),
-            (2173, !typed),
+            (2173, parameter_visible),
             (OPEN_LABEL, document),
             (OPEN_WITH, document),
             (OPEN_DEFAULT, document),

@@ -76,7 +76,15 @@ pub fn resolve_entry(
     };
     crate::library::validate(entry)?;
     let (file, parameters) = match target {
-        OpenTarget::Path | OpenTarget::Document(None) => (entry.command.clone(), String::new()),
+        OpenTarget::Path => {
+            let parameters = if entry.param_type == crate::library::ParamType::None {
+                String::new()
+            } else {
+                encode_parameter(entry.param_type, parameter.ok_or("请输入参数")?)?
+            };
+            (entry.command.clone(), parameters)
+        }
+        OpenTarget::Document(None) => (entry.command.clone(), String::new()),
         OpenTarget::Document(Some(program)) => {
             if !Path::new(program).is_file() {
                 return Err("找不到指定的打开程序，请在快捷项管理中重新选择。".into());
@@ -302,11 +310,7 @@ pub(crate) fn resolve_typed_in(
     let active = kind.needs_input(command);
     let encoded = if active {
         let value = parameter.ok_or("请输入参数")?;
-        Some(match kind {
-            ParamType::AnsiUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
-            ParamType::Utf8Url => percent_encode(value.as_bytes()),
-            _ => value.to_owned(),
-        })
+        Some(encode_parameter(kind, value)?)
     } else {
         None
     };
@@ -327,6 +331,18 @@ pub(crate) fn resolve_typed_in(
     }
     Ok(result)
 }
+fn encode_parameter(kind: crate::library::ParamType, value: &str) -> Result<String, String> {
+    use crate::library::ParamType;
+    if value.contains(['\0', '\r', '\n']) {
+        return Err("命令或参数中包含无效控制字符".into());
+    }
+    Ok(match kind {
+        ParamType::AnsiUrl => percent_encode(&crate::textcodec::ansi_bytes(value)?),
+        ParamType::Utf8Url => percent_encode(value.as_bytes()),
+        _ => value.to_owned(),
+    })
+}
+
 fn percent_encode(bytes: &[u8]) -> String {
     let mut result = String::new();
     for &byte in bytes {

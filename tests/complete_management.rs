@@ -3,28 +3,48 @@ use altrun_probe::{
     parse_entries,
 };
 #[test]
-fn old_separators_preserve_hidden_commands_without_reenabling_them() {
+fn upgrade_restores_disabled_commands_but_keeps_notes_out_of_search() {
     use altrun_probe::library::{self, EntryKind};
     let rows = parse_entries(concat!(
         "---\t\t\t0\tnone\tline\t\tseparator\t0\n",
         "hidden\tHidden command\tnotepad.exe\t0\tnone\tkeep-me\t\tseparator\t1\n",
         "notes\tPersonal note\t\t0\tnone\tnote\t\tseparator\t1\n",
-        "live\tActive command\tcalc.exe\t0\tnone\tactive\t\tcommand\t1\n",
+        "live\tDisabled command\tcalc.exe\t0\tnone\tactive\t\tcommand\t0\n",
     ))
     .unwrap();
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].id, "keep-me");
     assert_eq!(rows[0].command, "notepad.exe");
     assert_eq!(rows[0].kind, EntryKind::Command);
-    assert!(!rows[0].enabled);
     assert_eq!(rows[1].kind, EntryKind::Remark);
     assert_eq!(rows[1].name, "Personal note");
-    assert_eq!(altrun_probe::SearchIndex::new(&rows).query(""), vec![2]);
+    assert_eq!(altrun_probe::SearchIndex::new(&rows).query(""), vec![0, 2]);
     assert_eq!(
         parse_entries(&library::serialize(&rows).unwrap()).unwrap(),
         rows
     );
 }
+#[test]
+fn executable_added_from_explorer_keeps_path_and_arguments_separate() {
+    use altrun_probe::{launch, library::ParamType};
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("target/folder with spaces/%p-tool.exe");
+    let mut entry = management::from_path(&path).unwrap();
+    entry.param_type = ParamType::Raw;
+    let (request, _, _) = launch::resolve_entry(
+        &entry,
+        Some(r#""D:\A folder\document.txt""#),
+        &launch::LaunchContext::default(),
+    )
+    .unwrap();
+    assert_eq!(request.file, path.to_str().unwrap());
+    assert_eq!(request.parameters, r#""D:\A folder\document.txt""#);
+    assert!(
+        launch::resolve_entry(&entry, Some("a\nb"), &launch::LaunchContext::default(),).is_err()
+    );
+}
+
 #[test]
 fn validation_does_not_classify_network_system_or_search_targets_as_missing() {
     let rows=parse_entries("a\tA\t\\\\server\\file.exe\t0\nb\tB\tnotepad.exe\t0\nc\tC\thttps://example.com\t0\nd\tD\ttool.exe %p\t0\n").unwrap();

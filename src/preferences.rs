@@ -25,28 +25,24 @@ macro_rules! spec {
     };
 }
 pub const DEFAULT_POPUP_SOUND: &str = "Popup.wav";
+const SETTINGS_HEADER_PREFIX: &str = "; ALTRun settings format ";
+const SETTINGS_HEADER: &str = "; ALTRun settings format 1";
+pub const SETTINGS_IMPORT_FORMAT_ERROR: &str = "设置仅支持导入新版 ALTRun 导出的 INI 文件";
 
 pub const SPECS: &[Spec] = &[
     spec!("AutoRun", "开机启动", Bool, "0"),
     spec!("AddToSendTo", "添加 ALTRun 到“发送到”菜单", Bool, "0"),
-    spec!("Regex", "使用正则匹配", Bool, "1"),
     spec!("MatchAnywhere", "允许中间和模糊匹配", Bool, "1"),
     spec!("EnglishSearch", "搜索框默认使用英文输入", Bool, "1"),
     spec!("NumberKey", "数字快捷执行", Bool, "1"),
     spec!("RememberFavouratMatch", "记住查询的上次选择", Bool, "0"),
     spec!("ShowOperationHint", "显示操作提示", Bool, "1"),
     spec!("ShowCommandLine", "显示命令预览", Bool, "1"),
-    spec!("ShowStartNotification", "启动通知", Bool, "0"),
-    spec!("ShowTopTen", "搜索只显示前十项", Bool, "1"),
     spec!("PlayPopupNotify", "呼出声音", Bool, "1"),
     spec!("ShowSkin", "启用背景图片", Bool, "0"),
     spec!("ShowMeWhenStart", "启动时显示面板", Bool, "0"),
     spec!("ShowTrayIcon", "显示托盘图标", Bool, "1"),
-    spec!("ShowShortCutButton", "显示管理按钮", Bool, "1"),
-    spec!("ShowConfigButton", "显示设置按钮", Bool, "1"),
-    spec!("ShowCloseButton", "显示隐藏按钮", Bool, "1"),
     spec!("TraceEnable", "保存诊断日志", Bool, "0"),
-    spec!("StandardRegex", "使用标准正则语法", Bool, "0"),
     spec!("AllowDynamicTarget", "允许参数作为启动目标", Bool, "0"),
     Spec {
         key: "HideDelay",
@@ -67,18 +63,6 @@ pub const SPECS: &[Spec] = &[
         default: "420",
     },
     Spec {
-        key: "Alpha",
-        label: "不透明度（0–255）",
-        kind: Kind::Number(0, 255),
-        default: "255",
-    },
-    Spec {
-        key: "RoundBorderRadius",
-        label: "圆角半径",
-        kind: Kind::Number(0, 100),
-        default: "8",
-    },
-    Spec {
         key: "RowHeight",
         label: "列表行高",
         kind: Kind::Number(16, 48),
@@ -89,30 +73,6 @@ pub const SPECS: &[Spec] = &[
         label: "展开列表可见行数",
         kind: Kind::Number(1, 50),
         default: "10",
-    },
-    Spec {
-        key: "WinTop",
-        label: "窗口纵坐标",
-        kind: Kind::Number(-100000, 100000),
-        default: "220",
-    },
-    Spec {
-        key: "WinLeft",
-        label: "窗口横坐标",
-        kind: Kind::Number(-100000, 100000),
-        default: "400",
-    },
-    Spec {
-        key: "ManWinTop",
-        label: "管理窗口纵坐标",
-        kind: Kind::Number(-100000, 100000),
-        default: "100",
-    },
-    Spec {
-        key: "ManWinLeft",
-        label: "管理窗口横坐标",
-        kind: Kind::Number(-100000, 100000),
-        default: "100",
     },
     spec!("BGFileName", "背景图片", Text, ""),
     spec!("BGCrop", "裁切位置", Text, "center"),
@@ -130,14 +90,8 @@ pub const SPECS: &[Spec] = &[
     },
     spec!("Lang", "显示语言", Text, "简体中文"),
     spec!("WorkingDirectory", "默认工作目录", Text, ""),
-    spec!("ListFormat", "列表格式", Text, "%-25s| %s"),
     spec!("Theme", "主题（light / dark / system）", Text, "light"),
-    spec!(
-        "PositionMode",
-        "位置（remember / mouse / center）",
-        Text,
-        "remember"
-    ),
+    spec!("PositionMode", "记住拖动位置", Text, "center"),
     spec!("TitleColor", "标题背景色", Text, "#F5F7FA"),
     spec!("KeywordColor", "输入框背景色", Text, "#FFFFFF"),
     spec!("ListColor", "列表背景色", Text, "#FFFFFF"),
@@ -181,6 +135,57 @@ impl Default for Preferences {
     }
 }
 impl Preferences {
+    pub fn import(text: &str) -> Result<Self, String> {
+        if text.len() > 1024 * 1024 {
+            return Err("设置文件过大".into());
+        }
+        let text = text.trim_start_matches('\u{feff}');
+        let mut section = "";
+        let mut current_format = false;
+        let mut previous_format = false;
+        for line in text.lines().map(str::trim) {
+            if line.starts_with(SETTINGS_HEADER_PREFIX) {
+                if line != SETTINGS_HEADER {
+                    return Err("不支持此设置文件版本".into());
+                }
+                current_format = true;
+            }
+            if let Some(name) = line
+                .strip_prefix('[')
+                .and_then(|line| line.strip_suffix(']'))
+            {
+                section = name.trim();
+                continue;
+            }
+            let Some((key, _)) = line.split_once('=') else {
+                continue;
+            };
+            // Exports made before the format marker always included these ALTRun
+            // settings, which were absent from the original application's INI.
+            let keys: &[&str] = if section.eq_ignore_ascii_case("GUI") {
+                &[
+                    "Theme",
+                    "PositionMode",
+                    "BGCrop",
+                    "BGStrength",
+                    "RowHeight",
+                    "MaxRows",
+                ]
+            } else if section.eq_ignore_ascii_case("Config") {
+                &["EnglishSearch", "AllowDynamicTarget", "UseCustomTextColor"]
+            } else {
+                &[]
+            };
+            previous_format |= keys
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(key.trim()));
+        }
+        if !current_format && !previous_format {
+            return Err(SETTINGS_IMPORT_FORMAT_ERROR.into());
+        }
+        Self::parse(text)
+    }
+
     pub fn parse(text: &str) -> Result<Self, String> {
         if text.len() > 1024 * 1024 {
             return Err("设置文件过大".into());
@@ -205,6 +210,22 @@ impl Preferences {
                 "IndexFrom0to9",
                 "ExitWhenExecute",
                 "ExecuteIfOnlyOne",
+                "Regex",
+                "StandardRegex",
+                "ShowStartNotification",
+                "ShowTopTen",
+                "ShowShortCutButton",
+                "ShowConfigButton",
+                "ShowCloseButton",
+                "Alpha",
+                "RoundBorderRadius",
+                "WinTop",
+                "WinLeft",
+                "ManWinTop",
+                "ManWinLeft",
+                "ManWinWidth",
+                "ManWinHeight",
+                "ListFormat",
             ]
             .iter()
             .any(|retired| key.trim().eq_ignore_ascii_case(retired))
@@ -248,6 +269,7 @@ impl Preferences {
             .ok_or_else(|| format!("未知设置：{key}"))?;
         let value = match value.trim() {
             "" if spec.key == "PopupFileName" => DEFAULT_POPUP_SOUND,
+            "mouse" if spec.key == "PositionMode" => "center",
             value => value,
         };
         let validated = match spec.kind {
@@ -285,14 +307,11 @@ impl Preferences {
                     self.values.insert(spec.key.into(), language.into());
                     return Ok(());
                 }
-                if spec.key == "ListFormat" {
-                    crate::list_format::render(value, "a", "b")?;
-                }
                 if spec.key == "Theme" && !matches!(value, "light" | "dark" | "system") {
                     return Err("主题应为 light、dark 或 system".into());
                 }
-                if spec.key == "PositionMode" && !matches!(value, "remember" | "mouse" | "center") {
-                    return Err("位置应为 remember、mouse 或 center".into());
+                if spec.key == "PositionMode" && !matches!(value, "remember" | "center") {
+                    return Err("请选择有效的窗口位置".into());
                 }
                 if spec.key == "BGCrop" && !matches!(value, "top" | "center" | "bottom") {
                     return Err("请选择有效的裁切位置".into());
@@ -318,8 +337,6 @@ impl Preferences {
             } else {
                 let section = if [
                     "FormWidth",
-                    "Alpha",
-                    "RoundBorderRadius",
                     "BGFileName",
                     "BGCrop",
                     "BGStrength",
@@ -332,7 +349,6 @@ impl Preferences {
                 .contains(&key.as_str())
                     || key.ends_with("Font")
                     || key.ends_with("Color")
-                    || key == "ListFormat"
                 {
                     "GUI"
                 } else if key.starts_with("Win") || key.starts_with("ManWin") {
@@ -346,7 +362,7 @@ impl Preferences {
                     .push((key.clone(), value.clone()));
             }
         }
-        let mut out = String::new();
+        let mut out = format!("{SETTINGS_HEADER}\n");
         for (section, values) in groups {
             out.push_str(&format!("[{section}]\n"));
             for (key, value) in values {

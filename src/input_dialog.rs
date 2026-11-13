@@ -230,7 +230,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
         } else {
             (110, 28, 66)
         };
-        let dpi = crate::window_geometry::fit(hwnd, width, height, None);
+        let dpi = crate::window_geometry::fit(hwnd, width, height);
         (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
         let content_style = if long {

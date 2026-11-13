@@ -32,10 +32,10 @@ fn typed_parameters_support_url_encoding_and_brace_marker() {
 }
 
 #[test]
-fn common_wildcards_match_aliases_without_changing_plain_search() {
-    let rows = parse_entries("np\tN\tn.exe\t0\nnote\tN\tn.exe\t0\nxnote\tN\tn.exe\t0\n").unwrap();
-    assert_eq!(search(&rows, "n?"), vec![0, 1, 2]);
-    assert_eq!(search(&rows, "n*e"), vec![1, 2]);
+fn search_treats_metacharacters_as_literal_text() {
+    let rows = parse_entries("np\tN\tn.exe\t0\nnote\tN\tn.exe\t0\nn?\tN\tn.exe\t0\n").unwrap();
+    assert_eq!(search(&rows, "n?"), vec![2]);
+    assert!(search(&rows, "n*e").is_empty());
     assert!(search(&rows, " ").is_empty());
 }
 
@@ -43,6 +43,65 @@ fn common_wildcards_match_aliases_without_changing_plain_search() {
 fn bom_decoding_preserves_unicode() {
     assert_eq!(library::decode(b"\xef\xbb\xbfnote").unwrap(), "note");
     assert_eq!(library::decode(&[0xff, 0xfe, 0x2d, 0x4e]).unwrap(), "中");
+}
+
+#[test]
+fn shortcut_import_detects_formats_and_keeps_command_tails() {
+    let text = "原来的备注\r\n\r\nF12 | UTF8_Query | b | 百度 | https://example.test/?q={%p}&pair=a|b,c\r\nnp,记事本,notepad.exe\r\n";
+    let rows = library::decode_shortcut_import(text.as_bytes()).unwrap();
+    assert_eq!(rows.ignored_lines, 2);
+    assert_eq!(rows.entries.len(), 2);
+    assert_eq!(rows.entries[0].frequency, 12);
+    assert_eq!(rows.entries[0].param_type, ParamType::Utf8Url);
+    assert_eq!(
+        rows.entries[0].command,
+        "https://example.test/?q={%p}&pair=a|b,c"
+    );
+    let serialized = library::serialize(&rows.entries).unwrap();
+    assert_eq!(
+        library::decode_shortcut_import(serialized.as_bytes())
+            .unwrap()
+            .entries,
+        rows.entries
+    );
+    let wide: Vec<_> = [0xff, 0xfe]
+        .into_iter()
+        .chain(text.encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    assert_eq!(
+        library::decode_shortcut_import(&wide).unwrap().entries,
+        rows.entries
+    );
+    assert!(library::decode_shortcut_import(b"bad\tlabel\tnp.exe\tinvalid|a|b|c\n").is_err());
+    assert!(library::decode_shortcut_import(b"F12|no_encoding|key|name\n").is_err());
+    assert!(library::decode_shortcut_import(b"Only notes\n").is_err());
+    assert!(library::decode_shortcut_import(b"[Config]\nTitleFont=A|B|C\n").is_err());
+}
+
+#[test]
+#[cfg(windows)]
+fn shortcut_import_accepts_original_chinese_encoding_but_not_ansi_tsv() {
+    let rows = library::decode_shortcut_import(b"F7||cn|\xd6\xd0\xce\xc4|notepad.exe\r\n").unwrap();
+    assert_eq!(rows.entries[0].name, "中文");
+    assert!(library::decode_shortcut_import(b"cn\t\xd6\xd0\xce\xc4\tnotepad.exe\t7\n").is_err());
+}
+
+#[test]
+fn migrated_ids_match_across_shortcuts_and_saved_history() {
+    let old = "legacy-0123456789abcdef";
+    let rows = parse_entries(&format!("a\tA\ta.exe\t0\tnone\t{old}\t\tcommand\t0\n")).unwrap();
+    let state = altrun_probe::usage::Usage::parse(&format!(
+        "F\t{old}\t5\nR\t{old}\nP\talias\t{old}\nH\t{old}\tvalue\nS\tmanager\t{old}\n",
+    ))
+    .unwrap();
+    let id = &rows[0].id;
+    assert!(!id.starts_with("legacy-"));
+    assert_eq!(state.counts[id], 5);
+    assert_eq!(state.recent.as_slice(), std::slice::from_ref(id));
+    assert_eq!(&state.favourites["alias"], id);
+    assert_eq!(state.parameters[id], ["value"]);
+    assert_eq!(&state.selection["manager"], id);
+    assert_eq!(search(&rows, ""), vec![0]);
 }
 
 #[test]

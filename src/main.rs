@@ -50,11 +50,6 @@ fn main() {
             }
         }
     }
-    if std::env::args().any(|arg| arg == "--regex-worker") {
-        std::process::exit(i32::from(
-            altrun_probe::isolated_matching::worker_main().is_err(),
-        ));
-    }
     if std::env::args().any(|arg| arg == "--check") {
         let args = std::env::args_os().collect::<Vec<_>>();
         let result = if let Some(i) = args.iter().position(|arg| arg == "--data") {

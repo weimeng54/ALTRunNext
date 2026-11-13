@@ -8,7 +8,7 @@ Audience: Windows users who launch apps by keyboard. The app provides Simplified
 |---|---|---|---|
 | Launcher selection | native.rs resident owner-drawn LISTBOX | mouse selects; input retains focus; frozen parameter target cannot change | native regression |
 | Management list/form | manager.rs on-demand native window | draft edits, add/delete/restore backup, explicit Save, unsaved-close confirmation | management regression and synthetic screenshots |
-| Parameter type | library.rs ParamType plus native COMBOBOX | The editor offers None, Raw, ANSI URL and UTF-8 URL. Existing automatic entries display their effective type and retain automatic behavior until a type is chosen. | management regression, roundtrip and encoding tests |
+| Parameter type | library.rs ParamType plus native controls | The editor asks whether the shortcut should request input. When on, it offers raw input, UTF-8 URL encoding and Windows ANSI URL encoding. | management regression, roundtrip and encoding tests |
 | Scrollbars/focus | Windows native controls | visible native scrollbars, tab navigation, focus cue | native interaction |
 | Validation/persistence | library.rs Snapshot | validate complete dataset; stage/flush; backup previous file; reject changed source; publish after success | file save/failure/conflict tests |
 | Feedback | owning window's status field | errors remain visible with edits intact; successful save stays in manager | UI regression |
@@ -27,6 +27,8 @@ Theme values live in theme.rs and are documented in DESIGN.md. Native controls o
 
 Settings run on an independent UI thread. Appearance previews are limited to the settings window until Save. Hotkey reservation failure preserves current bindings. File failure cancels reservations and restores integrations where possible. Startup and Send To changes occur only on Save. Reload or backup restore cannot overwrite a newer saved library.
 
-Stable IDs associate counts, favourites, recents and parameters across edits and reorderings. State writes coalesce off the UI thread; errors are visible, and shutdown flushes the writer. Advanced regex runs in a bounded cancellable child with generation checks so stale results cannot replace a newer query. A launch requires an explicit action, and ALTRun stays available after launching.
+Stable IDs associate counts, favourites, recents and parameters across edits and reorderings. State writes coalesce off the UI thread; errors are visible, and shutdown flushes the writer. Search uses literal input with exact and prefix matches ranked first. A launch requires an explicit action, and ALTRun stays available after launching.
 
-No-match Enter confirms adding; cancelling leaves the search visible. F2/Delete require a selected result, Insert prefills the query. Parameter entry freezes its target and supports history; Esc returns without execution. Sorting and missing-target removal remain drafts, can be undone, and require Save. Unknown/network/special targets are not automatically classified as missing.
+No-match Enter confirms adding; cancelling leaves the search visible. F2/Delete require a selected result, Insert prefills the query. Parameter entry freezes its target and supports history; Esc returns without execution. Sorting changes the management view. Manual moves and confirmed removals remain drafts until Save. Unknown/network/special targets are not automatically classified as missing.
+
+Shortcut import detects original ALTRun text and the current TSV format through the same command. Export writes current TSV. Settings import and export use the current INI format.

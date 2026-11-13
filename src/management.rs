@@ -162,7 +162,6 @@ pub fn from_path(path: &Path) -> Result<Entry, String> {
         } else {
             OpenTarget::Path
         }),
-        enabled: true,
         kind: EntryKind::Command,
     })
 }

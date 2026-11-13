@@ -34,7 +34,17 @@ pub fn derived_id(alias: &str, name: &str, command: &str, row: usize) -> String 
     {
         hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
     }
-    format!("legacy-{hash:016x}")
+    format!("item-{hash:016x}")
+}
+
+pub(crate) fn normalize_id(id: &str) -> String {
+    if let Some(hash) = id.strip_prefix("legacy-")
+        && hash.len() == 16
+        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return format!("item-{hash}");
+    }
+    id.to_owned()
 }
 pub fn new_id() -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -121,8 +131,10 @@ pub(crate) fn validate(e: &Entry) -> Result<(), String> {
         }
     }
     if let Some(target) = &e.open_target {
+        let executable = matches!(target, OpenTarget::Path)
+            && crate::management::is_executable(Path::new(&e.command));
         if e.kind != EntryKind::Command
-            || e.param_type != ParamType::None
+            || (!executable && e.param_type != ParamType::None)
             || !crate::management::valid_absolute_path(&e.command)
         {
             return Err("请填写完整的文件或文件夹路径".into());
@@ -141,7 +153,7 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
     for (i, e) in entries.iter().enumerate() {
         validate(e).map_err(|s| format!("第 {} 项：{s}", i + 1))?;
         output.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t1",
             e.alias,
             e.name,
             e.command,
@@ -150,11 +162,10 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
             if e.id.is_empty() {
                 derived_id(&e.alias, &e.name, &e.command, i)
             } else {
-                e.id.clone()
+                normalize_id(&e.id)
             },
             e.working_directory,
-            e.kind.name(),
-            u8::from(e.enabled)
+            e.kind.name()
         ));
         if let Some(target) = &e.open_target {
             let (kind, program) = target.fields();
@@ -191,6 +202,131 @@ pub fn decode(bytes: &[u8]) -> Result<String, String> {
         return Ok(text.into());
     }
     Err("文件应使用 UTF-8 或 UTF-16 编码".into())
+}
+
+pub struct ShortcutImport {
+    pub entries: Vec<Entry>,
+    pub ignored_lines: usize,
+}
+
+pub fn import_shortcuts(path: &Path) -> Result<ShortcutImport, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes))
+        .map_err(|error| format!("无法读取快捷项：{error}"))?;
+    decode_shortcut_import(&bytes)
+}
+
+pub fn decode_shortcut_import(bytes: &[u8]) -> Result<ShortcutImport, String> {
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err("快捷项文件超过 16 MiB".into());
+    }
+    let text = match decode(bytes) {
+        Ok(text) => text,
+        Err(error)
+            if bytes.contains(&b'\t')
+                || bytes.starts_with(&[0xef, 0xbb, 0xbf])
+                || bytes.starts_with(&[0xff, 0xfe])
+                || bytes.starts_with(&[0xfe, 0xff]) =>
+        {
+            return Err(error);
+        }
+        Err(_) => crate::textcodec::decode_gb18030(bytes)?,
+    };
+    let import = if text
+        .lines()
+        .any(|line| !line.trim().is_empty() && line.contains('\t'))
+    {
+        ShortcutImport {
+            entries: crate::parse_entries(&text)?,
+            ignored_lines: 0,
+        }
+    } else {
+        parse_original_shortcuts(&text)?
+    };
+    if !import
+        .entries
+        .iter()
+        .any(|entry| entry.kind == EntryKind::Command)
+    {
+        return Err("文件中没有可导入的快捷项".into());
+    }
+    Ok(import)
+}
+
+fn parse_original_shortcuts(text: &str) -> Result<ShortcutImport, String> {
+    let mut entries = Vec::new();
+    let mut ignored_lines = 0;
+    for (row, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.contains('\0') {
+            return Err(format!("第 {} 行包含无效字符", row + 1));
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            return Err("请选择快捷项文件，而不是设置文件".into());
+        }
+        if line.starts_with([';', '#']) {
+            ignored_lines += 1;
+            continue;
+        }
+        let delimiter = if line.starts_with('F') && line.contains('|') {
+            Some('|')
+        } else {
+            line.chars().find(|c| matches!(c, '|' | ',' | '，'))
+        };
+        let Some(delimiter) = delimiter else {
+            ignored_lines += 1;
+            continue;
+        };
+        let invalid = || format!("第 {} 行的快捷项格式无效", row + 1);
+        let (first, rest) = line.split_once(delimiter).ok_or_else(invalid)?;
+        let first = first.trim();
+        let header = first.strip_prefix('F').filter(|digits| {
+            !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+        });
+        let mut frequency = 0;
+        let (first, rest) = if let Some(digits) = header {
+            frequency = if digits.len() > 8 {
+                10000
+            } else {
+                digits.parse().map_err(|_| invalid())?
+            };
+            rest.split_once(delimiter).ok_or_else(invalid)?
+        } else {
+            (first, rest)
+        };
+        let (alias, rest, param_type) = match first.trim().to_ascii_lowercase().as_str() {
+            kind @ ("" | "no_encoding" | "url_query" | "utf8_query") => {
+                let (alias, tail) = rest.split_once(delimiter).ok_or_else(invalid)?;
+                let kind = match kind {
+                    "no_encoding" => ParamType::Raw,
+                    kind => ParamType::parse(kind)?,
+                };
+                (alias, tail, kind)
+            }
+            _ => (first, rest, ParamType::None),
+        };
+        let (name, command) = rest.split_once(delimiter).ok_or_else(invalid)?;
+        let (alias, name, command) = (alias.trim(), name.trim(), command.trim());
+        let entry = Entry {
+            alias: alias.into(),
+            name: name.into(),
+            command: command.into(),
+            frequency,
+            param_type,
+            id: derived_id(alias, name, command, row),
+            working_directory: String::new(),
+            open_target: None,
+            kind: EntryKind::Command,
+        };
+        validate(&entry).map_err(|error| format!("第 {} 行：{error}", row + 1))?;
+        entries.push(entry);
+    }
+    Ok(ShortcutImport {
+        entries,
+        ignored_lines,
+    })
 }
 pub struct Snapshot {
     pub path: PathBuf,

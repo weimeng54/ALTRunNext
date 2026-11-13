@@ -63,6 +63,14 @@ fn set(hwnd: HWND, value: &str) {
         );
     }
 }
+fn read(hwnd: HWND) -> String {
+    unsafe {
+        let length = SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) as usize;
+        let mut buffer = vec![0u16; length + 1];
+        SendMessageW(hwnd, WM_GETTEXT, buffer.len(), buffer.as_mut_ptr() as isize);
+        String::from_utf16(&buffer[..length]).unwrap()
+    }
+}
 fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answer: i32) {
     let address = owner as usize;
     let pending =
@@ -82,6 +90,42 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answ
     wait(|| unsafe { IsWindow(dialog) == 0 });
 }
 
+fn choose_import_file(manager: HWND, pid: u32, source: &std::path::Path, answer: i32) {
+    use windows_sys::Win32::UI::Controls::{CBEM_GETEDITCONTROL, cmb13, edt1};
+    unsafe {
+        assert_ne!(PostMessageW(manager, WM_COMMAND, 2129, 0), 0);
+        let mut picker = std::ptr::null_mut();
+        let mut filename = std::ptr::null_mut();
+        wait(|| {
+            picker = window("#32770", pid);
+            if picker.is_null() || GetWindow(picker, GW_OWNER) != manager {
+                return false;
+            }
+            filename = GetDlgItem(picker, edt1 as i32);
+            if filename.is_null() {
+                let combo = GetDlgItem(picker, cmb13 as i32);
+                if !combo.is_null() {
+                    filename = SendMessageW(combo, CBEM_GETEDITCONTROL, 0, 0) as HWND;
+                }
+            }
+            !filename.is_null() && IsWindowVisible(picker) != 0
+        });
+        set(filename, source.to_str().unwrap());
+        assert_ne!(PostMessageW(picker, WM_COMMAND, IDOK as usize, 0), 0);
+        let mut confirm = std::ptr::null_mut();
+        wait(|| {
+            confirm = window("ALTRun.Native.Confirmation", pid);
+            !confirm.is_null()
+                && GetWindow(confirm, GW_OWNER) == manager
+                && IsWindowVisible(confirm) != 0
+        });
+        assert_ne!(PostMessageW(confirm, WM_COMMAND, answer as usize, 0), 0);
+        wait(|| IsWindow(confirm) == 0);
+        // Wait for the editor to apply or discard the staged data.
+        SendMessageW(manager, WM_NULL, 0, 0);
+    }
+}
+
 #[test]
 fn management_save_persists_drafts_and_refreshes_resident_search() {
     let stamp = SystemTime::now()
@@ -91,7 +135,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
     let path = std::env::current_dir()
         .unwrap()
         .join(format!("target/manager-fixture-{stamp}.tsv"));
-    let original = "np\t记事本\tnotepad.exe\t7\tauto\nweb\t网页搜索\thttps://example.com/?q={%p}\t2\tutf8_query\n";
+    let original = "web\t网页搜索\thttps://example.com/?q={%p}\t2\tutf8_query\nnp\t记事本\tnotepad.exe\t7\tauto\n";
     std::fs::write(&path, original).unwrap();
     let stem = path.file_stem().unwrap().to_str().unwrap();
     std::fs::write(
@@ -104,8 +148,10 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         "W\tmanager\t10\t10\t600\t430\n",
     )
     .unwrap();
+    let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_altrun-probe").into());
     let child = Running(
-        Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
+        Command::new(exe)
             .arg("--show")
             .arg("--data")
             .arg(&path)
@@ -162,7 +208,9 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         let save = GetDlgItem(manager, 2113);
         let alias = GetDlgItem(manager, 2102);
         let parameter_type = GetDlgItem(manager, 2105);
-        assert_eq!(SendMessageW(parameter_type, CB_GETCOUNT, 0, 0), 4);
+        let ask_parameter = GetDlgItem(manager, 2139);
+        assert!(GetDlgItem(manager, 2116).is_null());
+        assert_eq!(SendMessageW(parameter_type, CB_GETCOUNT, 0, 0), 3);
         let select_row = |row| {
             SendMessageW(editor_list, LB_SETCURSEL, row, 0);
             SendMessageW(
@@ -172,8 +220,30 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
                 editor_list as isize,
             );
         };
-        select_row(1);
-        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 3);
+        select_row(0);
+        assert_eq!(read(alias), "web");
+        assert_ne!(IsWindowVisible(parameter_type), 0);
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 1);
+        SendMessageW(ask_parameter, BM_CLICK, 0, 0);
+        assert_eq!(SendMessageW(ask_parameter, BM_GETCHECK, 0, 0), 1);
+        SendMessageW(manager, WM_COMMAND, 2132, 0);
+        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(read(alias), "web");
+        assert_eq!(IsWindowEnabled(save), 0);
+        SendMessageW(manager, WM_COMMAND, 2135, 0);
+        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(IsWindowEnabled(save), 0);
+        select_row(0);
+        assert_eq!(read(alias), "np");
+        set(alias, "zzz");
+        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(read(alias), "zzz");
+        SendMessageW(manager, WM_COMMAND, 2133, 0);
+        assert_eq!(read(alias), "zzz");
+        SendMessageW(manager, WM_COMMAND, 2130, 0);
+        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(read(alias), "zzz");
+        set(alias, "np");
         SendMessageW(
             manager,
             WM_COMMAND,
@@ -181,16 +251,25 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
             alias as isize,
         );
         assert_eq!(IsWindowEnabled(save), 0);
-        select_row(0);
+        select_row(1);
+        assert_eq!(IsWindowVisible(parameter_type), 0);
         assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 0);
         let command = GetDlgItem(manager, 2104);
         set(command, "notepad.exe {%p}");
-        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 1);
+        assert_ne!(IsWindowVisible(parameter_type), 0);
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 0);
         set(command, "notepad.exe");
         assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 0);
+        assert_eq!(IsWindowVisible(parameter_type), 0);
         assert_eq!(IsWindowEnabled(save), 0);
         let saved_alias = std::fs::read_to_string(&path).unwrap();
-        let first_alias = saved_alias.split('\t').next().unwrap();
+        let first_alias = saved_alias
+            .lines()
+            .nth(1)
+            .unwrap()
+            .split('\t')
+            .next()
+            .unwrap();
         set(alias, "temporary-test-edit");
         assert_ne!(IsWindowEnabled(save), 0);
         set(alias, first_alias);
@@ -207,9 +286,10 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         set(name, "修改后的中文名称");
         SendMessageW(manager, WM_COMMAND, 2113, 0);
         let saved = altrun_probe::library::Snapshot::open(&path).unwrap();
-        assert_eq!(saved.entries[0].alias, "new");
-        assert_eq!(saved.entries[0].name, "修改后的中文名称");
-        assert_eq!(saved.entries[0].param_type.name(), "auto");
+        assert_eq!(saved.entries[0].alias, "web");
+        assert_eq!(saved.entries[1].alias, "new");
+        assert_eq!(saved.entries[1].name, "修改后的中文名称");
+        assert_eq!(saved.entries[1].param_type.name(), "auto");
         assert_eq!(
             std::fs::read_to_string(path.with_extension("tsv.bak")).unwrap(),
             original
@@ -221,7 +301,11 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         SendMessageW(manager, WM_COMMAND, 2110, 0);
         set(alias, "added");
         set(name, "新添加的快捷项");
-        set(GetDlgItem(manager, 2104), "notepad.exe");
+        set(GetDlgItem(manager, 2104), "https://example.com/?q=");
+        assert_eq!(IsWindowVisible(parameter_type), 0);
+        SendMessageW(ask_parameter, BM_CLICK, 0, 0);
+        assert_ne!(IsWindowVisible(parameter_type), 0);
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 1);
         SendMessageW(manager, WM_COMMAND, 2113, 0);
         assert_eq!(
             altrun_probe::library::Snapshot::open(&path)
@@ -290,6 +374,35 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
             SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
             2
         );
+        let imported = path.with_extension("txt");
+        std::fs::write(
+            &imported,
+            "F12|UTF8_Query|imported|导入项|https://example.com/?q={%p}|part\n",
+        )
+        .unwrap();
+        choose_import_file(manager, pid, &imported, IDCANCEL);
+        assert_eq!(
+            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            2
+        );
+        choose_import_file(manager, pid, &imported, IDOK);
+        wait(|| SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0) == 1);
+        assert_eq!(read(GetDlgItem(manager, 2102)), "imported");
+        assert_eq!(
+            read(GetDlgItem(manager, 2104)),
+            "https://example.com/?q={%p}|part"
+        );
+        assert_eq!(
+            altrun_probe::library::Snapshot::open(&path)
+                .unwrap()
+                .entries
+                .len(),
+            2
+        );
+        SendMessageW(manager, WM_COMMAND, 2113, 0);
+        let saved = altrun_probe::library::Snapshot::open(&path).unwrap();
+        assert_eq!(saved.entries[0].frequency, 12);
+        assert_eq!(saved.entries[0].param_type.name(), "utf8_query");
         SendMessageW(manager, WM_COMMAND, 2114, 0);
         wait(|| IsWindow(manager) == 0);
     }

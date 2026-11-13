@@ -153,30 +153,22 @@ fn click_tab_and_wait_for_pixels(hwnd: HWND, page: usize, field: &str, screensho
             -1
         );
         let point = ((row.top + row.bottom) / 2) << 16 | 20;
-        let start = Instant::now();
         assert_ne!(PostMessageW(tabs, WM_LBUTTONDOWN, 1, point as isize), 0);
         assert_ne!(PostMessageW(tabs, WM_LBUTTONUP, 0, point as isize), 0);
         let control = setting(hwnd, field);
         let dark_accent = 0x00ffc79a;
-        loop {
+        wait(|| {
             let window = bounds(hwnd);
             let rect = bounds(control);
             let inset = (window.right - window.left) * 33 / 1102;
-            if IsWindowVisible(control) != 0
+            SendMessageW(tabs, LB_GETCURSEL, 0, 0) == page as isize
+                && IsWindowVisible(control) != 0
                 && pixel(
-                    hwnd,
-                    rect.right - window.left - inset,
-                    (rect.top + rect.bottom) / 2 - window.top,
+                    control,
+                    rect.right - rect.left - inset,
+                    (rect.bottom - rect.top) / 2,
                 ) == dark_accent
-            {
-                break;
-            }
-            assert!(
-                start.elapsed() < Duration::from_millis(1200),
-                "{field} did not paint after clicking sidebar"
-            );
-            thread::sleep(Duration::from_millis(12));
-        }
+        });
         native_snapshot::save_painted(hwnd, screenshot);
     }
 }
@@ -189,7 +181,6 @@ fn settings_design(hwnd: HWND) {
         "appearance",
         "type",
         "position",
-        "advanced",
     ];
     for (theme, segment) in [("light", 2331), ("dark", 2332)] {
         select_page(hwnd, 3);
@@ -237,14 +228,14 @@ fn settings_design(hwnd: HWND) {
             let sidebar = GetDlgItem(hwnd, 2301);
             let sidebar_bounds = bounds(sidebar);
             let row_height = SendMessageW(sidebar, LB_GETITEMHEIGHT, 0, 0);
-            select_page(hwnd, 6);
-            let advanced_sidebar = bounds(sidebar);
+            select_page(hwnd, 5);
+            let position_sidebar = bounds(sidebar);
             assert_eq!(
                 (
-                    advanced_sidebar.left,
-                    advanced_sidebar.top,
-                    advanced_sidebar.right,
-                    advanced_sidebar.bottom
+                    position_sidebar.left,
+                    position_sidebar.top,
+                    position_sidebar.right,
+                    position_sidebar.bottom
                 ),
                 (
                     sidebar_bounds.left,
@@ -254,7 +245,8 @@ fn settings_design(hwnd: HWND) {
                 ),
             );
             assert_eq!(SendMessageW(sidebar, LB_GETITEMHEIGHT, 0, 0), row_height);
-            let switch = setting(hwnd, "StandardRegex");
+            let switch = setting(hwnd, "PositionMode");
+            assert_eq!(SendMessageW(switch, BM_GETCHECK, 0, 0), 0);
             let rect = bounds(switch);
             let height = rect.bottom - rect.top;
             let switch_center = rect.right - rect.left - height / 3;
@@ -272,34 +264,6 @@ fn settings_design(hwnd: HWND) {
             assert_ne!(SendMessageW(switch, BM_GETCHECK, 0, 0), checked);
             SendMessageW(switch, BM_CLICK, 0, 0);
             assert_eq!(SendMessageW(switch, BM_GETCHECK, 0, 0), checked);
-            let format = GetDlgItem(hwnd, 2356);
-            let raw = setting(hwnd, "ListFormat");
-            assert_eq!(IsWindowVisible(raw), 0);
-            SendMessageW(format, CB_SETCURSEL, 1, 0);
-            SendMessageW(
-                hwnd,
-                WM_COMMAND,
-                (CBN_SELCHANGE as usize) << 16 | 2356,
-                format as isize,
-            );
-            assert_eq!(text(raw), "%s — %s");
-            command(hwnd, 2358);
-            assert_ne!(IsWindowVisible(raw), 0);
-            let alpha = setting(hwnd, "Alpha");
-            let rect = bounds(alpha);
-            let x = rect.right - (rect.right - rect.left) / 5;
-            let y = rect.top + (rect.bottom - rect.top) * 2 / 3;
-            SendMessageW(
-                alpha,
-                WM_NCLBUTTONDOWN,
-                HTBORDER as usize,
-                ((x & 0xffff) | ((y & 0xffff) << 16)) as isize,
-            );
-            assert_eq!(text(alpha), "99");
-            SendMessageW(alpha, WM_KEYDOWN, 0x26, 0);
-            assert_eq!(text(alpha), "100");
-            set(raw, "%-25s| %s");
-            command(hwnd, 2358);
         }
         for (page, name) in pages.iter().enumerate() {
             select_page(hwnd, page);
@@ -308,8 +272,8 @@ fn settings_design(hwnd: HWND) {
     }
     select_page(hwnd, 0);
     let language = bounds(setting(hwnd, "Lang"));
-    let notifications = bounds(setting(hwnd, "ShowStartNotification"));
-    assert!(language.left > notifications.right && (language.top - notifications.top).abs() < 20);
+    let sound = bounds(setting(hwnd, "PlayPopupNotify"));
+    assert!(language.left > sound.right && (language.top - sound.top).abs() < 20);
     select_page(hwnd, 2);
     let last_input = bounds(setting(hwnd, "RememberFavouratMatch"));
     let first_result = bounds(setting(hwnd, "NumberKey"));
@@ -321,17 +285,12 @@ fn settings_design(hwnd: HWND) {
     unsafe {
         assert!(GetDlgItem(hwnd, 2340).is_null());
         let footer = bounds(GetDlgItem(hwnd, 2310));
-        for key in [
-            "ShowTopTen",
-            "ShowOperationHint",
-            "ShowShortCutButton",
-            "ShowConfigButton",
-            "ShowCloseButton",
-        ] {
-            let option = setting(hwnd, key);
-            assert_ne!(IsWindowVisible(option), 0, "{key}");
-            assert!(bounds(option).bottom < footer.top, "{key} overlaps footer");
-        }
+        let option = setting(hwnd, "ShowOperationHint");
+        assert_ne!(IsWindowVisible(option), 0);
+        assert!(
+            bounds(option).bottom < footer.top,
+            "operation hint overlaps footer"
+        );
     }
     command(hwnd, 2331);
     select_page(hwnd, 0);
@@ -428,8 +387,9 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 1);
         native_snapshot::save_painted(launcher, "launcher-dark-scrollbar");
         set(edit, "^(ab)\\1$");
-        wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 1);
-        set(edit, "^(a+)\\1$");
+        assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+        set(edit, "ab");
+        assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
         set(edit, "self");
         thread::sleep(Duration::from_millis(250));
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
@@ -471,7 +431,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_eq!(SendMessageW(setting(dialog, "Lang"), CB_GETCOUNT, 0, 0), 2);
         let size = |rect: RECT| (rect.right - rect.left, rect.bottom - rect.top);
         let initial_size = size(bounds(dialog));
-        for page in 1..=6 {
+        for page in 1..=5 {
             select_page(dialog, page);
             assert_eq!(size(bounds(dialog)), initial_size, "settings page {page}");
             assert_eq!(
@@ -479,7 +439,15 @@ fn complete_native_settings_history_matching_and_instance_regression() {
                 0
             );
         }
-        assert_eq!(IsWindowVisible(setting(dialog, "WorkingDirectory")), 0);
+        assert_eq!(SendMessageW(GetDlgItem(dialog, 2301), LB_GETCOUNT, 0, 0), 6);
+        for key in [
+            "WorkingDirectory",
+            "ParamHistoryLimit",
+            "AllowDynamicTarget",
+            "TraceEnable",
+        ] {
+            assert!(setting(dialog, key).is_null(), "{key}");
+        }
         let region = CreateRectRgn(0, 0, 1, 1);
         assert_ne!(GetWindowRgn(dialog, region), 0);
         assert_eq!(PtInRegion(region, 0, 0), 0);
@@ -527,14 +495,14 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         );
         native_snapshot::save(dialog, "settings");
         select_page(dialog, 2);
-        SendMessageW(setting(dialog, "Regex"), BM_CLICK, 0, 0);
+        SendMessageW(setting(dialog, "MatchAnywhere"), BM_CLICK, 0, 0);
         command(dialog, 2310);
         assert!(
             std::fs::read_to_string(&settings)
                 .unwrap()
-                .contains("Regex=0")
+                .contains("MatchAnywhere=0")
         );
-        SendMessageW(setting(dialog, "Regex"), BM_CLICK, 0, 0);
+        SendMessageW(setting(dialog, "MatchAnywhere"), BM_CLICK, 0, 0);
         command(dialog, 2310);
         assert_ne!(RegisterHotKey(null_mut(), 22222, 3, 0x7b), 0);
         select_page(dialog, 1);
@@ -602,7 +570,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         set(edit, "self");
         SendMessageW(edit, WM_KEYDOWN, 13, 0);
         wait(|| marker.exists());
-        wait(|| std::fs::read_to_string(&state).is_ok_and(|t| t.contains("F\tlegacy-")));
+        wait(|| std::fs::read_to_string(&state).is_ok_and(|t| t.contains("F\titem-")));
         command(launcher, 18006);
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 1);
         command(launcher, 18012);

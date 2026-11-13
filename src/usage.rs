@@ -19,7 +19,7 @@ impl Usage {
             let bad = || format!("运行记录第 {} 行无效", number + 1);
             match fields.as_slice() {
                 ["S", name, id] => {
-                    out.selection.insert(unescape(name)?, unescape(id)?);
+                    out.selection.insert(unescape(name)?, entry_id(id)?);
                 }
                 ["W", name, x, y, width, height] => {
                     out.positions.insert(
@@ -33,18 +33,26 @@ impl Usage {
                     );
                 }
                 ["F", id, count] => {
-                    out.counts
-                        .insert(unescape(id)?, count.parse().map_err(|_| bad())?);
+                    let count: u64 = count.parse().map_err(|_| bad())?;
+                    let total = out.counts.entry(entry_id(id)?).or_default();
+                    *total = (*total).max(count);
                 }
-                ["R", id] => out.recent.push(unescape(id)?),
+                ["R", id] => {
+                    let id = entry_id(id)?;
+                    if !out.recent.contains(&id) {
+                        out.recent.push(id);
+                    }
+                }
                 ["P", query, id] => {
-                    out.favourites.insert(unescape(query)?, unescape(id)?);
+                    out.favourites.insert(unescape(query)?, entry_id(id)?);
                 }
-                ["H", id, value] => out
-                    .parameters
-                    .entry(unescape(id)?)
-                    .or_default()
-                    .push(unescape(value)?),
+                ["H", id, value] => {
+                    let values = out.parameters.entry(entry_id(id)?).or_default();
+                    let value = unescape(value)?;
+                    if !values.contains(&value) {
+                        values.push(value);
+                    }
+                }
                 _ => return Err(bad()),
             }
         }
@@ -97,6 +105,9 @@ impl Usage {
             global.truncate(limit);
         }
     }
+}
+fn entry_id(value: &str) -> Result<String, String> {
+    Ok(crate::library::normalize_id(&unescape(value)?))
 }
 pub fn escape(value: &str) -> String {
     let mut out = String::new();

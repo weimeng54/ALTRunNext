@@ -7,6 +7,12 @@ use std::{
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
+use windows_sys::Win32::{
+    Foundation::{HWND, POINT, RECT},
+    Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, MonitorFromWindow,
+    },
+};
 mod native_snapshot;
 
 fn wide(s: &str) -> Vec<u16> {
@@ -29,6 +35,68 @@ fn hit_test_near_bottom(hwnd: windows_sys::Win32::Foundation::HWND, child: i32) 
         let y = bounds.bottom - 2;
         let point = ((y as u16 as u32) << 16) | x as u16 as u32;
         SendMessageW(hwnd, WM_NCHITTEST, 0, point as isize)
+    }
+}
+
+fn centered_work_area(hwnd: HWND) -> (RECT, RECT) {
+    unsafe {
+        let mut cursor = POINT::default();
+        assert_ne!(GetCursorPos(&mut cursor), 0);
+        let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+        assert_eq!(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), monitor);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..std::mem::zeroed()
+        };
+        assert_ne!(GetMonitorInfoW(monitor, &mut info), 0);
+        let mut bounds = RECT::default();
+        assert_ne!(GetWindowRect(hwnd, &mut bounds), 0);
+        let work = info.rcWork;
+        assert!((bounds.left + bounds.right - work.left - work.right).abs() <= 1);
+        assert!((bounds.top + bounds.bottom - work.top - work.bottom).abs() <= 1);
+        (bounds, work)
+    }
+}
+
+fn check_centered_editor(launcher: HWND, pid: u32, action: usize, class: &str, scale: &str) {
+    unsafe {
+        SendMessageW(launcher, WM_COMMAND, action, 0);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let class = wide(class);
+        let hwnd = loop {
+            let mut window = std::ptr::null_mut();
+            loop {
+                window = FindWindowExW(
+                    std::ptr::null_mut(),
+                    window,
+                    class.as_ptr(),
+                    std::ptr::null(),
+                );
+                if window.is_null() {
+                    break;
+                }
+                let mut owner = 0;
+                GetWindowThreadProcessId(window, &mut owner);
+                if owner == pid && IsWindowVisible(window) != 0 {
+                    break;
+                }
+            }
+            if !window.is_null() {
+                break window;
+            }
+            assert!(Instant::now() < deadline, "editor was not shown");
+            thread::sleep(Duration::from_millis(20));
+        };
+        let (bounds, work) = centered_work_area(hwnd);
+        let dpi = (scale.parse::<i32>().unwrap() * 96 / 100)
+            .min((work.right - work.left - 48) * 96 / 1102)
+            .min((work.bottom - work.top - 80) * 96 / 721)
+            .max(48);
+        assert_eq!(bounds.right - bounds.left, (1102 * dpi + 48) / 96);
+        assert_eq!(bounds.bottom - bounds.top, (721 * dpi + 48) / 96);
+        native_snapshot::save(hwnd, &format!("editor-{action}-{scale}"));
+        SendMessageW(hwnd, WM_CLOSE, 0, 0);
+        assert_eq!(IsWindow(hwnd), 0);
     }
 }
 
@@ -67,11 +135,11 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
     );
     let mut fixture = std::fs::read_to_string(&data).unwrap();
     fixture.push_str(&success_command);
-    for i in 0..7 {
+    for i in 0..11 {
         fixture.push_str(&format!("z{i}\tExtra command {i}\t__missing__.exe\t0\n"));
     }
     std::fs::write(&data, fixture).unwrap();
-    for scale in ["100", "150"] {
+    for scale in ["100", "125", "150", "200"] {
         let _child = Running(
             Command::new(env!("CARGO_BIN_EXE_altrun-probe"))
                 .arg("--show")
@@ -109,6 +177,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 0
             );
             assert!(!edit.is_null() && !list.is_null());
+            centered_work_area(hwnd);
             assert_eq!(hit_test_near_bottom(hwnd, 1000), HTCAPTION as isize);
             assert_eq!(hit_test_near_bottom(hwnd, 1001), HTCLIENT as isize);
             SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
@@ -116,11 +185,16 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             assert_ne!(IsWindowVisible(hwnd), 0, "drag must defer auto-hide");
             SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
             assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
             SendMessageW(edit, WM_SETTEXT, 0, wide("*").as_ptr() as isize);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 10);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("z").as_ptr() as isize);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 11);
+            SendMessageW(edit, WM_KEYDOWN, 0x26, 0);
+            assert_eq!(SendMessageW(list, LB_GETCURSEL, 0, 0), 10);
+            assert!(SendMessageW(list, LB_GETTOPINDEX, 0, 0) > 0);
             SendMessageW(edit, WM_SETTEXT, 0, [0_u16].as_ptr() as isize);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
             let row_height = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) as u32;
             let click = (((row_height + row_height / 2) << 16) | 5) as isize;
             SendMessageW(list, WM_LBUTTONDOWN, 1, click);
@@ -181,7 +255,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             assert_ne!(IsWindowVisible(hwnd), 0);
             assert_ne!(IsWindowEnabled(list), 0);
             assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 13);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
             assert_ne!(
                 SendMessageW(GetDlgItem(hwnd, 1003), WM_GETTEXTLENGTH, 0, 0),
                 0
@@ -267,6 +341,14 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             }
             assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "ok");
             assert_eq!(IsWindowVisible(hwnd), 0);
+            check_centered_editor(hwnd, _child.0.id(), 18005, "ALTRun.Native.Settings", scale);
+            check_centered_editor(
+                hwnd,
+                _child.0.id(),
+                18003,
+                "ALTRun.Native.ShortcutManager",
+                scale,
+            );
         }
     }
 }

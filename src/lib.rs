@@ -8,7 +8,6 @@ pub struct Entry {
     pub id: String,
     pub working_directory: String,
     pub open_target: Option<library::OpenTarget>,
-    pub enabled: bool,
     pub kind: library::EntryKind,
 }
 
@@ -22,6 +21,9 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
             if !(4..=11).contains(&fields.len()) || fields[0].is_empty() {
                 return Err(format!("Invalid dataset row {}", i + 1));
             }
+            if !matches!(fields.get(8).copied().unwrap_or("1"), "0" | "1") {
+                return Err(format!("Invalid enabled flag at row {}", i + 1));
+            }
             Ok(Entry {
                 alias: fields[0].into(),
                 name: fields[1].into(),
@@ -32,7 +34,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 id: fields
                     .get(5)
                     .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
+                    .map(library::normalize_id)
                     .unwrap_or_else(|| library::derived_id(fields[0], fields[1], fields[2], i)),
                 working_directory: fields.get(6).unwrap_or(&"").to_string(),
                 open_target: library::OpenTarget::parse(
@@ -40,11 +42,6 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                     fields.get(10).copied().unwrap_or(""),
                 )?,
                 kind: library::EntryKind::parse(fields.get(7).unwrap_or(&"command"))?,
-                enabled: match fields.get(8).copied().unwrap_or("1") {
-                    "1" => true,
-                    "0" => false,
-                    _ => return Err(format!("Invalid enabled flag at row {}", i + 1)),
-                },
                 param_type: if fields.len() >= 5 {
                     library::ParamType::parse(fields[4])?
                 } else {
@@ -58,9 +55,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                 if entry.kind != library::EntryKind::Separator {
                     return true;
                 }
-                // Old versions could turn a command into an invisible separator.
-                // Keep its contents, but require an explicit re-enable.
-                entry.enabled = false;
+                // Older releases let a separator retain the original command.
                 if !entry.command.trim().is_empty() {
                     entry.kind = library::EntryKind::Command;
                     true
@@ -98,13 +93,6 @@ enum MatchPriority {
     Exact,
 }
 
-fn regex_query(input: &str, regex: bool) -> bool {
-    regex
-        && input.contains([
-            '*', '?', '[', ']', '(', ')', '|', '^', '$', '\\', '.', '+', '{',
-        ])
-}
-
 fn ordered_span(alias: &[char], needle: &str) -> Option<(usize, usize)> {
     let mut remaining = needle.chars();
     let mut target = remaining.next()?;
@@ -123,50 +111,16 @@ fn ordered_span(alias: &[char], needle: &str) -> Option<(usize, usize)> {
 }
 
 impl SearchIndex {
-    pub fn aliases(&self) -> &[String] {
-        &self.aliases
-    }
-    pub fn rank_positions(&self, positions: &[Option<usize>], input: &str) -> Vec<usize> {
-        let length = input.chars().count() as i64;
-        let mut hits: Vec<_> = positions
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| {
-                if !self.active.get(i).copied().unwrap_or(false) {
-                    return None;
-                }
-                p.map(|p| (i, self.position_score(i, p, length)))
-            })
-            .collect();
-        hits.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        hits.into_iter().map(|h| h.0).collect()
-    }
-    pub fn query_options(
-        &self,
-        input: &str,
-        regex: bool,
-        anywhere: bool,
-        standard: bool,
-    ) -> Result<Vec<usize>, String> {
-        if input.is_empty() {
-            return Ok(self.query(""));
-        }
+    pub fn query_options(&self, input: &str, anywhere: bool) -> Vec<usize> {
         if input.chars().count() > 256 {
-            return Ok(Vec::new());
+            return Vec::new();
         }
-        if regex_query(input, regex) {
-            let pattern = if standard {
-                input.to_owned()
-            } else {
-                matching::expand_wildcards(input)
-            };
-            if matching::advanced(&pattern) {
-                return Err("advanced".into());
-            }
-            return Ok(self.rank_positions(
-                &matching::positions(&pattern, &self.aliases, !anywhere)?,
-                input,
-            ));
+        if input.is_empty() {
+            let mut hits: Vec<_> = (0..self.aliases.len())
+                .filter(|&i| self.active[i])
+                .collect();
+            hits.sort_unstable_by_key(|&i| (std::cmp::Reverse(self.frequencies[i]), i));
+            return hits;
         }
         let needle = input.to_lowercase();
         let length = needle.chars().count();
@@ -187,23 +141,20 @@ impl SearchIndex {
             })
             .collect();
         hits.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)).then(a.0.cmp(&b.0)));
-        Ok(hits.into_iter().map(|hit| hit.0).collect())
+        hits.into_iter().map(|hit| hit.0).collect()
     }
 
     pub fn same_match_priority(
         &self,
         input: &str,
-        regex: bool,
+        anywhere: bool,
         first: usize,
         other: usize,
     ) -> bool {
-        if regex_query(input, regex) {
-            return true;
-        }
         let needle = input.to_lowercase();
         let length = needle.chars().count();
         let priority = |index| {
-            self.literal_match(index, &needle, length, true)
+            self.literal_match(index, &needle, length, anywhere)
                 .map(|hit| hit.0)
         };
         priority(first).is_some_and(|best| priority(other) == Some(best))
@@ -247,7 +198,7 @@ impl SearchIndex {
         Self {
             active: entries
                 .iter()
-                .map(|e| e.enabled && e.kind == library::EntryKind::Command)
+                .map(|e| e.kind == library::EntryKind::Command)
                 .collect(),
             aliases: entries.iter().map(|e| e.alias.to_lowercase()).collect(),
             frequencies: entries.iter().map(|e| e.frequency).collect(),
@@ -259,41 +210,7 @@ impl SearchIndex {
     }
 
     pub fn query(&self, input: &str) -> Vec<usize> {
-        if input == " " || input.chars().count() > 256 {
-            return Vec::new();
-        }
-        let input = input.to_lowercase();
-        let wildcard = input.contains(['*', '?']);
-        let pattern: Vec<char> = input.chars().collect();
-        let mut hits: Vec<(usize, i64)> = self
-            .aliases
-            .iter()
-            .enumerate()
-            .filter_map(|(i, alias)| {
-                if !self.active[i] {
-                    return None;
-                }
-                if input.is_empty() {
-                    return Some((i, self.frequencies[i]));
-                }
-                let position = if wildcard {
-                    wildcard_position(&pattern, &self.characters[i])
-                } else {
-                    alias.find(&input).map(|pos| alias[..pos].chars().count())
-                };
-                position.map(|pos| {
-                    let position = pos as i64 + 1;
-                    let length_delta = alias.chars().count() as i64 - input.chars().count() as i64;
-                    let score = 1024_i64
-                        .saturating_add(self.frequencies[i].saturating_mul(4))
-                        .saturating_sub(position.saturating_mul(128))
-                        .saturating_sub(length_delta.saturating_mul(16));
-                    (i, score)
-                })
-            })
-            .collect();
-        hits.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        hits.into_iter().map(|hit| hit.0).collect()
+        self.query_options(input, true)
     }
 }
 
@@ -338,53 +255,13 @@ pub mod desktop_frame;
 pub mod desktop_observation;
 #[cfg(windows)]
 pub mod integration;
-pub mod isolated_matching;
 pub mod launch;
 pub mod library;
 pub mod library_updates;
-pub mod list_format;
 pub mod local_target;
 pub mod management;
-pub mod matching;
 pub mod observation;
 pub mod preferences;
 pub mod state_store;
 pub mod textcodec;
 pub mod usage;
-
-fn wildcard_position(pattern: &[char], alias: &[char]) -> Option<usize> {
-    fn merge(slot: &mut Option<usize>, value: usize) {
-        *slot = Some(slot.map_or(value, |old| old.min(value)));
-    }
-    let mut states = vec![None; pattern.len() + 1];
-    let mut next = states.clone();
-    let mut best = None;
-    for offset in 0..=alias.len() {
-        merge(&mut states[0], offset);
-        for i in 0..pattern.len() {
-            if pattern[i] == '*'
-                && let Some(start) = states[i]
-            {
-                merge(&mut states[i + 1], start);
-            }
-        }
-        if let Some(start) = states[pattern.len()] {
-            merge(&mut best, start);
-        }
-        if offset == alias.len() {
-            break;
-        }
-        next.fill(None);
-        for i in 0..pattern.len() {
-            if let Some(start) = states[i] {
-                if pattern[i] == '*' {
-                    merge(&mut next[i], start);
-                } else if pattern[i] == '?' || pattern[i] == alias[offset] {
-                    merge(&mut next[i + 1], start);
-                }
-            }
-        }
-        std::mem::swap(&mut states, &mut next);
-    }
-    best
-}

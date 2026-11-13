@@ -1,5 +1,4 @@
 use altrun_probe::{
-    matching,
     preferences::{Preferences, parse_hotkey},
     usage::Usage,
 };
@@ -7,13 +6,14 @@ use altrun_probe::{
 fn old_configuration_roundtrips_functional_options_and_unknown_values() {
     let p=Preferences::parse("[Config]\nHotKey1=Alt + R\nHotKey2=Pause\nRegex=1\nNumberKey=1\nIndexFrom0to9=0\nRememberFavouratMatch=1\nHideDelay=15\nParamHistoryLimit=50\n[GUI]\nFormWidth=420\nAlpha=240\nRoundBorderRadius=12\nTitleFont=宋体|[]|12|65535|0\n[Extra]\nFutureValue=keep\n").unwrap();
     assert_eq!(p.get("HotKey1"), "Alt + R");
-    assert!(p.flag("Regex"));
+    assert_eq!(p.get("Regex"), "");
+    assert_eq!(p.get("Alpha"), "");
+    assert_eq!(p.get("PositionMode"), "center");
     assert!(p.flag("RememberFavouratMatch"));
     assert_eq!(p.get("FormWidth"), "420");
     assert_eq!(Preferences::parse(&p.text()).unwrap(), p);
     let mut p = p;
     p.set("FormWidth", "10").unwrap_err();
-    p.set("Alpha", "999").unwrap_err();
     p.set("HotKey1", "Ctrl+Bogus").unwrap_err();
 }
 #[test]
@@ -40,38 +40,6 @@ fn usage_and_parameter_history_persist_unicode_delimiters_and_limits() {
     assert_eq!(Usage::parse(&u.text()).unwrap(), u);
 }
 #[test]
-fn actual_regular_expressions_support_classes_anchors_groups_and_prefix_mode() {
-    let aliases = vec![
-        "notepad".into(),
-        "note12".into(),
-        "xnote".into(),
-        "other".into(),
-    ];
-    assert_eq!(
-        matching::positions(r"^note(pad|[0-9]+)$", &aliases, false).unwrap(),
-        vec![Some(0), Some(0), None, None]
-    );
-    assert_eq!(
-        matching::positions("note", &aliases, true).unwrap(),
-        vec![Some(0), Some(0), None, None]
-    );
-    assert_eq!(matching::expand_wildcards("n*e?"), "n.*e.");
-    assert!(matching::positions("[", &aliases, false).is_err());
-}
-#[test]
-fn advanced_expression_features_are_available_for_isolated_worker() {
-    let aliases = vec!["abab".into(), "abac".into(), "foobar".into()];
-    assert_eq!(
-        matching::positions(r"^(ab)\1$", &aliases, false).unwrap(),
-        vec![Some(0), None, None]
-    );
-    assert_eq!(
-        matching::positions(r"(?<=foo)bar", &aliases, false).unwrap(),
-        vec![None, None, Some(3)]
-    );
-}
-
-#[test]
 fn stable_ids_and_working_directories_survive_editing_and_roundtrip() {
     let mut rows =
         altrun_probe::parse_entries("np\t记事本\tnotepad.exe\t7\nnp\t另一个\tother.exe\t0\n")
@@ -81,13 +49,11 @@ fn stable_ids_and_working_directories_survive_editing_and_roundtrip() {
     let id = rows[0].id.clone();
     rows[0].alias = "renamed".into();
     rows[0].working_directory = r"D:\Work Folder".into();
-    rows[1].enabled = false;
     let text = altrun_probe::library::serialize(&rows).unwrap();
     let restored = altrun_probe::parse_entries(&text).unwrap();
     assert_eq!(restored[0].id, id);
     assert_eq!(restored[0].working_directory, r"D:\Work Folder");
-    assert!(!restored[1].enabled);
-    assert_eq!(altrun_probe::search(&restored, ""), vec![0]);
+    assert_eq!(altrun_probe::search(&restored, ""), vec![0, 1]);
 }
 
 #[test]
@@ -136,46 +102,6 @@ fn templates_preserve_context_literals_and_window_display_flags() {
 }
 
 #[test]
-fn advanced_matching_worker_returns_results_and_is_time_bounded() {
-    let aliases = vec!["abab".into(), "abac".into()];
-    let program = std::path::Path::new(env!("CARGO_BIN_EXE_altrun-probe"));
-    assert_eq!(
-        altrun_probe::isolated_matching::run(
-            program,
-            r"^(ab)\1$",
-            &aliases,
-            false,
-            std::time::Duration::from_secs(3)
-        )
-        .unwrap(),
-        vec![Some(0), None]
-    );
-    assert!(
-        altrun_probe::isolated_matching::run(
-            program,
-            r"^(ab)\1$",
-            &aliases,
-            false,
-            std::time::Duration::ZERO
-        )
-        .is_err()
-    );
-    let calls = std::sync::atomic::AtomicUsize::new(0);
-    assert!(
-        altrun_probe::isolated_matching::run_cancellable(
-            program,
-            r"^(ab)\1$",
-            &aliases,
-            false,
-            std::time::Duration::from_secs(3),
-            || calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0
-        )
-        .is_err()
-    );
-    assert!(calls.load(std::sync::atomic::Ordering::Relaxed) >= 2);
-}
-
-#[test]
 fn background_state_writer_flushes_and_refuses_external_overwrite() {
     use altrun_probe::state_store::{TextFile, Writer};
     let dir = std::env::current_dir()
@@ -198,24 +124,18 @@ fn background_state_writer_flushes_and_refuses_external_overwrite() {
     assert_eq!(std::fs::read_to_string(path).unwrap(), "external");
 }
 #[test]
-fn search_preferences_keep_literal_and_regex_semantics_separate() {
-    let rows = altrun_probe::parse_entries("np\tN\tn.exe\t0\nxnp\tN\tn.exe\t0\n").unwrap();
+fn search_treats_punctuation_as_literal_text() {
+    let rows = altrun_probe::parse_entries(concat!(
+        "note?*\tN\tn.exe\t0\n",
+        "notepad\tN\tn.exe\t0\n",
+        "a.b\tN\tn.exe\t0\n",
+        "axb\tN\tn.exe\t0\n",
+    ))
+    .unwrap();
     let index = altrun_probe::SearchIndex::new(&rows);
-    assert_eq!(
-        index.query_options("^n", true, true, true).unwrap(),
-        vec![0]
-    );
-    assert!(
-        index
-            .query_options("^n", false, true, true)
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(
-        index.query_options("np", false, false, false).unwrap(),
-        vec![0]
-    );
-    assert!(index.query_options(r"(np)\1", true, true, true).is_err());
+    assert_eq!(index.query("note?*"), vec![0]);
+    assert_eq!(index.query("a.b"), vec![2]);
+    assert!(index.query("^note").is_empty());
 }
 
 #[test]
@@ -229,18 +149,9 @@ fn literal_search_ranks_exact_prefix_contiguous_then_fuzzy() {
     ))
     .unwrap();
     let index = altrun_probe::SearchIndex::new(&rows);
-    assert_eq!(
-        index.query_options("DB", true, true, false).unwrap(),
-        vec![3, 2, 1, 0]
-    );
-    assert_eq!(
-        index.query_options("db", true, false, false).unwrap(),
-        vec![3, 2]
-    );
-    assert_eq!(
-        index.query_options("^db$", true, true, true).unwrap(),
-        vec![3]
-    );
+    assert_eq!(index.query_options("DB", true), vec![3, 2, 1, 0]);
+    assert_eq!(index.query_options("db", false), vec![3, 2]);
+    assert!(!index.same_match_priority("db", true, 3, 2));
 }
 
 #[test]
@@ -270,13 +181,4 @@ fn context_markers_do_not_capture_environment_prefixes_and_dynamic_target_is_exp
             .file,
         "tool.exe"
     );
-}
-#[test]
-fn list_format_is_bounded_and_does_not_treat_user_content_as_format() {
-    assert_eq!(
-        altrun_probe::list_format::render("%-4s | %s", "中", "%TEMP%").unwrap(),
-        "中    | %TEMP%"
-    );
-    assert!(altrun_probe::list_format::render("%999999s", "a", "b").is_err());
-    assert!(altrun_probe::list_format::render("%n", "a", "b").is_err());
 }

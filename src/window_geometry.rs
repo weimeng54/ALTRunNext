@@ -1,24 +1,54 @@
 use crate::native::scaled;
-use std::ptr::null_mut;
+use std::{
+    ptr::null_mut,
+    sync::atomic::{AtomicI32, Ordering},
+};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     UI::{HiDpi::*, WindowsAndMessaging::*},
 };
-pub fn fit(hwnd: HWND, width: i32, height: i32, position: Option<(i32, i32)>) -> i32 {
+static TEST_DPI: AtomicI32 = AtomicI32::new(0);
+
+pub fn set_test_dpi(dpi: i32) {
+    TEST_DPI.store(dpi, Ordering::Relaxed);
+}
+
+pub fn window_dpi(hwnd: HWND) -> i32 {
+    match TEST_DPI.load(Ordering::Relaxed) {
+        0 => unsafe { GetDpiForWindow(hwnd).max(96) as i32 },
+        dpi => dpi,
+    }
+}
+
+pub fn cursor_monitor(hwnd: HWND) -> HMONITOR {
+    unsafe {
+        let mut cursor = POINT::default();
+        if GetCursorPos(&mut cursor) == 0 {
+            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+        } else {
+            MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
+        }
+    }
+}
+
+pub fn work_area(monitor: HMONITOR) -> Option<RECT> {
+    unsafe {
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..std::mem::zeroed()
+        };
+        (GetMonitorInfoW(monitor, &mut info) != 0).then_some(info.rcWork)
+    }
+}
+
+pub fn fit(hwnd: HWND, width: i32, height: i32) -> i32 {
     unsafe {
         let current = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let monitor = if let Some((x, y)) = position {
-            MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST)
-        } else {
-            current
-        };
-        let mut info: MONITORINFO = std::mem::zeroed();
-        info.cbSize = std::mem::size_of_val(&info) as u32;
-        if GetMonitorInfoW(monitor, &mut info) == 0 {
+        let monitor = cursor_monitor(hwnd);
+        let Some(work) = work_area(monitor) else {
             return 96;
-        }
-        let work = info.rcWork;
+        };
         if monitor != current {
             // Move the hidden window before reading its per-monitor DPI.
             SetWindowPos(
@@ -32,7 +62,7 @@ pub fn fit(hwnd: HWND, width: i32, height: i32, position: Option<(i32, i32)>) ->
             );
         }
         let actual = GetDpiForWindow(hwnd).max(96);
-        let dpi = (actual as i32)
+        let dpi = window_dpi(hwnd)
             .min((work.right - work.left - 48) * 96 / width)
             .min((work.bottom - work.top - 80) * 96 / height)
             .max(48);
@@ -51,10 +81,10 @@ pub fn fit(hwnd: HWND, width: i32, height: i32, position: Option<(i32, i32)>) ->
         );
         let w = (outer.right - outer.left).min(work.right - work.left);
         let h = (outer.bottom - outer.top).min(work.bottom - work.top);
-        let (x, y) = position.unwrap_or((
+        let (x, y) = (
             work.left + (work.right - work.left - w) / 2,
             work.top + (work.bottom - work.top - h) / 2,
-        ));
+        );
         SetWindowPos(
             hwnd,
             null_mut(),

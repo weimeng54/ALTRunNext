@@ -449,7 +449,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             crate::native::show_error("无法创建添加快捷项窗口。");
             return;
         }
-        state.dpi = crate::window_geometry::fit(hwnd, width, height, None);
+        state.dpi = crate::window_geometry::fit(hwnd, width, height);
         let dpi = state.dpi;
         let px = |value| scaled(value, dpi);
         state.caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
