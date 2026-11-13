@@ -70,6 +70,12 @@ const ALIAS: usize = 2102;
 const NAME: usize = 2103;
 const COMMAND: usize = 2104;
 const KIND: usize = 2105;
+const PARAMETER_CHOICES: [(ParamType, &str); 4] = [
+    (ParamType::None, "无参数"),
+    (ParamType::Raw, "原样参数"),
+    (ParamType::AnsiUrl, "Windows ANSI URL 编码"),
+    (ParamType::Utf8Url, "UTF-8 URL 编码"),
+];
 const ADD: usize = 2110;
 const DELETE: usize = 2111;
 const SAVE: usize = 2113;
@@ -223,6 +229,18 @@ fn can_test(entry: &Entry) -> bool {
     entry.kind == library::EntryKind::Command && !entry.command.trim().is_empty()
 }
 
+fn parameter_choice(entry: &Entry) -> usize {
+    let visible_kind = match entry.param_type {
+        ParamType::Auto if entry.param_type.needs_input(&entry.command) => ParamType::Raw,
+        ParamType::Auto => ParamType::None,
+        kind => kind,
+    };
+    PARAMETER_CHOICES
+        .iter()
+        .position(|&(kind, _)| kind == visible_kind)
+        .expect("every visible parameter type is in the dropdown")
+}
+
 fn sync_fields() {
     let (alias, name, command, kind, save, delete, entry, dirty) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
@@ -269,7 +287,7 @@ fn sync_fields() {
             |p| crate::shortcut_intake::program_name(p).to_owned(),
         );
         SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
-        let index = entry.as_ref().map_or(0, |e| e.param_type as usize);
+        let index = entry.as_ref().map_or(0, parameter_choice);
         SendMessageW(kind, CB_SETCURSEL, index, 0);
         EnableWindow(
             GetDlgItem(hwnd, TEST as i32),
@@ -307,7 +325,7 @@ fn refresh_list() {
     }
     sync_fields();
 }
-fn update_draft() {
+fn update_draft(parameter_changed: bool) {
     let handles = EDITOR.with(|c| {
         let s = c.borrow();
         let s = s.as_ref()?;
@@ -320,9 +338,13 @@ fn update_draft() {
     let Some((alias, name, command, kind)) = handles else {
         return;
     };
-    let values = (text(alias), text(name), text(command), unsafe {
-        SendMessageW(kind, CB_GETCURSEL, 0, 0)
-    });
+    let (alias, name, command_text) = (text(alias), text(name), text(command));
+    let selected_parameter = if parameter_changed {
+        let index = unsafe { SendMessageW(kind, CB_GETCURSEL, 0, 0) } as usize;
+        PARAMETER_CHOICES.get(index).map(|&(kind, _)| kind)
+    } else {
+        None
+    };
     let enabled = EDITOR.with(|c| {
         let hwnd = c.borrow().as_ref().unwrap().enabled;
         unsafe { SendMessageW(hwnd, BM_GETCHECK, 0, 0) != 0 }
@@ -332,30 +354,29 @@ fn update_draft() {
         let s = state.as_mut().unwrap();
         let entry = s.draft.get_mut(s.selected)?;
         let previous = entry.clone();
-        let row_changed = entry.alias != values.0 || entry.name != values.1;
-        entry.name = values.1;
+        let row_changed = entry.alias != alias || entry.name != name;
+        entry.name = name;
         if entry.kind == library::EntryKind::Command {
             entry.enabled = enabled;
-            entry.alias = values.0;
-            if entry.command != values.2 {
+            entry.alias = alias;
+            if entry.command != command_text {
                 entry.command = if entry.open_target.is_some() {
-                    crate::shortcut_intake::plain_path(&values.2).to_owned()
+                    crate::shortcut_intake::plain_path(&command_text).to_owned()
                 } else {
-                    values.2
+                    command_text
                 };
             }
-            entry.param_type = match values.3 {
-                1 => ParamType::None,
-                2 => ParamType::Raw,
-                3 => ParamType::AnsiUrl,
-                4 => ParamType::Utf8Url,
-                _ => ParamType::Auto,
-            };
+            if let Some(parameter) = selected_parameter {
+                entry.param_type = parameter;
+            }
         }
         if *entry == previous {
             return None;
         }
         let testable = can_test(entry);
+        let auto_choice = (entry.param_type == ParamType::Auto
+            && entry.command != previous.command)
+            .then(|| parameter_choice(entry));
         Some((
             s.list,
             s.selected,
@@ -363,12 +384,16 @@ fn update_draft() {
             s.is_dirty(),
             row_changed,
             testable,
+            auto_choice,
         ))
     });
-    let Some((list, selected, save, dirty, row_changed, testable)) = change else {
+    let Some((list, selected, save, dirty, row_changed, testable, auto_choice)) = change else {
         return;
     };
     unsafe {
+        if let Some(choice) = auto_choice {
+            SendMessageW(kind, CB_SETCURSEL, choice, 0);
+        }
         EnableWindow(save, i32::from(dirty));
         EnableWindow(
             GetDlgItem(GetParent(command), TEST as i32),
@@ -543,7 +568,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 || id == KIND && notification == CBN_SELCHANGE as usize
                 || id == ENABLED && notification == BN_CLICKED as usize
             {
-                update_draft();
+                update_draft(id == KIND);
             } else if notification == BN_CLICKED as usize {
                 match id {
                     CAPTION_CLOSE => unsafe {
@@ -960,13 +985,7 @@ fn run(
             220,
             KIND,
         );
-        for label in [
-            "自动检测参数",
-            "无参数",
-            "原样参数",
-            "Windows ANSI URL 编码",
-            "UTF-8 URL 编码",
-        ] {
+        for (_, label) in PARAMETER_CHOICES {
             SendMessageW(
                 kind,
                 CB_ADDSTRING,

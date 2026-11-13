@@ -24,7 +24,6 @@ ALTRun · 帮助和关于=ALTRun · Help and about
 名称=Name
 命令或路径=Command or path
 参数类型=Parameter type
-自动检测参数=Detect parameters automatically
 无参数=No parameter
 原样参数=Raw parameter
 Windows ANSI URL 编码=Windows ANSI URL encoding

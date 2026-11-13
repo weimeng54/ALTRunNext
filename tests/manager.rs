@@ -91,7 +91,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
     let path = std::env::current_dir()
         .unwrap()
         .join(format!("target/manager-fixture-{stamp}.tsv"));
-    let original = "np\t记事本\tnotepad.exe\t7\tnone\nweb\t网页搜索\thttps://example.com/?q={%p}\t2\tutf8_query\n";
+    let original = "np\t记事本\tnotepad.exe\t7\tauto\nweb\t网页搜索\thttps://example.com/?q={%p}\t2\tutf8_query\n";
     std::fs::write(&path, original).unwrap();
     let stem = path.file_stem().unwrap().to_str().unwrap();
     std::fs::write(
@@ -161,6 +161,8 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         let editor_list = GetDlgItem(manager, 2101);
         let save = GetDlgItem(manager, 2113);
         let alias = GetDlgItem(manager, 2102);
+        let parameter_type = GetDlgItem(manager, 2105);
+        assert_eq!(SendMessageW(parameter_type, CB_GETCOUNT, 0, 0), 4);
         let select_row = |row| {
             SendMessageW(editor_list, LB_SETCURSEL, row, 0);
             SendMessageW(
@@ -171,6 +173,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
             );
         };
         select_row(1);
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 3);
         SendMessageW(
             manager,
             WM_COMMAND,
@@ -179,6 +182,13 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         assert_eq!(IsWindowEnabled(save), 0);
         select_row(0);
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 0);
+        let command = GetDlgItem(manager, 2104);
+        set(command, "notepad.exe {%p}");
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 1);
+        set(command, "notepad.exe");
+        assert_eq!(SendMessageW(parameter_type, CB_GETCURSEL, 0, 0), 0);
+        assert_eq!(IsWindowEnabled(save), 0);
         let saved_alias = std::fs::read_to_string(&path).unwrap();
         let first_alias = saved_alias.split('\t').next().unwrap();
         set(alias, "temporary-test-edit");
@@ -199,6 +209,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         let saved = altrun_probe::library::Snapshot::open(&path).unwrap();
         assert_eq!(saved.entries[0].alias, "new");
         assert_eq!(saved.entries[0].name, "修改后的中文名称");
+        assert_eq!(saved.entries[0].param_type.name(), "auto");
         assert_eq!(
             std::fs::read_to_string(path.with_extension("tsv.bak")).unwrap(),
             original

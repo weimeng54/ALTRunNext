@@ -8,7 +8,7 @@ Audience: Windows users who launch apps by keyboard. The app provides Simplified
 |---|---|---|---|
 | Launcher selection | native.rs resident owner-drawn LISTBOX | mouse selects; input retains focus; frozen parameter target cannot change | native regression |
 | Management list/form | manager.rs on-demand native window | draft edits, add/delete/restore backup, explicit Save, unsaved-close confirmation | management regression and synthetic screenshots |
-| Parameter type | library.rs ParamType plus native COMBOBOX | Automatic, None, Raw, ANSI URL, UTF-8 URL share one enum/serializer | roundtrip and encoding tests |
+| Parameter type | library.rs ParamType plus native COMBOBOX | The editor offers None, Raw, ANSI URL and UTF-8 URL. Existing automatic entries display their effective type and retain automatic behavior until a type is chosen. | management regression, roundtrip and encoding tests |
 | Scrollbars/focus | Windows native controls | visible native scrollbars, tab navigation, focus cue | native interaction |
 | Validation/persistence | library.rs Snapshot | validate complete dataset; stage/flush; backup previous file; reject changed source; publish after success | file save/failure/conflict tests |
 | Feedback | owning window's status field | errors remain visible with edits intact; successful save stays in manager | UI regression |
