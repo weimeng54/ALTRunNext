@@ -67,14 +67,15 @@ jobs:
         timeout-minutes: 2
         run: |
           $env:ALTRUN_RELEASE_SMOKE_EXE = (Resolve-Path target/x86_64-pc-windows-msvc/release/ALTRunNext.exe).Path
-          cargo test --locked --test review_startup_hotkeys --test complete_native --test manager
+          cargo test --locked --test review_startup_hotkeys --test complete_native --test manager --test localization_native
       - name: Package launcher
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/ALTRunNext.exe dist/ALTRunNext.exe
           Copy-Item assets/Popup.wav dist/
-          Copy-Item languages dist/languages -Recurse
+          New-Item -ItemType Directory -Force dist/languages | Out-Null
+          Copy-Item languages/*.json dist/languages/
           $metadata = cargo metadata --format-version 1 --locked --offline | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $notices = 'dist/THIRD-PARTY-NOTICES.txt'

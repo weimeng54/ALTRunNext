@@ -1442,7 +1442,20 @@ fn draw(item: &DRAWITEMSTRUCT) {
             };
             unsafe {
                 let old = SelectObject(item.hDC, s.small_font);
-                theme_ui::line_text(item.hDC, item.rcItem, &value, theme::muted(), 0);
+                if id == STATUS {
+                    let mut rect = item.rcItem;
+                    SetBkMode(item.hDC, TRANSPARENT as i32);
+                    SetTextColor(item.hDC, theme::muted());
+                    DrawTextW(
+                        item.hDC,
+                        wide(&value).as_ptr(),
+                        -1,
+                        &mut rect,
+                        DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS,
+                    );
+                } else {
+                    theme_ui::line_text(item.hDC, item.rcItem, &value, theme::muted(), 0);
+                }
                 SelectObject(item.hDC, old);
             }
         } else if item.CtlID as usize == IMAGE_THUMB {
@@ -2289,17 +2302,17 @@ pub fn open(
                 SendMessageW(title, WM_SETFONT, heading_font as usize, 0);
                 let hint = control("STATIC", "", 0, 214, 110, 859, 26, 0);
                 SendMessageW(hint, WM_SETFONT, small_font as usize, 0);
-                let status = control(
+                let status_label = control(
                     "STATIC",
                     "",
                     OWNER_STATIC,
                     449,
-                    layout::HEIGHT - layout::FOOTER + 17,
-                    425,
-                    25,
+                    layout::HEIGHT - layout::FOOTER + 9,
+                    405,
+                    44,
                     STATUS,
                 );
-                SendMessageW(status, WM_SETFONT, small_font as usize, 0);
+                SendMessageW(status_label, WM_SETFONT, small_font as usize, 0);
                 let close = control(
                     "BUTTON",
                     "ui.close",
@@ -2435,20 +2448,26 @@ pub fn open(
                 extra_controls.push((about_page, email));
                 for (row, (id, label, button, url)) in PROJECT_LINKS.into_iter().enumerate() {
                     let y = layout::ABOUT_LINKS.y + row as i32 * 68;
-                    let heading = control("STATIC", label, centered_text, 230, y + 10, 640, 25, 0);
+                    let heading = control("STATIC", label, centered_text, 230, y + 10, 590, 25, 0);
                     SendMessageW(heading, WM_SETFONT, section_font as usize, 0);
-                    let address = control(
-                        "STATIC",
-                        url,
-                        centered_text,
-                        230,
-                        y + 34,
-                        640,
-                        24,
-                        ABOUT_SECONDARY,
-                    );
+                    let address = control("STATIC", url, 0, 230, y + 36, 590, 30, ABOUT_SECONDARY);
                     SendMessageW(address, WM_SETFONT, small_font as usize, 0);
-                    let action = control("BUTTON", button, WS_TABSTOP, 931, y + 16, 126, 36, id);
+                    let button_width =
+                        if matches!(localization::current().locale(), "en" | "zh-Hans") {
+                            126
+                        } else {
+                            178
+                        };
+                    let action = control(
+                        "BUTTON",
+                        button,
+                        WS_TABSTOP,
+                        1057 - button_width,
+                        y + 16,
+                        button_width,
+                        36,
+                        id,
+                    );
                     if id == OPEN_RELEASES {
                         SendMessageW(action, WM_SETFONT, section_font as usize, 0);
                     }
@@ -2787,7 +2806,7 @@ pub fn open(
                     ("ui.reset_defaults", 2311, 17, 132),
                     ("ui.import_settings", 2312, 157, 136),
                     ("ui.export_settings", 2313, 301, 136),
-                    ("ui.close", 2314, 882, 65),
+                    ("ui.close", 2314, 862, 85),
                     ("ui.save_and_apply", 2310, 955, 130),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, footer_y, width, 37, id);
@@ -2813,7 +2832,7 @@ pub fn open(
                         tabs,
                         title,
                         hint,
-                        status,
+                        status: status_label,
                         background,
                         paper,
                         rail,

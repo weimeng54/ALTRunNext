@@ -61,7 +61,7 @@ fn main() {
             Ok(())
         };
         if let Err(error) = &result {
-            eprintln!("{error}");
+            eprintln!("{}", altrun_probe::localization::tr(&error));
         }
         std::process::exit(i32::from(result.is_err()));
     }
