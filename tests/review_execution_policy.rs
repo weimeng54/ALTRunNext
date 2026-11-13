@@ -24,6 +24,7 @@ fn manager_test_respects_debug_and_explicit_safe_modes() {
             shell().display()
         );
         std::fs::write(&data, &original).unwrap();
+        std::fs::write(data.with_extension("settings.ini"), "[GUI]\nLang=zh-Hans\n").unwrap();
         let (process, launcher) = start(&data, mode);
         let dialog = manager(launcher, process.0.id());
         unsafe {

@@ -25,7 +25,7 @@ fn startup_shows_launcher_and_exits_cleanly_when_hotkey_is_taken() {
     std::fs::write(&data, "test\tFixture\tnotepad.exe\t0\n").unwrap();
     std::fs::write(
         data.with_extension("settings.ini"),
-        "[Config]\nHotKey1=Ctrl+Alt+F10\nLastItemHotKey=\nShowMeWhenStart=0\n",
+        "[Config]\nLang=zh-Hans\nHotKey1=Ctrl+Alt+F10\nLastItemHotKey=\nShowMeWhenStart=0\n",
     )
     .unwrap();
     assert_ne!(

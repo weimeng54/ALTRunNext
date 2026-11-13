@@ -16,7 +16,10 @@ fn missing_path_check_honors_the_configured_default_directory() {
     std::fs::write(&data, "app\tFixture\t\".\\bin\\app.exe\" --flag\t0\tnone\n").unwrap();
     std::fs::write(
         data.with_extension("settings.ini"),
-        format!("[Config]\nWorkingDirectory={}\n", working.display()),
+        format!(
+            "[Config]\nWorkingDirectory={}\nLang=zh-Hans\n",
+            working.display()
+        ),
     )
     .unwrap();
     let (process, launcher) = start(&data, Some("--safe-mode"));
