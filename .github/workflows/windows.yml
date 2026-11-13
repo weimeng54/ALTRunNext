@@ -1,7 +1,7 @@
 name: Native launcher validation
 on:
   push:
-    branches: ['main', 'codex/performance-spike']
+    branches: ['main']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -80,7 +80,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $notices = 'dist/THIRD-PARTY-NOTICES.txt'
           'ALTRunNext third-party notices' | Set-Content -Encoding utf8 $notices
-          'Popup.wav — original ALTRun sound (etworker), https://github.com/etworker/ALTRun/blob/master/Bin/Popup.wav' | Add-Content -Encoding utf8 $notices
+          Get-Content -Raw -LiteralPath assets/Popup.LICENSE.txt | Add-Content -Encoding utf8 $notices
           foreach ($package in $metadata.packages | Where-Object { $_.source }) {
             $source = Split-Path $package.manifest_path
             $licenses = @(Get-ChildItem $source -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)([-.]|$)' })
@@ -100,7 +100,6 @@ jobs:
           path: |
             dist/
             target/ALTRunNext-Win11-x64.zip
-            Cargo.lock
             target/ui/
             target/test-progress.log
           retention-days: 3

@@ -1,24 +1,21 @@
+# Build output and local data
 /target/
 /dist/
 /downloads/
 /temp/
 /Data/
+
+# Local development
+/AGENTS.md
+/.local-dev/
 /.superpowers/
 /.worktrees/
-/.local-dev/
-/AGENTS.md
-/DESIGN.md
-/UX-CONTRACT.md
-/premium-ui.json
 /design/
-/docs/ALTRun-modernization-plan.md
-/docs/superpowers/
-/docs/validation/
-/scripts/github_actions.py
-/scripts/measure_resources.ps1
-/scripts/performance_gate.py
-*.dmp
+/docs/
+
+# Environment files, caches, and crash dumps
 .env
 .env.*
 *.local.json
 __pycache__/
+*.dmp
