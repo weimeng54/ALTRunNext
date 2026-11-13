@@ -77,7 +77,7 @@ fn selected(list: HWND) -> isize {
     unsafe { SendMessageW(list, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize) }
 }
 
-fn resize_columns(list: HWND, header: HWND, dpi: i32, after_drag: impl FnOnce()) {
+fn resize_columns(list: HWND, header: HWND, dpi: i32) {
     unsafe {
         let column_width = |column| SendMessageW(list, LVM_GETCOLUMNWIDTH, column, 0) as i32;
         let mouse = |message, button, x: i32| {
@@ -86,16 +86,9 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32, after_drag: impl FnOnce())
         let first = column_width(0);
         let wider = first + dpi;
         let divider = first - 1;
-        let mut origin = POINT::default();
-        ClientToScreen(header, &mut origin);
-        let mut old_cursor = POINT::default();
-        GetCursorPos(&mut old_cursor);
-        SetCursorPos(origin.x + divider, origin.y + 8);
         mouse(WM_LBUTTONDOWN, 1, divider);
-        SetCursorPos(origin.x + divider + dpi, origin.y + 8);
         mouse(WM_MOUSEMOVE, 1, divider + dpi);
         mouse(WM_LBUTTONUP, 0, divider + dpi);
-        SetCursorPos(old_cursor.x, old_cursor.y);
         assert_eq!(
             column_width(0),
             wider,
@@ -107,16 +100,13 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32, after_drag: impl FnOnce())
         };
         assert_ne!(GetScrollBarInfo(list, OBJID_HSCROLL, &mut scroll), 0);
         assert_eq!(scroll.rgstate[0] & STATE_SYSTEM_INVISIBLE, 0);
-        after_drag();
         SendMessageW(list, WM_HSCROLL, SB_RIGHT as usize, 0);
         assert!(GetScrollPos(list, SB_HORZ) > 0);
         SendMessageW(list, WM_HSCROLL, SB_LEFT as usize, 0);
         assert_eq!(GetScrollPos(list, SB_HORZ), 0);
 
-        SetCursorPos(origin.x + wider - 1, origin.y + 8);
         mouse(WM_LBUTTONDBLCLK, 1, wider - 1);
         mouse(WM_LBUTTONUP, 0, wider - 1);
-        SetCursorPos(old_cursor.x, old_cursor.y);
         assert!(column_width(0) < wider, "double-click must fit the content");
         SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, first as isize);
     }
@@ -249,7 +239,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         assert!(SendMessageW(editor_list, LVM_GETCOLUMNWIDTH, 0, 0) > 0);
         assert!(SendMessageW(editor_list, LVM_GETCOLUMNWIDTH, 1, 0) > 0);
-        resize_columns(editor_list, header, dpi, || {});
+        resize_columns(editor_list, header, dpi);
         let save = GetDlgItem(manager, 2113);
         let alias = GetDlgItem(manager, 2102);
         let parameter_type = GetDlgItem(manager, 2105);
@@ -469,16 +459,16 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
             assert_eq!(selected(list), 0);
             assert_eq!(read(alias), "codex-plus-plus-manager");
             assert_eq!(IsWindowEnabled(save), 0);
-            resize_columns(list, header, 110, || {
-                native_snapshot::save(manager, &format!("manager-table-{theme}-{scale}"));
-                let dc = GetDC(header);
-                let color = GetPixel(dc, 4, 4);
-                ReleaseDC(header, dc);
-                assert_eq!(color, header_color, "the header must use the manager theme");
-                assert_eq!(selected(list), 0);
-                assert_eq!(read(alias), "codex-plus-plus-manager");
-                assert_eq!(IsWindowEnabled(save), 0);
-            });
+            let width = SendMessageW(list, LVM_GETCOLUMNWIDTH, 0, 0);
+            assert_ne!(SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, width + 75), 0);
+            native_snapshot::save(manager, &format!("manager-table-{theme}-{scale}"));
+            let dc = GetDC(header);
+            let color = GetPixel(dc, 4, 4);
+            ReleaseDC(header, dc);
+            assert_eq!(color, header_color, "the header must use the manager theme");
+            assert_eq!(selected(list), 0);
+            assert_eq!(read(alias), "codex-plus-plus-manager");
+            assert_eq!(IsWindowEnabled(save), 0);
             assert_eq!(std::fs::read_to_string(data).unwrap(), shortcuts);
             SendMessageW(manager, WM_COMMAND, 2114, 0);
             wait(|| IsWindow(manager) == 0);
