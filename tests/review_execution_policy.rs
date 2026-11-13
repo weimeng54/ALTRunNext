@@ -45,8 +45,7 @@ fn manager_test_respects_debug_and_explicit_safe_modes() {
             SendMessageW(test, BM_CLICK, 0, 0);
         }
         if allowed {
-            wait(|| marker.exists());
-            assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "ok");
+            wait(|| std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == "ok"));
         } else {
             assert!(
                 has_text(dialog, "预览"),
