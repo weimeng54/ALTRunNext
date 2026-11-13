@@ -5,10 +5,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use windows_sys::Win32::{
-    Foundation::{HWND, RECT},
+    Foundation::{HWND, POINT, RECT},
     Graphics::Gdi::*,
     UI::{
-        HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::IsWindowEnabled, WindowsAndMessaging::*,
+        Controls::*, HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::IsWindowEnabled,
+        WindowsAndMessaging::*,
     },
 };
 #[path = "native_snapshot/mod.rs"]
@@ -69,6 +70,71 @@ fn read(hwnd: HWND) -> String {
         let mut buffer = vec![0u16; length + 1];
         SendMessageW(hwnd, WM_GETTEXT, buffer.len(), buffer.as_mut_ptr() as isize);
         String::from_utf16(&buffer[..length]).unwrap()
+    }
+}
+fn selected(list: HWND) -> isize {
+    unsafe { SendMessageW(list, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize) }
+}
+
+fn resize_columns(list: HWND, header: HWND, dpi: i32) {
+    unsafe {
+        let column_width = |column| SendMessageW(list, LVM_GETCOLUMNWIDTH, column, 0) as i32;
+        let mouse = |message, button, x: i32| {
+            SendMessageW(header, message, button, ((8 << 16) | x) as isize)
+        };
+        let first = column_width(0);
+        let wider = first + dpi;
+        let divider = first - 1;
+        mouse(WM_LBUTTONDOWN, 1, divider);
+        mouse(WM_MOUSEMOVE, 1, divider + dpi);
+        mouse(WM_LBUTTONUP, 0, divider + dpi);
+        assert_eq!(
+            column_width(0),
+            wider,
+            "dragging the header must widen the column"
+        );
+        let mut scroll = SCROLLBARINFO {
+            cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
+            ..Default::default()
+        };
+        assert_ne!(GetScrollBarInfo(list, OBJID_HSCROLL, &mut scroll), 0);
+        assert_eq!(scroll.rgstate[0] & STATE_SYSTEM_INVISIBLE, 0);
+        SendMessageW(list, WM_HSCROLL, SB_RIGHT as usize, 0);
+        assert!(GetScrollPos(list, SB_HORZ) > 0);
+        SendMessageW(list, WM_HSCROLL, SB_LEFT as usize, 0);
+        assert_eq!(GetScrollPos(list, SB_HORZ), 0);
+
+        mouse(WM_LBUTTONDBLCLK, 1, wider - 1);
+        mouse(WM_LBUTTONUP, 0, wider - 1);
+        assert!(column_width(0) < wider, "double-click must fit the content");
+        SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, first as isize);
+    }
+}
+
+fn choose_row(list: HWND, row: usize) {
+    // Pointer-bearing ListView messages are local-process only. Click the
+    // native row via its screen coordinates to exercise selection end to end.
+    unsafe {
+        SendMessageW(list, LVM_ENSUREVISIBLE, row, 0);
+        let header = SendMessageW(list, LVM_GETHEADER, 0, 0) as HWND;
+        let mut bounds = RECT::default();
+        GetWindowRect(header, &mut bounds);
+        let mut point = POINT {
+            x: bounds.left,
+            y: bounds.bottom,
+        };
+        ScreenToClient(list, &mut point);
+        let top = SendMessageW(list, LVM_GETTOPINDEX, 0, 0) as usize;
+        let row_height = (GetDpiForWindow(list) as i32 * 31 + 48) / 96;
+        let mut client = RECT::default();
+        GetClientRect(list, &mut client);
+        // The manager can fit its logical DPI below the OS DPI.
+        let fit = (client.right * 96 + 171) / 342;
+        let row_height = row_height.min((fit * 31 + 48) / 96);
+        let y = point.y + (row - top) as i32 * row_height + row_height / 2;
+        let position = ((y << 16) | 12) as isize;
+        SendMessageW(list, WM_LBUTTONDOWN, 1, position);
+        SendMessageW(list, WM_LBUTTONUP, 0, position);
     }
 }
 fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answer: i32) {
@@ -169,21 +235,21 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2140)), 0);
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2141)), 0);
         let editor_list = GetDlgItem(manager, 2101);
+        let header = SendMessageW(editor_list, LVM_GETHEADER, 0, 0) as HWND;
+        assert!(
+            !header.is_null(),
+            "the editor must expose a native table header"
+        );
+        assert!(SendMessageW(editor_list, LVM_GETCOLUMNWIDTH, 0, 0) > 0);
+        assert!(SendMessageW(editor_list, LVM_GETCOLUMNWIDTH, 1, 0) > 0);
+        resize_columns(editor_list, header, dpi);
         let save = GetDlgItem(manager, 2113);
         let alias = GetDlgItem(manager, 2102);
         let parameter_type = GetDlgItem(manager, 2105);
         let ask_parameter = GetDlgItem(manager, 2139);
         assert!(GetDlgItem(manager, 2116).is_null());
         assert_eq!(SendMessageW(parameter_type, CB_GETCOUNT, 0, 0), 3);
-        let select_row = |row| {
-            SendMessageW(editor_list, LB_SETCURSEL, row, 0);
-            SendMessageW(
-                manager,
-                WM_COMMAND,
-                (LBN_SELCHANGE as usize) << 16 | 2101,
-                editor_list as isize,
-            );
-        };
+        let select_row = |row| choose_row(editor_list, row);
         select_row(0);
         assert_eq!(read(alias), "web");
         assert_ne!(IsWindowVisible(parameter_type), 0);
@@ -191,21 +257,21 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         SendMessageW(ask_parameter, BM_CLICK, 0, 0);
         assert_eq!(SendMessageW(ask_parameter, BM_GETCHECK, 0, 0), 1);
         SendMessageW(manager, WM_COMMAND, 2132, 0);
-        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(selected(editor_list), 1);
         assert_eq!(read(alias), "web");
         assert_eq!(IsWindowEnabled(save), 0);
         SendMessageW(manager, WM_COMMAND, 2135, 0);
-        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(selected(editor_list), 1);
         assert_eq!(IsWindowEnabled(save), 0);
         select_row(0);
         assert_eq!(read(alias), "np");
         set(alias, "zzz");
-        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(selected(editor_list), 1);
         assert_eq!(read(alias), "zzz");
         SendMessageW(manager, WM_COMMAND, 2133, 0);
         assert_eq!(read(alias), "zzz");
         SendMessageW(manager, WM_COMMAND, 2130, 0);
-        assert_eq!(SendMessageW(editor_list, LB_GETCURSEL, 0, 0), 1);
+        assert_eq!(selected(editor_list), 1);
         assert_eq!(read(alias), "zzz");
         set(alias, "np");
         SendMessageW(
@@ -238,9 +304,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         assert_ne!(IsWindowEnabled(save), 0);
         set(alias, first_alias);
         assert_eq!(IsWindowEnabled(save), 0);
-        let row = SendMessageW(editor_list, LB_GETITEMHEIGHT, 0, 0) as i32;
-        GetClientRect(editor_list, &mut client);
-        assert!(row > 0 && client.bottom % row == 0);
+        assert_eq!(SendMessageW(editor_list, LVM_GETITEMCOUNT, 0, 0), 2);
         assert!(GetDlgItem(manager, 2117).is_null());
         assert!(GetDlgItem(manager, 2151).is_null());
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2104)), 0);
@@ -263,26 +327,14 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         set(edit, "new");
         wait(|| SendMessageW(list, LB_GETCOUNT, 0, 0) == 1);
         SendMessageW(manager, WM_COMMAND, 2110, 0);
-        let draft_row = SendMessageW(editor_list, LB_GETCURSEL, 0, 0);
+        let draft_row = selected(editor_list);
         assert_eq!(draft_row, 2);
-        assert_eq!(
-            SendMessageW(editor_list, LB_GETTEXTLEN, draft_row as usize, 0),
-            0
-        );
         assert!(read(alias).is_empty());
         assert!(read(name).is_empty());
         assert!(read(GetDlgItem(manager, 2104)).is_empty());
         native_snapshot::save(manager, "manager-blank-draft");
         set(alias, "added");
-        assert_eq!(
-            SendMessageW(editor_list, LB_GETTEXTLEN, draft_row as usize, 0),
-            5
-        );
         set(name, "新添加的快捷项");
-        assert_eq!(
-            SendMessageW(editor_list, LB_GETTEXTLEN, draft_row as usize, 0),
-            "added · 新添加的快捷项".encode_utf16().count() as isize
-        );
         set(GetDlgItem(manager, 2104), "https://example.com/?q=");
         assert_eq!(IsWindowVisible(parameter_type), 0);
         SendMessageW(ask_parameter, BM_CLICK, 0, 0);
@@ -319,12 +371,12 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         answer_confirmation(manager, pid, WM_COMMAND, 2111, IDCANCEL);
         assert_eq!(
-            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            SendMessageW(GetDlgItem(manager, 2101), LVM_GETITEMCOUNT, 0, 0),
             3
         );
         answer_confirmation(manager, pid, WM_COMMAND, 2111, IDOK);
         assert_eq!(
-            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            SendMessageW(GetDlgItem(manager, 2101), LVM_GETITEMCOUNT, 0, 0),
             2
         );
         assert_eq!(
@@ -353,7 +405,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
             !manager.is_null() && IsWindowVisible(manager) != 0
         });
         assert_eq!(
-            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            SendMessageW(GetDlgItem(manager, 2101), LVM_GETITEMCOUNT, 0, 0),
             2
         );
         SendMessageW(manager, WM_COMMAND, 2114, 0);

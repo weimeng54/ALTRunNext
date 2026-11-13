@@ -56,33 +56,59 @@ pub fn chevron(dc: HDC, center: POINT, direction: Chevron, dpi: i32, ink: u32) {
 }
 
 pub fn vertical_scrollbar(hwnd: HWND) -> Option<SCROLLBARINFO> {
+    scrollbar_info(hwnd, OBJID_VSCROLL)
+}
+
+fn scrollbar_info(hwnd: HWND, object: OBJECT_IDENTIFIER) -> Option<SCROLLBARINFO> {
     let mut bar = SCROLLBARINFO {
         cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
         ..Default::default()
     };
     unsafe {
-        (GetScrollBarInfo(hwnd, OBJID_VSCROLL, &mut bar) != 0
+        (GetScrollBarInfo(hwnd, object, &mut bar) != 0
             && bar.rgstate[0] & STATE_SYSTEM_INVISIBLE == 0)
             .then_some(bar)
     }
 }
 
 pub fn draw_scrollbar(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32) {
+    draw_scrollbar_on_axis(dc, track, bar, dpi, false);
+}
+
+fn draw_scrollbar_on_axis(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32, horizontal: bool) {
     fill(dc, &track, theme::paper());
     if bar.xyThumbBottom > bar.xyThumbTop {
         let width = scaled(4, dpi).max(3);
-        let left = (track.left + track.right - width) / 2;
-        let thumb = RECT {
-            left,
-            right: left + width,
-            top: track.top + bar.xyThumbTop,
-            bottom: track.top + bar.xyThumbBottom,
+        let thumb = if horizontal {
+            let top = (track.top + track.bottom - width) / 2;
+            RECT {
+                left: track.left + bar.xyThumbTop,
+                right: track.left + bar.xyThumbBottom,
+                top,
+                bottom: top + width,
+            }
+        } else {
+            let left = (track.left + track.right - width) / 2;
+            RECT {
+                left,
+                right: left + width,
+                top: track.top + bar.xyThumbTop,
+                bottom: track.top + bar.xyThumbBottom,
+            }
         };
         rounded(dc, thumb, width, theme::muted(), theme::muted());
     }
 }
 
 pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
+    style_scrollbar(control, id, dpi, false);
+}
+
+pub fn style_horizontal_scrollbar(control: HWND, id: usize, dpi: i32) {
+    style_scrollbar(control, id, dpi, true);
+}
+
+fn style_scrollbar(control: HWND, id: usize, dpi: i32, horizontal: bool) {
     unsafe {
         let scrollbar = CreateWindowExW(
             0,
@@ -102,11 +128,16 @@ pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
             && SetWindowSubclass(
                 scrollbar,
                 Some(scrollbar_proc),
-                dpi as usize,
+                dpi as usize * 2 + usize::from(horizontal),
                 control as usize,
             ) != 0
         {
-            SetWindowSubclass(control, Some(scroll_control_proc), 1, scrollbar as usize);
+            SetWindowSubclass(
+                control,
+                Some(scroll_control_proc),
+                1 + usize::from(horizontal),
+                scrollbar as usize,
+            );
         }
     }
 }
@@ -116,7 +147,7 @@ unsafe extern "system" fn scroll_control_proc(
     msg: u32,
     w: WPARAM,
     l: LPARAM,
-    _: usize,
+    subclass: usize,
     scrollbar: usize,
 ) -> LRESULT {
     let result = unsafe { DefSubclassProc(hwnd, msg, w, l) };
@@ -125,6 +156,7 @@ unsafe extern "system" fn scroll_control_proc(
         WM_NCPAINT
             | WM_PAINT
             | WM_VSCROLL
+            | WM_HSCROLL
             | WM_MOUSEWHEEL
             | WM_KEYDOWN
             | WM_NCLBUTTONDOWN
@@ -134,16 +166,24 @@ unsafe extern "system" fn scroll_control_proc(
             | EM_LINESCROLL
             | EM_SCROLL
             | WM_SETTEXT
+            | LVM_SCROLL
+            | LVM_SETCOLUMNWIDTH
+            | LVM_ENSUREVISIBLE
     ) {
-        update_scrollbar(hwnd, scrollbar as HWND);
+        update_scrollbar(hwnd, scrollbar as HWND, subclass == 2);
     }
     result
 }
 
-fn update_scrollbar(list: HWND, scrollbar: HWND) {
+fn update_scrollbar(list: HWND, scrollbar: HWND, horizontal: bool) {
     unsafe {
         let visible = GetWindowLongW(scrollbar, GWL_STYLE) as u32 & WS_VISIBLE != 0;
-        let Some(bar) = vertical_scrollbar(list) else {
+        let object = if horizontal {
+            OBJID_HSCROLL
+        } else {
+            OBJID_VSCROLL
+        };
+        let Some(bar) = scrollbar_info(list, object) else {
             if visible {
                 ShowWindow(scrollbar, SW_HIDE);
             }
@@ -184,7 +224,7 @@ unsafe extern "system" fn scrollbar_proc(
     msg: u32,
     w: WPARAM,
     l: LPARAM,
-    dpi: usize,
+    style: usize,
     list: usize,
 ) -> LRESULT {
     match msg {
@@ -199,8 +239,14 @@ unsafe extern "system" fn scrollbar_proc(
             };
             let mut track = RECT::default();
             GetClientRect(hwnd, &mut track);
-            if let Some(bar) = vertical_scrollbar(list as HWND) {
-                draw_scrollbar(dc, track, &bar, dpi as i32);
+            let horizontal = style % 2 != 0;
+            let object = if horizontal {
+                OBJID_HSCROLL
+            } else {
+                OBJID_VSCROLL
+            };
+            if let Some(bar) = scrollbar_info(list as HWND, object) {
+                draw_scrollbar_on_axis(dc, track, &bar, (style / 2) as i32, horizontal);
             } else {
                 fill(dc, &track, theme::paper());
             }

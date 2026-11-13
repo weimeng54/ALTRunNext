@@ -1,5 +1,6 @@
 //! On-demand shortcut editor, isolated from the resident launcher's UI thread.
 use crate::{
+    manager_table,
     native::{make_font, scaled, ui, wide},
     theme,
 };
@@ -35,12 +36,15 @@ const FORM_LEFT: i32 = RAIL + 25;
 const FORM_TOP: i32 = 112;
 const FORM_WIDTH: i32 = WIDTH - RAIL - 51;
 const COMMAND_FORM_HEIGHT: i32 = 355;
+const TABLE_TOP: i32 = 106;
 const LIST_TOP: i32 = 137;
 const ROW_HEIGHT: i32 = 31;
+const TABLE_ROW_HEIGHT_PROP: &str = "ALTRun.TableRowHeight";
 
 fn list_height(dpi: i32) -> i32 {
     let row = scaled(ROW_HEIGHT, dpi);
-    scaled(FOOTER_TOP - LIST_TOP - 33, dpi) / row * row
+    scaled(LIST_TOP, dpi) - scaled(TABLE_TOP, dpi)
+        + scaled(FOOTER_TOP - LIST_TOP - 33, dpi) / row * row
 }
 
 const FOCUS: u32 = WM_APP + 1;
@@ -94,7 +98,6 @@ const MOVE_DOWN: usize = 2136;
 const TEST: usize = 2137;
 const NOTE_LABEL: usize = 2161;
 const EMPTY_HELP: usize = 2163;
-const LIST_SCROLLBAR: usize = 2164;
 const CAPTION_CLOSE: usize = 2142;
 const NEW_MENU: usize = 2140;
 const TOOLS_MENU: usize = 2141;
@@ -124,6 +127,7 @@ struct Editor {
     draft: Vec<Entry>,
     selected: usize,
     loading: bool,
+    refreshing_list: bool,
     laid_out_kind: Option<(Option<library::EntryKind>, bool, bool, bool)>,
     list: HWND,
     alias: HWND,
@@ -322,9 +326,10 @@ fn sync_fields() {
     sync_kind_layout();
 }
 fn refresh_list_rows() {
-    let (list, labels, selected) = EDITOR.with(|c| {
+    let (list, rows, selected, dpi) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
+        s.refreshing_list = true;
         s.view = (0..s.draft.len()).collect();
         match s.sort {
             SORT_ALIAS => s
@@ -341,32 +346,15 @@ fn refresh_list_rows() {
                 .iter()
                 .map(|&i| {
                     let entry = &s.draft[i];
-                    match (entry.alias.as_str(), entry.name.as_str()) {
-                        ("", name) => name.to_owned(),
-                        (alias, "") => alias.to_owned(),
-                        (alias, name) => format!("{alias} · {name}"),
-                    }
+                    (entry.alias.clone(), entry.name.clone())
                 })
                 .collect::<Vec<_>>(),
             s.view.iter().position(|&i| i == s.selected),
+            s.dpi,
         )
     });
-    unsafe {
-        let top = SendMessageW(list, LB_GETTOPINDEX, 0, 0);
-        SendMessageW(list, WM_SETREDRAW, 0, 0);
-        SendMessageW(list, LB_RESETCONTENT, 0, 0);
-        for label in &labels {
-            SendMessageW(list, LB_ADDSTRING, 0, wide(label).as_ptr() as isize);
-        }
-        if top >= 0 && top < labels.len() as isize {
-            SendMessageW(list, LB_SETTOPINDEX, top as usize, 0);
-        }
-        if let Some(selected) = selected {
-            SendMessageW(list, LB_SETCURSEL, selected, 0);
-        }
-        SendMessageW(list, WM_SETREDRAW, 1, 0);
-        InvalidateRect(list, std::ptr::null(), 0);
-    }
+    manager_table::replace_rows(list, &rows, selected, scaled(ROW_HEIGHT, dpi));
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().refreshing_list = false);
 }
 
 fn refresh_list() {
@@ -576,6 +564,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         return 0;
     }
+    if msg == WM_MEASUREITEM && w == LIST && l != 0 {
+        unsafe {
+            let measure = &mut *(l as *mut MEASUREITEMSTRUCT);
+            measure.itemHeight = GetPropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr()) as u32;
+        }
+        return 1;
+    }
     let ready = EDITOR.with(|c| c.borrow().is_some());
     if !ready {
         return unsafe { DefWindowProcW(hwnd, msg, w, l) };
@@ -619,16 +614,26 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             popup(hwnd, LIST, Some(l));
             0
         }
+        WM_NOTIFY if l != 0 => {
+            let notice = unsafe { &*(l as *const NMHDR) };
+            if notice.idFrom == LIST && notice.code == LVN_ITEMCHANGED {
+                let change = unsafe { &*(l as *const NMLISTVIEW) };
+                if change.iItem >= 0
+                    && change.uChanged & LVIF_STATE != 0
+                    && change.uNewState & LVIS_SELECTED != 0
+                    && change.uOldState & LVIS_SELECTED == 0
+                    && EDITOR.with(|c| !c.borrow().as_ref().unwrap().refreshing_list)
+                    && select_view_row(change.iItem as usize)
+                {
+                    sync_fields();
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, w, l) }
+        }
         WM_COMMAND => {
             let id = w & 0xffff;
             let notification = (w >> 16) & 0xffff;
-            if id == LIST && notification == LBN_SELCHANGE as usize {
-                let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
-                let selected = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
-                if selected >= 0 && select_view_row(selected as usize) {
-                    sync_fields();
-                }
-            } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
+            if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
                 || id == KIND && notification == CBN_SELCHANGE as usize
                 || id == ASK_PARAMETER && notification == BN_CLICKED as usize
             {
@@ -741,60 +746,17 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 crate::theme_ui::combo(d, dpi);
                 return 1;
             }
-            EDITOR.with(|c| {
-                let state = c.borrow();
-                let s = state.as_ref().unwrap();
-                let Some(entry) = s.view.get(d.itemID as usize).and_then(|&i| s.draft.get(i))
-                else {
-                    return;
-                };
-                unsafe {
-                    crate::theme_ui::fill(
-                        d.hDC,
-                        &d.rcItem,
-                        if d.itemState & ODS_SELECTED != 0 {
-                            theme::selection()
-                        } else {
-                            theme::paper()
-                        },
-                    );
-                    if d.itemState & ODS_SELECTED != 0 {
-                        crate::theme_ui::fill(
-                            d.hDC,
-                            &RECT {
-                                left: d.rcItem.left + scaled(3, s.dpi),
-                                top: d.rcItem.top + scaled(5, s.dpi),
-                                right: d.rcItem.left + scaled(6, s.dpi),
-                                bottom: d.rcItem.bottom - scaled(5, s.dpi),
-                            },
-                            theme::accent(),
-                        );
-                    }
-                    SetBkMode(d.hDC, TRANSPARENT as i32);
-                    SetTextColor(d.hDC, theme::text());
-                    SelectObject(d.hDC, s.font);
-                    let mut rect = d.rcItem;
-                    rect.left += scaled(8, s.dpi);
-                    rect.right = d.rcItem.right * 42 / 100;
-                    DrawTextW(
-                        d.hDC,
-                        wide(&entry.alias).as_ptr(),
-                        -1,
-                        &mut rect,
-                        DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
-                    );
-                    rect.left = d.rcItem.right * 42 / 100 + scaled(6, s.dpi);
-                    rect.right = d.rcItem.right - scaled(6, s.dpi);
-                    SetTextColor(d.hDC, theme::muted());
-                    DrawTextW(
-                        d.hDC,
-                        wide(&entry.name).as_ptr(),
-                        -1,
-                        &mut rect,
-                        DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
-                    );
-                }
-            });
+            if d.CtlID as usize == LIST {
+                EDITOR.with(|c| {
+                    let state = c.borrow();
+                    let s = state.as_ref().unwrap();
+                    let Some(entry) = s.view.get(d.itemID as usize).and_then(|&i| s.draft.get(i))
+                    else {
+                        return;
+                    };
+                    manager_table::draw_row(d, &entry.alias, &entry.name, s.font, s.dpi);
+                });
+            }
             1
         }
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => EDITOR.with(|c| {
@@ -884,6 +846,11 @@ fn run(
         let remembered = window_state();
         let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT);
         crate::theme_ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
+        let common = INITCOMMONCONTROLSEX {
+            dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+            dwICC: ICC_LISTVIEW_CLASSES,
+        };
+        InitCommonControlsEx(&common);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
         let heading = make_font(27, 700, "Microsoft YaHei UI", dpi);
         let caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
@@ -912,7 +879,7 @@ fn run(
                 CAPTION_CLOSE => (WIDTH - 47, 1, 46, CAPTION - 1),
                 NEW_MENU => (RAIL - 180, 62, 78, 32),
                 TOOLS_MENU => (RAIL - 94, 62, 78, 32),
-                LIST => (17, LIST_TOP, RAIL - 34, 0),
+                LIST => (17, TABLE_TOP + 1, RAIL - 34, 0),
                 DELETE => (17, FOOTER_TOP + 13, 86, 37),
                 CLOSE => (WIDTH - 338, FOOTER_TOP + 13, 65, 37),
                 TEST => (WIDTH - 265, FOOTER_TOP + 13, 110, 37),
@@ -977,24 +944,37 @@ fn run(
         );
         SetWindowTextW(title, ui("ui.edit_shortcut").as_ptr());
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
+        SetPropW(
+            hwnd,
+            wide(TABLE_ROW_HEIGHT_PROP).as_ptr(),
+            scaled(ROW_HEIGHT, dpi) as HANDLE,
+        );
         let list = control(
-            "LISTBOX",
+            "SysListView32",
             "",
-            WS_VSCROLL
-                | WS_CLIPSIBLINGS
+            WS_CLIPSIBLINGS
                 | WS_TABSTOP
-                | LBS_NOTIFY as u32
-                | LBS_OWNERDRAWFIXED as u32
-                | LBS_HASSTRINGS as u32
-                | LBS_NOINTEGRALHEIGHT as u32,
+                | LVS_REPORT
+                | LVS_SINGLESEL
+                | LVS_SHOWSELALWAYS
+                | LVS_NOSORTHEADER
+                | LVS_OWNERDRAWFIXED,
             12,
             52,
             250,
             304,
             LIST,
         );
-        SendMessageW(list, LB_SETITEMHEIGHT, 0, scaled(ROW_HEIGHT, dpi) as LPARAM);
-        crate::theme_ui::style_vertical_scrollbar(list, LIST_SCROLLBAR, dpi);
+        RemovePropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr());
+        if list.is_null() {
+            DestroyWindow(hwnd);
+            for font in [font, heading, caption] {
+                DeleteObject(font);
+            }
+            UnregisterClassW(class_name.as_ptr(), instance);
+            return Err("ui.could_not_create_the_shortcut_manager_window".into());
+        }
+        manager_table::configure(list, dpi);
         control("STATIC", "ui.alias", 0, 280, 52, 210, 20, 0);
         control("STATIC", "ui.name", 0, 512, 52, 232, 20, 0);
         let alias = control(
@@ -1116,6 +1096,7 @@ fn run(
                 draft,
                 selected: 0,
                 loading: false,
+                refreshing_list: false,
                 laid_out_kind: None,
                 list,
                 alias,
@@ -1247,6 +1228,8 @@ fn apply_intake(hwnd: HWND) {
         {
             theme::install_chrome(&prefs);
             theme::frame(hwnd);
+            let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
+            manager_table::set_background(list);
             unsafe {
                 RedrawWindow(
                     hwnd,
@@ -1757,15 +1740,9 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 return;
             }
             if p == -1 {
-                let mut rect: RECT = zeroed();
-                SendMessageW(
-                    list,
-                    LB_GETITEMRECT,
-                    selected_row.unwrap_or_default(),
-                    &mut rect as *mut _ as LPARAM,
-                );
+                let rect = manager_table::row_bounds(list, selected_row.unwrap_or_default());
                 point = POINT {
-                    x: rect.left + 12,
+                    x: rect.left.max(0) + scaled(12, dpi),
                     y: rect.bottom,
                 };
                 ClientToScreen(list, &mut point);
@@ -1776,22 +1753,15 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 };
                 let mut local = point;
                 ScreenToClient(list, &mut local);
-                let hit = SendMessageW(
-                    list,
-                    LB_ITEMFROMPOINT,
-                    0,
-                    ((local.y as u32) << 16 | (local.x as u32 & 65535)) as LPARAM,
-                );
-                if hit >> 16 != 0 {
+                let Some(index) = manager_table::row_at(list, local) else {
                     DestroyMenu(menu);
                     return;
-                }
-                let index = (hit & 65535) as usize;
+                };
                 if !select_view_row(index) {
                     DestroyMenu(menu);
                     return;
                 }
-                SendMessageW(list, LB_SETCURSEL, index, 0);
+                manager_table::select(list, index);
                 sync_fields();
             }
             let selected = EDITOR.with(|c| c.borrow().as_ref().unwrap().selected);
@@ -1891,8 +1861,8 @@ fn paint_manager(hwnd: HWND) {
             &rect(0, FOOTER_TOP, WIDTH, HEIGHT - FOOTER_TOP),
             theme::chrome(),
         );
-        let mut list_card = rect(16, 106, RAIL - 32, 0);
-        list_card.bottom = scaled(LIST_TOP, dpi) + list_height(dpi) + scaled(2, dpi);
+        let mut list_card = rect(16, TABLE_TOP, RAIL - 32, 0);
+        list_card.bottom = scaled(TABLE_TOP + 1, dpi) + list_height(dpi) + scaled(2, dpi);
         crate::theme_ui::rounded(
             dc,
             list_card,
@@ -1927,7 +1897,6 @@ fn paint_manager(hwnd: HWND) {
             rect(0, CAPTION, WIDTH, 1),
             rect(RAIL, CAPTION, 1, FOOTER_TOP - CAPTION),
             rect(0, FOOTER_TOP - 1, WIDTH, 1),
-            rect(17, 136, RAIL - 34, 1),
         ] {
             crate::theme_ui::fill(dc, &line, theme::divider());
         }
@@ -1942,20 +1911,6 @@ fn paint_manager(hwnd: HWND) {
             -1,
             &mut library_title,
             DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
-        );
-        crate::theme_ui::line_text(
-            dc,
-            rect(28, 106, 115, 31),
-            &crate::localization::tr("ui.alias"),
-            theme::muted(),
-            0,
-        );
-        crate::theme_ui::line_text(
-            dc,
-            rect(17 + (RAIL - 34) * 42 / 100, 106, RAIL / 2, 31),
-            &crate::localization::tr("ui.name"),
-            theme::muted(),
-            0,
         );
         EndPaint(hwnd, &ps);
     }

@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::{DataExchange::*, Memory::*};
+use windows_sys::Win32::UI::Controls::LVM_GETITEMCOUNT;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     IsWindowEnabled, RegisterHotKey, UnregisterHotKey,
@@ -609,7 +610,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         });
         command(manager, 2122);
         assert_eq!(
-            SendMessageW(GetDlgItem(manager, 2101), LB_GETCOUNT, 0, 0),
+            SendMessageW(GetDlgItem(manager, 2101), LVM_GETITEMCOUNT, 0, 0),
             3
         );
         assert!(GetDlgItem(manager, 2151).is_null());
