@@ -239,7 +239,7 @@ unsafe extern "system" fn scrollbar_proc(
             };
             let mut track = RECT::default();
             GetClientRect(hwnd, &mut track);
-            let horizontal = style % 2 != 0;
+            let horizontal = style & 1 != 0;
             let object = if horizontal {
                 OBJID_HSCROLL
             } else {

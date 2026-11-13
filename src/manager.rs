@@ -48,6 +48,7 @@ fn list_height(dpi: i32) -> i32 {
 }
 
 const FOCUS: u32 = WM_APP + 1;
+const RESTORE_TABLE_SELECTION: u32 = WM_APP + 2;
 pub const UPDATED: u32 = WM_APP + 6;
 pub const GEOMETRY_CHANGED: u32 = WM_APP + 16;
 #[derive(Clone, Default)]
@@ -530,6 +531,12 @@ fn confirm(hwnd: HWND, message: &str) -> bool {
     crate::input_dialog::confirm(hwnd, "ui.manage_shortcuts", message)
 }
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if msg == WM_NCDESTROY {
+        unsafe {
+            RemovePropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr());
+            return DefWindowProcW(hwnd, msg, w, l);
+        }
+    }
     if msg == WM_DESTROY {
         unsafe {
             PostQuitMessage(0);
@@ -566,10 +573,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     }
     if msg == WM_MEASUREITEM && w == LIST && l != 0 {
         unsafe {
-            let measure = &mut *(l as *mut MEASUREITEMSTRUCT);
-            measure.itemHeight = GetPropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr()) as u32;
+            let height = GetPropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr()) as u32;
+            if height != 0 {
+                (*(l as *mut MEASUREITEMSTRUCT)).itemHeight = height;
+                return 1;
+            }
         }
-        return 1;
     }
     let ready = EDITOR.with(|c| c.borrow().is_some());
     if !ready {
@@ -618,17 +627,42 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             let notice = unsafe { &*(l as *const NMHDR) };
             if notice.idFrom == LIST && notice.code == LVN_ITEMCHANGED {
                 let change = unsafe { &*(l as *const NMLISTVIEW) };
-                if change.iItem >= 0
-                    && change.uChanged & LVIF_STATE != 0
-                    && change.uNewState & LVIS_SELECTED != 0
-                    && change.uOldState & LVIS_SELECTED == 0
+                if change.uChanged & LVIF_STATE != 0
                     && EDITOR.with(|c| !c.borrow().as_ref().unwrap().refreshing_list)
-                    && select_view_row(change.iItem as usize)
                 {
-                    sync_fields();
+                    if change.iItem >= 0
+                        && change.uNewState & LVIS_SELECTED != 0
+                        && change.uOldState & LVIS_SELECTED == 0
+                        && select_view_row(change.iItem as usize)
+                    {
+                        sync_fields();
+                    } else if change.uOldState & LVIS_SELECTED != 0
+                        && change.uNewState & LVIS_SELECTED == 0
+                    {
+                        unsafe {
+                            PostMessageW(hwnd, RESTORE_TABLE_SELECTION, 0, 0);
+                        }
+                    }
                 }
             }
             unsafe { DefWindowProcW(hwnd, msg, w, l) }
+        }
+        RESTORE_TABLE_SELECTION => {
+            let (list, selected) = EDITOR.with(|c| {
+                let state = c.borrow();
+                let s = state.as_ref().unwrap();
+                (s.list, s.view.iter().position(|&i| i == s.selected))
+            });
+            if let Some(row) = selected
+                && unsafe {
+                    SendMessageW(list, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as LPARAM)
+                } < 0
+            {
+                unsafe {
+                    manager_table::select(list, row);
+                }
+            }
+            0
         }
         WM_COMMAND => {
             let id = w & 0xffff;
@@ -965,7 +999,6 @@ fn run(
             304,
             LIST,
         );
-        RemovePropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr());
         if list.is_null() {
             DestroyWindow(hwnd);
             for font in [font, heading, caption] {
@@ -1761,8 +1794,12 @@ fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                     DestroyMenu(menu);
                     return;
                 }
+                let already_selected =
+                    SendMessageW(list, LVM_GETITEMSTATE, index, LVIS_SELECTED as LPARAM) != 0;
                 manager_table::select(list, index);
-                sync_fields();
+                if already_selected {
+                    sync_fields();
+                }
             }
             let selected = EDITOR.with(|c| c.borrow().as_ref().unwrap().selected);
             append(

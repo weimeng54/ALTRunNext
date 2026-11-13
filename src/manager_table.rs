@@ -9,6 +9,7 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     UI::{
         Controls::*,
+        HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi},
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -29,7 +30,7 @@ pub unsafe fn configure(list: HWND, dpi: i32) {
         set_background(list);
         let mut client = RECT::default();
         GetClientRect(list, &mut client);
-        let width = client.right - scaled(10, dpi);
+        let width = client.right - GetSystemMetricsForDpi(SM_CXVSCROLL, GetDpiForWindow(list));
         let first = width * 42 / 100;
         for (column, (title, cx)) in TITLES.into_iter().zip([first, width - first]).enumerate() {
             let mut title = ui(title);
@@ -80,6 +81,22 @@ unsafe extern "system" fn header_proc(
     dpi: usize,
 ) -> LRESULT {
     unsafe {
+        if matches!(message, WM_PAINT | WM_PRINTCLIENT) {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = if message == WM_PAINT {
+                BeginPaint(header, &mut paint)
+            } else {
+                w as HDC
+            };
+            draw_header(header, dc, dpi as i32);
+            if message == WM_PAINT {
+                EndPaint(header, &paint);
+            }
+            return 0;
+        }
+        if message == WM_ERASEBKGND {
+            return 1;
+        }
         let result = DefSubclassProc(header, message, w, l);
         if message == HDM_LAYOUT && result != 0 && l != 0 {
             let layout = &*(l as *const HDLAYOUT);
@@ -189,7 +206,13 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
     unsafe {
         let list = item.hwndItem;
         let dc = item.hDC;
-        let rect = item.rcItem;
+        let mut client = RECT::default();
+        GetClientRect(list, &mut client);
+        let rect = RECT {
+            left: 0,
+            right: client.right,
+            ..item.rcItem
+        };
         let state = SendMessageW(
             list,
             LVM_GETITEMSTATE,
@@ -259,7 +282,10 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
         );
         SetBkMode(dc, old_mode);
         SelectObject(dc, old_font);
-        if item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0 {
+        if item.itemState & ODS_FOCUS != 0
+            && item.itemState & ODS_NOFOCUSRECT == 0
+            && SendMessageW(list, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS as isize == 0
+        {
             DrawFocusRect(dc, &rect);
         }
     }
@@ -279,13 +305,6 @@ unsafe extern "system" fn table_proc(
             let header = SendMessageW(list, LVM_GETHEADER, 0, 0) as HWND;
             if notification.hwndFrom == header {
                 match notification.code {
-                    NM_CUSTOMDRAW => {
-                        let draw = &*(l as *const NMCUSTOMDRAW);
-                        if draw.dwDrawStage == CDDS_PREPAINT {
-                            draw_header(header, draw.hdc, dpi as i32);
-                            return CDRF_SKIPDEFAULT as LRESULT;
-                        }
-                    }
                     HDN_ITEMCHANGINGW | HDN_ITEMCHANGINGA => {
                         let change = &*(l as *const NMHEADERW);
                         if let Some(item) = change.pitem.as_ref()
@@ -355,35 +374,11 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
 
 unsafe fn fit_column(list: HWND, column: usize, dpi: i32) {
     unsafe {
+        SendMessageW(list, LVM_SETCOLUMNWIDTH, column, LVSCW_AUTOSIZE as LPARAM);
+        let content = SendMessageW(list, LVM_GETCOLUMNWIDTH, column, 0) as i32;
         let title = ui(TITLES[column]);
-        let text_width = |text: &[u16]| {
-            SendMessageW(list, LVM_GETSTRINGWIDTHW, 0, text.as_ptr() as LPARAM) as i32
-        };
-        let mut width = text_width(&title);
-        let count = SendMessageW(list, LVM_GETITEMCOUNT, 0, 0);
-        let mut buffer = vec![0_u16; 256];
-        for row in 0..count {
-            loop {
-                let mut item = LVITEMW {
-                    iSubItem: column as i32,
-                    pszText: buffer.as_mut_ptr(),
-                    cchTextMax: buffer.len() as i32,
-                    ..Default::default()
-                };
-                let length = SendMessageW(
-                    list,
-                    LVM_GETITEMTEXTW,
-                    row as usize,
-                    &mut item as *mut _ as LPARAM,
-                );
-                if length < buffer.len() as isize - 1 || buffer.len() >= 32768 {
-                    width = width.max(text_width(&buffer));
-                    break;
-                }
-                buffer.resize(buffer.len() * 2, 0);
-            }
-        }
-        let width = (width + scaled(20, dpi)).clamp(scaled(54, dpi), 32767);
+        let title = SendMessageW(list, LVM_GETSTRINGWIDTHW, 0, title.as_ptr() as LPARAM) as i32;
+        let width = (content.max(title) + scaled(16, dpi)).clamp(scaled(54, dpi), 32767);
         SendMessageW(list, LVM_SETCOLUMNWIDTH, column, width as LPARAM);
     }
 }

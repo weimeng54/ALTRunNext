@@ -76,7 +76,7 @@ fn selected(list: HWND) -> isize {
     unsafe { SendMessageW(list, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize) }
 }
 
-fn resize_columns(list: HWND, header: HWND, dpi: i32) {
+fn resize_columns(list: HWND, header: HWND, dpi: i32, after_drag: impl FnOnce()) {
     unsafe {
         let column_width = |column| SendMessageW(list, LVM_GETCOLUMNWIDTH, column, 0) as i32;
         let mouse = |message, button, x: i32| {
@@ -99,6 +99,7 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32) {
         };
         assert_ne!(GetScrollBarInfo(list, OBJID_HSCROLL, &mut scroll), 0);
         assert_eq!(scroll.rgstate[0] & STATE_SYSTEM_INVISIBLE, 0);
+        after_drag();
         SendMessageW(list, WM_HSCROLL, SB_RIGHT as usize, 0);
         assert!(GetScrollPos(list, SB_HORZ) > 0);
         SendMessageW(list, WM_HSCROLL, SB_LEFT as usize, 0);
@@ -111,7 +112,7 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32) {
     }
 }
 
-fn choose_row(list: HWND, row: usize) {
+fn choose_row(list: HWND, row: usize, dpi: i32) {
     // Pointer-bearing ListView messages are local-process only. Click the
     // native row via its screen coordinates to exercise selection end to end.
     unsafe {
@@ -125,12 +126,7 @@ fn choose_row(list: HWND, row: usize) {
         };
         ScreenToClient(list, &mut point);
         let top = SendMessageW(list, LVM_GETTOPINDEX, 0, 0) as usize;
-        let row_height = (GetDpiForWindow(list) as i32 * 31 + 48) / 96;
-        let mut client = RECT::default();
-        GetClientRect(list, &mut client);
-        // The manager can fit its logical DPI below the OS DPI.
-        let fit = (client.right * 96 + 171) / 342;
-        let row_height = row_height.min((fit * 31 + 48) / 96);
+        let row_height = (dpi * 31 + 48) / 96;
         let y = point.y + (row - top) as i32 * row_height + row_height / 2;
         let position = ((y << 16) | 12) as isize;
         SendMessageW(list, WM_LBUTTONDOWN, 1, position);
@@ -242,14 +238,14 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         assert!(SendMessageW(editor_list, LVM_GETCOLUMNWIDTH, 0, 0) > 0);
         assert!(SendMessageW(editor_list, LVM_GETCOLUMNWIDTH, 1, 0) > 0);
-        resize_columns(editor_list, header, dpi);
+        resize_columns(editor_list, header, dpi, || {});
         let save = GetDlgItem(manager, 2113);
         let alias = GetDlgItem(manager, 2102);
         let parameter_type = GetDlgItem(manager, 2105);
         let ask_parameter = GetDlgItem(manager, 2139);
         assert!(GetDlgItem(manager, 2116).is_null());
         assert_eq!(SendMessageW(parameter_type, CB_GETCOUNT, 0, 0), 3);
-        let select_row = |row| choose_row(editor_list, row);
+        let select_row = |row| choose_row(editor_list, row, dpi);
         select_row(0);
         assert_eq!(read(alias), "web");
         assert_ne!(IsWindowVisible(parameter_type), 0);
@@ -410,5 +406,70 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         SendMessageW(manager, WM_COMMAND, 2114, 0);
         wait(|| IsWindow(manager) == 0);
+    }
+}
+
+#[test]
+fn shortcut_table_preserves_theme_and_selection_when_resized() {
+    let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
+    for (theme, scale, header_color) in [("light", "100", 0xffffff), ("dark", "150", 0x322922)] {
+        let data = std::env::current_dir()
+            .unwrap()
+            .join(format!("target/manager-table-{theme}.tsv"));
+        let mut shortcuts =
+            String::from("codex-plus-plus-manager\t快捷项管理工具\tnotepad.exe\t0\n");
+        for row in 1..24 {
+            shortcuts.push_str(&format!(
+                "example-{row:02}\t示例快捷项 {row:02}\tnotepad.exe\t0\n"
+            ));
+        }
+        std::fs::write(&data, &shortcuts).unwrap();
+        std::fs::write(
+            data.with_extension("settings.ini"),
+            format!("[GUI]\nLang=zh-Hans\nTheme={theme}\n"),
+        )
+        .unwrap();
+        let child = Running(
+            Command::new(&exe)
+                .args(["--show", "--safe-mode", "--ui-scale", scale, "--data"])
+                .arg(&data)
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
+        let mut launcher = std::ptr::null_mut();
+        let mut manager = std::ptr::null_mut();
+        wait(|| {
+            launcher = window("ALTRun.Native.PerformanceProbe", pid);
+            !launcher.is_null() && unsafe { IsWindowVisible(launcher) != 0 }
+        });
+        unsafe {
+            SendMessageW(launcher, WM_COMMAND, 18003, 0);
+            wait(|| {
+                manager = window("ALTRun.Native.ShortcutManager", pid);
+                !manager.is_null() && IsWindowVisible(manager) != 0
+            });
+            let list = GetDlgItem(manager, 2101);
+            let header = SendMessageW(list, LVM_GETHEADER, 0, 0) as HWND;
+            let alias = GetDlgItem(manager, 2102);
+            let save = GetDlgItem(manager, 2113);
+            assert_eq!(selected(list), 0);
+            assert_eq!(read(alias), "codex-plus-plus-manager");
+            assert_eq!(IsWindowEnabled(save), 0);
+            resize_columns(list, header, 110, || {
+                native_snapshot::save(manager, &format!("manager-table-{theme}-{scale}"));
+                let dc = GetDC(header);
+                let color = GetPixel(dc, 4, 4);
+                ReleaseDC(header, dc);
+                assert_eq!(color, header_color, "the header must use the manager theme");
+                assert_eq!(selected(list), 0);
+                assert_eq!(read(alias), "codex-plus-plus-manager");
+                assert_eq!(IsWindowEnabled(save), 0);
+            });
+            assert_eq!(std::fs::read_to_string(data).unwrap(), shortcuts);
+            SendMessageW(manager, WM_COMMAND, 2114, 0);
+            wait(|| IsWindow(manager) == 0);
+        }
     }
 }
