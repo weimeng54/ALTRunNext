@@ -12,6 +12,7 @@ use windows_sys::Win32::{
         WindowsAndMessaging::*,
     },
 };
+static DESKTOP: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[path = "native_snapshot/mod.rs"]
 mod native_snapshot;
 fn wide(s: &str) -> Vec<u16> {
@@ -154,6 +155,7 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answ
 
 #[test]
 fn management_save_persists_drafts_and_refreshes_resident_search() {
+    let _desktop = DESKTOP.lock().unwrap_or_else(|error| error.into_inner());
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -411,6 +413,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
 
 #[test]
 fn shortcut_table_preserves_theme_and_selection_when_resized() {
+    let _desktop = DESKTOP.lock().unwrap_or_else(|error| error.into_inner());
     let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
         .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     for (theme, scale, header_color) in [("light", "100", 0xffffff), ("dark", "150", 0x322922)] {

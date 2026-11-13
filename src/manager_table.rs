@@ -374,11 +374,35 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
 
 unsafe fn fit_column(list: HWND, column: usize, dpi: i32) {
     unsafe {
-        SendMessageW(list, LVM_SETCOLUMNWIDTH, column, LVSCW_AUTOSIZE as LPARAM);
-        let content = SendMessageW(list, LVM_GETCOLUMNWIDTH, column, 0) as i32;
         let title = ui(TITLES[column]);
-        let title = SendMessageW(list, LVM_GETSTRINGWIDTHW, 0, title.as_ptr() as LPARAM) as i32;
-        let width = (content.max(title) + scaled(16, dpi)).clamp(scaled(54, dpi), 32767);
+        let text_width = |text: &[u16]| {
+            SendMessageW(list, LVM_GETSTRINGWIDTHW, 0, text.as_ptr() as LPARAM) as i32
+        };
+        let mut width = text_width(&title);
+        let count = SendMessageW(list, LVM_GETITEMCOUNT, 0, 0);
+        let mut buffer = vec![0_u16; 256];
+        for row in 0..count {
+            loop {
+                let mut item = LVITEMW {
+                    iSubItem: column as i32,
+                    pszText: buffer.as_mut_ptr(),
+                    cchTextMax: buffer.len() as i32,
+                    ..Default::default()
+                };
+                let length = SendMessageW(
+                    list,
+                    LVM_GETITEMTEXTW,
+                    row as usize,
+                    &mut item as *mut _ as LPARAM,
+                );
+                if length < buffer.len() as isize - 1 || buffer.len() >= 32768 {
+                    width = width.max(text_width(&buffer));
+                    break;
+                }
+                buffer.resize(buffer.len() * 2, 0);
+            }
+        }
+        let width = (width + scaled(20, dpi)).clamp(scaled(54, dpi), 32767);
         SendMessageW(list, LVM_SETCOLUMNWIDTH, column, width as LPARAM);
     }
 }
