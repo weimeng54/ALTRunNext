@@ -83,7 +83,7 @@ impl Integration {
             if status == ERROR_FILE_NOT_FOUND {
                 Ok(None)
             } else if status != 0 {
-                return Err(format!("读取启动项失败：{status}"));
+                Err(format!("读取启动项失败：{status}"))
             } else {
                 let mut b = vec![0u16; 32768];
                 let mut size = (b.len() * 2) as u32;
@@ -100,7 +100,7 @@ impl Integration {
                 if status == ERROR_FILE_NOT_FOUND {
                     Ok(None)
                 } else if status != 0 {
-                    return Err(format!("读取启动项失败：{status}"));
+                    Err(format!("读取启动项失败：{status}"))
                 } else {
                     Ok((kind == REG_SZ).then(|| {
                         String::from_utf16_lossy(&b[..(size as usize / 2).min(b.len())])
