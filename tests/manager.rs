@@ -8,7 +8,11 @@ use windows_sys::Win32::{
     Foundation::{HWND, POINT, RECT},
     Graphics::Gdi::*,
     UI::{
-        Controls::*, HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::IsWindowEnabled,
+        Controls::*,
+        HiDpi::GetDpiForWindow,
+        Input::KeyboardAndMouse::{
+            IsWindowEnabled, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, mouse_event,
+        },
         WindowsAndMessaging::*,
     },
 };
@@ -84,16 +88,45 @@ fn resize_columns(list: HWND, header: HWND, dpi: i32) {
             SendMessageW(header, message, button, ((8 << 16) | x) as isize)
         };
         let first = column_width(0);
-        let wider = first + dpi;
         let divider = first - 1;
-        mouse(WM_LBUTTONDOWN, 1, divider);
-        mouse(WM_MOUSEMOVE, 1, divider + dpi);
-        mouse(WM_LBUTTONUP, 0, divider + dpi);
-        assert_eq!(
-            column_width(0),
-            wider,
-            "dragging the header must widen the column"
+        let mut origin = POINT::default();
+        assert_ne!(ClientToScreen(header, &mut origin), 0);
+        let point = POINT {
+            x: origin.x + divider,
+            y: origin.y + 8,
+        };
+        assert_ne!(SetCursorPos(point.x, point.y), 0);
+        assert_eq!(WindowFromPoint(point), header);
+        let thread = GetWindowThreadProcessId(header, std::ptr::null_mut());
+        let mut gui = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while GetGUIThreadInfo(thread, &mut gui) != 0
+            && gui.hwndCapture != header
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let captured = gui.hwndCapture == header;
+        let moved = SetCursorPos(point.x + dpi, point.y);
+        if moved != 0 && captured {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while column_width(0) < first + dpi - 2 && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+        assert!(
+            captured,
+            "the table header must capture the mouse at the divider"
         );
+        assert_ne!(moved, 0);
+        wait(|| column_width(0) >= first + dpi - 2);
+        wait(|| GetGUIThreadInfo(thread, &mut gui) != 0 && gui.hwndCapture != header);
+        let wider = column_width(0);
         let mut scroll = SCROLLBARINFO {
             cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
             ..Default::default()
