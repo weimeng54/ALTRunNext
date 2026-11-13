@@ -841,6 +841,27 @@ fn open_about_link(hwnd: HWND, url: &str, error: &str) {
     }
 }
 
+fn report_language_packs(prefs: &Preferences) {
+    let (choices, errors) = localization::options();
+    let requested = prefs.get("Lang");
+    let mut messages = Vec::new();
+    if !errors.is_empty() {
+        messages.push(localization::message(
+            "language.load_failed",
+            &[("file", &errors.join(", "))],
+        ));
+    }
+    if !choices.iter().any(|(code, _)| code == &requested) {
+        messages.push(localization::message(
+            "language.unavailable_fallback",
+            &[("locale", &requested)],
+        ));
+    }
+    if !messages.is_empty() {
+        status(&messages.join("\n"));
+    }
+}
+
 fn strength_label(field: Field, strength: i32) {
     unsafe {
         let value = GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32);
@@ -2481,7 +2502,7 @@ pub fn open(
                     (
                         0,
                         "ui.save_and_reopen_settings_to_see_the",
-                        BoxRect::new(666, 513, 392, 24),
+                        BoxRect::new(666, 513, 392, 42),
                     ),
                     (
                         3,
@@ -2870,22 +2891,7 @@ pub fn open(
                     });
                 });
                 load_form(&prefs);
-                let (language_choices, pack_errors) = localization::options();
-                let requested_language = prefs.get("Lang");
-                if !pack_errors.is_empty() {
-                    status(&localization::message(
-                        "language.load_failed",
-                        &[("file", &pack_errors.join(", "))],
-                    ));
-                } else if !language_choices
-                    .iter()
-                    .any(|(code, _)| code == &requested_language)
-                {
-                    status(&localization::message(
-                        "language.unavailable_fallback",
-                        &[("locale", &requested_language)],
-                    ));
-                }
+                report_language_packs(&prefs);
                 show_page(if about { layout::ABOUT_PAGE } else { 0 });
                 WINDOW.store(hwnd as usize, Ordering::Release);
                 ShowWindow(hwnd, SW_SHOW);

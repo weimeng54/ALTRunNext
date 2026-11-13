@@ -334,7 +334,7 @@
     "ui.save": "Enregistrer",
     "ui.save_and_apply": "Appliquer",
     "ui.save_and_close_the_shortcut_manager_or": "Enregistrez et fermez la gestion des raccourcis ou les paramètres avant de continuer.",
-    "ui.save_and_reopen_settings_to_see_the": "Enregistrez et rouvrez les paramètres pour voir le changement.",
+    "ui.save_and_reopen_settings_to_see_the": "Enregistrez, puis rouvrez les paramètres.",
     "ui.save_diagnostic_log": "Enregistrer le journal de diagnostic",
     "ui.save_launch_diagnostics": "Journaliser les lancements",
     "ui.save_or_close_the_shortcut_manager_before": "Enregistrez ou fermez la fenêtre de gestion avant de quitter ALTRunNext.",

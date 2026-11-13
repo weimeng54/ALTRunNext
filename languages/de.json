@@ -74,7 +74,7 @@
     "ui.check_for_missing_targets": "Fehlende Ziele suchen…",
     "ui.check_missing_paths": "Fehlende Pfade prüfen…",
     "ui.check_missing_paths_2": "Fehlende Pfade prüfen",
-    "ui.choose": "Auswählen…",
+    "ui.choose": "Wählen…",
     "ui.choose_a_different_backup_file_select_save": "Wählen Sie eine andere Sicherungsdatei. Verwenden Sie zum Speichern der Daten die Schaltfläche Speichern.",
     "ui.choose_a_different_file_for_export": "Wählen Sie eine andere Exportdatei.",
     "ui.choose_a_font_size_from_5_to": "Die Schriftgröße muss zwischen 5 und 96 liegen.",

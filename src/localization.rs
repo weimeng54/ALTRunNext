@@ -5,7 +5,7 @@ use std::{
     fs,
     io::Read,
     path::Path,
-    sync::{Arc, LazyLock, RwLock},
+    sync::{Arc, RwLock},
 };
 
 include!(concat!(env!("OUT_DIR"), "/messages.rs"));
@@ -149,7 +149,10 @@ impl Language {
     }
 }
 
-static PACKS: LazyLock<RwLock<Catalog>> = LazyLock::new(|| RwLock::new(Catalog::default()));
+static PACKS: RwLock<Catalog> = RwLock::new(Catalog {
+    external: BTreeMap::new(),
+    invalid: Vec::new(),
+});
 static ACTIVE: RwLock<Language> = RwLock::new(Language::English);
 thread_local! { static WINDOW_LANGUAGE: RefCell<Option<Language>> = const { RefCell::new(None) }; }
 
@@ -191,9 +194,10 @@ pub fn install_snapshot(language: Language) {
 }
 
 pub fn options() -> (Vec<(String, String)>, Vec<String>) {
+    let follow_system = tr("settings.follow_system");
     let catalog = PACKS.read().unwrap();
     let mut choices = catalog.options();
-    choices[0].1 = tr("settings.follow_system");
+    choices[0].1 = follow_system;
     (choices, catalog.invalid.clone())
 }
 
