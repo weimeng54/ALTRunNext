@@ -553,13 +553,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             return 0;
         }
-        apply_intake(hwnd);
         if w != 0 {
             unsafe {
                 ShowWindow(hwnd, SW_SHOWNORMAL);
                 SetForegroundWindow(hwnd);
             }
         }
+        apply_intake(hwnd);
         return 0;
     }
     if msg == WM_CLOSE {
@@ -1044,7 +1044,16 @@ fn run(
             28,
             COMMAND,
         );
-        control("BUTTON", "ui.browse", WS_TABSTOP, 0, 0, 0, 0, CHOOSE_TARGET);
+        control(
+            "BUTTON",
+            "ui.browse_command_target",
+            WS_TABSTOP,
+            0,
+            0,
+            0,
+            0,
+            CHOOSE_TARGET,
+        );
         let ask_parameter = control(
             "BUTTON",
             "ui.ask_for_input_on_launch",

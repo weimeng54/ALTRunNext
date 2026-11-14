@@ -508,3 +508,58 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
         }
     }
 }
+
+#[test]
+fn edit_command_targets_the_selected_id_and_preserves_existing_drafts() {
+    let _desktop = DESKTOP.lock().unwrap_or_else(|error| error.into_inner());
+    let data = std::env::current_dir()
+        .unwrap()
+        .join("target/edit-command-fixture.tsv");
+    let original = "same\tExample\tnotepad.exe\t0\nsame\tExample\tcalc.exe\t0\n";
+    std::fs::write(&data, original).unwrap();
+    let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
+    let child = Running(
+        Command::new(exe)
+            .args(["--show", "--safe-mode", "--data"])
+            .arg(&data)
+            .spawn()
+            .unwrap(),
+    );
+    let pid = child.0.id();
+    let mut launcher = std::ptr::null_mut();
+    wait(|| {
+        launcher = window("ALTRun.Native.PerformanceProbe", pid);
+        !launcher.is_null() && unsafe { IsWindowVisible(launcher) != 0 }
+    });
+    unsafe {
+        SendMessageW(launcher, WM_COMMAND, 18003, 0);
+        let mut manager = std::ptr::null_mut();
+        wait(|| {
+            manager = window("ALTRun.Native.ShortcutManager", pid);
+            !manager.is_null() && IsWindowVisible(manager) != 0
+        });
+        let command = GetDlgItem(manager, 2104);
+        assert_eq!(read(command), "notepad.exe");
+        set(command, "notepad.exe --draft");
+        // Reopen the launcher, select the second of two identical aliases,
+        // and dispatch the command used by its context menu.
+        SendMessageW(launcher, WM_COMMAND, 18012, 0);
+        let edit = GetDlgItem(launcher, 1001);
+        SendMessageW(edit, WM_KEYDOWN, 0x28, 0);
+        SendMessageW(launcher, WM_COMMAND, 18013, 0);
+        wait(|| read(command) == "calc.exe");
+        assert_eq!(selected(GetDlgItem(manager, 2101)), 1);
+        assert_ne!(IsWindowEnabled(GetDlgItem(manager, 2113)), 0);
+        let mut gui = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        let thread = GetWindowThreadProcessId(manager, std::ptr::null_mut());
+        wait(|| GetGUIThreadInfo(thread, &mut gui) != 0 && gui.hwndFocus == command);
+        SendMessageW(launcher, WM_COMMAND, 18012, 0);
+        SendMessageW(edit, WM_KEYDOWN, 0x71, 0);
+        wait(|| read(command) == "notepad.exe --draft");
+        assert_eq!(std::fs::read_to_string(data).unwrap(), original);
+    }
+}

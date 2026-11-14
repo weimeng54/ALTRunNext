@@ -324,6 +324,10 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             DestroyWindow(hwnd);
         }
         EnableWindow(owner, 1);
+        if !state.change && IsWindowVisible(owner) != 0 {
+            SetForegroundWindow(owner);
+            SetFocus(GetDlgItem(owner, 1001));
+        }
         for font in [caption, heading, body] {
             DeleteObject(font);
         }

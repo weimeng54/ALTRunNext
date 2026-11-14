@@ -80,7 +80,7 @@ pub fn resolve_entry(
             let parameters = if entry.param_type == crate::library::ParamType::None {
                 String::new()
             } else {
-                encode_parameter(entry.param_type, parameter.ok_or("请输入参数")?)?
+                encode_parameter(entry.param_type, parameter.ok_or("ui.enter_a_parameter")?)?
             };
             (entry.command.clone(), parameters)
         }
@@ -400,7 +400,17 @@ fn split_target<'a>(
     let split = command.find(char::is_whitespace).unwrap_or(command.len());
     let first = &command[..split];
     let explicit = |text: &str| explicit_path(text) || text.as_bytes().get(1) == Some(&b':');
-    if split == command.len() || !explicit(first) {
+    let executable_extension = |file: &str| {
+        Path::new(file)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ["exe", "com", "bat", "cmd", "lnk"]
+                    .iter()
+                    .any(|kind| ext.eq_ignore_ascii_case(kind))
+            })
+    };
+    if split == command.len() || (!explicit(first) && executable_extension(first)) {
         return Ok((first, command[split..].trim_start()));
     }
     let local_path = |value: &str| {
@@ -412,7 +422,7 @@ fn split_target<'a>(
     };
     // A path can contain spaces before its extension. Stop scanning when the
     // following tokens begin an option, quoted argument or separate rooted path.
-    let candidate = local_path(command).then_some((command, ""));
+    let candidate = (!command.contains('"') && local_path(command)).then_some((command, ""));
     let mut suffix: Option<(&str, &str)> = None;
     for (index, _) in command
         .char_indices()
@@ -424,19 +434,11 @@ fn split_target<'a>(
             continue;
         }
         let rest = command[index..].trim_start();
-        let extension = Path::new(file).extension().and_then(|ext| ext.to_str());
-        if extension.is_some_and(|ext| {
-            ["exe", "com", "bat", "cmd", "lnk"]
-                .iter()
-                .any(|kind| ext.eq_ignore_ascii_case(kind))
-        }) {
-            if let Some((previous, _)) = suffix {
-                if file[previous.len()..].contains(['\\', '/']) {
-                    return Err("ui.ambiguous_command_target");
-                }
-            } else {
-                suffix = Some((file, rest));
+        if explicit(file) && executable_extension(file) {
+            if suffix.is_some_and(|(previous, _)| file[previous.len()..].contains(['\\', '/'])) {
+                return Err("ui.ambiguous_command_target");
             }
+            suffix.get_or_insert((file, rest));
         }
         if rest.is_empty() {
             break;
@@ -452,6 +454,7 @@ fn split_target<'a>(
     match (candidate, suffix) {
         (Some(file), Some(executable)) if file != executable => Err("ui.ambiguous_command_target"),
         (Some(target), _) | (_, Some(target)) => Ok(target),
+        _ if !explicit(first) => Ok((first, command[split..].trim_start())),
         _ => Err("ui.ambiguous_command_target"),
     }
 }
@@ -553,7 +556,7 @@ fn resolve_base(
     if command.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
         || parameter.is_some_and(|p| p.chars().any(|c| matches!(c, '\0' | '\r' | '\n')))
     {
-        return Err("命令或参数中包含无效控制字符".into());
+        return Err("ui.the_command_or_arguments_contain_invalid_control".into());
     }
     let command = command.trim();
     if command.is_empty() {

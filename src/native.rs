@@ -398,7 +398,10 @@ fn show_inline_error(message: &str) {
         (s.hwnd, s.edit, s.inline_error)
     });
     unsafe {
-        SetWindowTextW(error, ui(message).as_ptr());
+        let message = crate::localization::tr(message)
+            .replace("\r\n", "\n")
+            .replace('\n', "\r\n");
+        SetWindowTextW(error, wide(&message).as_ptr());
         layout_inline_error();
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetForegroundWindow(hwnd);
@@ -2244,10 +2247,8 @@ pub fn run() -> Result<(), String> {
         {
             open_settings_page(Some(crate::settings_layout::HOTKEYS_PAGE));
         }
-        if !startup_warnings.is_empty() {
-            if IsWindowVisible(hwnd) != 0 {
-                show_inline_error(&startup_warnings.join("\n"));
-            }
+        if !startup_warnings.is_empty() && IsWindowVisible(hwnd) != 0 {
+            show_inline_error(&startup_warnings.join("\n"));
         }
         let accelerator = ACCEL {
             fVirt: FVIRTKEY | FALT,
