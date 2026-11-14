@@ -369,131 +369,7 @@ pub(super) unsafe extern "system" fn window_proc(
             });
             0
         }
-        WM_COMMAND => {
-            if w & 65535 == ID_EDIT_COMMAND {
-                edit_selected_command();
-                return 0;
-            }
-            if w & 65535 == ID_COPY {
-                selected_action(true);
-                return 0;
-            }
-            if w & 65535 == ID_OPEN_FOLDER {
-                selected_action(false);
-                return 0;
-            }
-            if w & 0xffff == ID_MANAGE {
-                open_manager();
-                return 0;
-            }
-            if w & 0xffff == ID_SETTINGS {
-                open_settings();
-                return 0;
-            }
-            if w & 0xffff == ID_RECENT {
-                recent();
-                return 0;
-            }
-            if w & 0xffff == ID_ABOUT {
-                about();
-                return 0;
-            }
-            if w & 0xffff == ID_RESTART || w & 0xffff == ID_CLEAN {
-                lifecycle(w & 0xffff == ID_CLEAN);
-                return 0;
-            }
-            if w & 0xffff == ID_SHOW {
-                unsafe {
-                    SendMessageW(hwnd, SHOW, 0, 0);
-                }
-                return 0;
-            }
-            if w & 0xffff == ID_EXIT {
-                unsafe {
-                    PostMessageW(hwnd, QUIT, 0, 0);
-                }
-                return 0;
-            }
-            if w & 0xffff == ID_HIDE {
-                unsafe {
-                    ShowWindow(hwnd, SW_HIDE);
-                }
-                return 0;
-            }
-            let id = w & 0xffff;
-            let code = (w >> 16) & 0xffff;
-            if id == ID_LIST
-                && STATE.with(|c| c.borrow().as_ref().unwrap().parameter_entry.is_some())
-            {
-                return 0;
-            }
-            if id == ID_EDIT && code == EN_CHANGE as usize {
-                let (previous, previous_selected, key, edit, number, composing) = STATE.with(|c| {
-                    let mut s = c.borrow_mut();
-                    let s = s.as_mut().unwrap();
-                    let key = std::mem::take(&mut s.last_key);
-                    (
-                        s.hits.clone(),
-                        s.selected,
-                        key,
-                        s.edit,
-                        s.preferences.flag("NumberKey"),
-                        s.composing,
-                    )
-                });
-                let query = edit_text(edit);
-                refresh();
-                let none = STATE.with(|c| {
-                    let s = c.borrow();
-                    let s = s.as_ref().unwrap();
-                    s.hits.is_empty() && s.parameter_entry.is_none()
-                });
-                if none && !composing && !previous.is_empty() {
-                    let digit = match key {
-                        0x30..=0x39 => Some((key - 0x30) as usize),
-                        0x60..=0x69 => Some((key - 0x60) as usize),
-                        _ => None,
-                    };
-                    if (number && digit.is_some()) || key == VK_SPACE {
-                        let trimmed = query
-                            .char_indices()
-                            .next_back()
-                            .map(|(i, _)| &query[..i])
-                            .unwrap_or("");
-                        unsafe {
-                            SetWindowTextW(edit, wide(trimmed).as_ptr());
-                        }
-                        STATE.with(|c| {
-                            let mut s = c.borrow_mut();
-                            let s = s.as_mut().unwrap();
-                            s.hits = previous;
-                            s.selected = previous_selected.min(s.hits.len().saturating_sub(1));
-                        });
-                        if let Some(digit) = digit {
-                            choose_number(digit);
-                        } else {
-                            launch_selected();
-                        }
-                    }
-                }
-            }
-            if id == ID_LIST && code == LBN_SELCHANGE as usize {
-                let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
-                let selected = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
-                if selected >= 0 {
-                    STATE.with(|c| c.borrow_mut().as_mut().unwrap().selected = selected as usize);
-                    update_selection();
-                    let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
-                    unsafe {
-                        SetFocus(edit);
-                    }
-                }
-            }
-            if id == ID_LIST && code == LBN_DBLCLK as usize {
-                launch_selected();
-            }
-            0
-        }
+        WM_COMMAND => handle_command(hwnd, w),
         WM_DRAWITEM => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
             if d.CtlID as usize == TITLE {
@@ -676,6 +552,130 @@ pub(super) unsafe extern "system" fn window_proc(
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, w, l) },
     }
+}
+
+fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
+    if w & 65535 == ID_EDIT_COMMAND {
+        edit_selected_command();
+        return 0;
+    }
+    if w & 65535 == ID_COPY {
+        selected_action(true);
+        return 0;
+    }
+    if w & 65535 == ID_OPEN_FOLDER {
+        selected_action(false);
+        return 0;
+    }
+    if w & 0xffff == ID_MANAGE {
+        open_manager();
+        return 0;
+    }
+    if w & 0xffff == ID_SETTINGS {
+        open_settings();
+        return 0;
+    }
+    if w & 0xffff == ID_RECENT {
+        recent();
+        return 0;
+    }
+    if w & 0xffff == ID_ABOUT {
+        about();
+        return 0;
+    }
+    if w & 0xffff == ID_RESTART || w & 0xffff == ID_CLEAN {
+        lifecycle(w & 0xffff == ID_CLEAN);
+        return 0;
+    }
+    if w & 0xffff == ID_SHOW {
+        unsafe {
+            SendMessageW(hwnd, SHOW, 0, 0);
+        }
+        return 0;
+    }
+    if w & 0xffff == ID_EXIT {
+        unsafe {
+            PostMessageW(hwnd, QUIT, 0, 0);
+        }
+        return 0;
+    }
+    if w & 0xffff == ID_HIDE {
+        unsafe {
+            ShowWindow(hwnd, SW_HIDE);
+        }
+        return 0;
+    }
+    let id = w & 0xffff;
+    let code = (w >> 16) & 0xffff;
+    if id == ID_LIST && STATE.with(|c| c.borrow().as_ref().unwrap().parameter_entry.is_some()) {
+        return 0;
+    }
+    if id == ID_EDIT && code == EN_CHANGE as usize {
+        let (previous, previous_selected, key, edit, number, composing) = STATE.with(|c| {
+            let mut s = c.borrow_mut();
+            let s = s.as_mut().unwrap();
+            let key = std::mem::take(&mut s.last_key);
+            (
+                s.hits.clone(),
+                s.selected,
+                key,
+                s.edit,
+                s.preferences.flag("NumberKey"),
+                s.composing,
+            )
+        });
+        let query = edit_text(edit);
+        refresh();
+        let none = STATE.with(|c| {
+            let s = c.borrow();
+            let s = s.as_ref().unwrap();
+            s.hits.is_empty() && s.parameter_entry.is_none()
+        });
+        if none && !composing && !previous.is_empty() {
+            let digit = match key {
+                0x30..=0x39 => Some((key - 0x30) as usize),
+                0x60..=0x69 => Some((key - 0x60) as usize),
+                _ => None,
+            };
+            if (number && digit.is_some()) || key == VK_SPACE {
+                let trimmed = query
+                    .char_indices()
+                    .next_back()
+                    .map(|(i, _)| &query[..i])
+                    .unwrap_or("");
+                unsafe {
+                    SetWindowTextW(edit, wide(trimmed).as_ptr());
+                }
+                STATE.with(|c| {
+                    let mut s = c.borrow_mut();
+                    let s = s.as_mut().unwrap();
+                    s.hits = previous;
+                    s.selected = previous_selected.min(s.hits.len().saturating_sub(1));
+                });
+                if let Some(digit) = digit {
+                    choose_number(digit);
+                } else {
+                    launch_selected();
+                }
+            }
+        }
+    }
+    if id == ID_LIST && code == LBN_SELCHANGE as usize {
+        let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
+        let selected = unsafe { SendMessageW(list, LB_GETCURSEL, 0, 0) };
+        if selected >= 0 {
+            STATE.with(|c| c.borrow_mut().as_mut().unwrap().selected = selected as usize);
+            update_selection();
+            let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
+            unsafe {
+                SetFocus(edit);
+            }
+        }
+    }
+    if id == ID_LIST && code == LBN_DBLCLK as usize {
+        launch_selected();
+    }
+    0
 }
 
 fn position_panel() {

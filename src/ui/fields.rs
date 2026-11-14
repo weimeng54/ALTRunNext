@@ -71,7 +71,7 @@ pub fn style_combo(hwnd: HWND, dpi: i32) {
 struct EditStyle {
     dpi: i32,
     number: bool,
-    preview_colours: Option<fn() -> (u32, u32)>,
+    colours: Option<fn() -> (u32, u32)>,
 }
 
 pub fn style_edit(hwnd: HWND, dpi: i32) {
@@ -80,18 +80,18 @@ pub fn style_edit(hwnd: HWND, dpi: i32) {
         EditStyle {
             dpi,
             number: false,
-            preview_colours: None,
+            colours: None,
         },
     );
 }
 
-pub fn style_preview_edit(hwnd: HWND, dpi: i32, colours: fn() -> (u32, u32)) {
+pub fn style_edit_with_colours(hwnd: HWND, dpi: i32, colours: fn() -> (u32, u32)) {
     set_edit_style(
         hwnd,
         EditStyle {
             dpi,
             number: false,
-            preview_colours: Some(colours),
+            colours: Some(colours),
         },
     );
 }
@@ -104,7 +104,7 @@ pub fn style_number(hwnd: HWND, dpi: i32) {
         EditStyle {
             dpi,
             number: true,
-            preview_colours: None,
+            colours: None,
         },
     );
 }
@@ -168,7 +168,7 @@ unsafe extern "system" fn edit_proc(
     let EditStyle {
         dpi,
         number,
-        preview_colours,
+        colours,
     } = unsafe { *style };
     let inset_x = scaled(9, dpi);
     let inset_y = scaled(7, dpi);
@@ -239,7 +239,7 @@ unsafe extern "system" fn edit_proc(
                     rect.right - inset_right,
                     rect.bottom - inset_y,
                 );
-                let (backdrop, paper) = preview_colours.map_or_else(
+                let (backdrop, paper) = colours.map_or_else(
                     || (theme::control_surface(), theme::paper()),
                     |colours| colours(),
                 );

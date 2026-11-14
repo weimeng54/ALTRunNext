@@ -1,9 +1,9 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use super::*;
+use super::{paint::paint_manager, *};
 
-fn list_height(dpi: i32) -> i32 {
+pub(super) fn list_height(dpi: i32) -> i32 {
     let row = scaled(ROW_HEIGHT, dpi);
     scaled(LIST_TOP, dpi) - scaled(TABLE_TOP, dpi)
         + scaled(FOOTER_TOP - LIST_TOP - 33, dpi) / row * row
@@ -143,85 +143,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             0
         }
-        WM_COMMAND => {
-            let id = w & 0xffff;
-            let notification = (w >> 16) & 0xffff;
-            if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
-                || id == KIND && notification == CBN_SELCHANGE as usize
-                || id == ASK_PARAMETER && notification == BN_CLICKED as usize
-            {
-                update_draft(id);
-            } else if notification == BN_CLICKED as usize {
-                match id {
-                    CAPTION_CLOSE => unsafe {
-                        PostMessageW(hwnd, WM_CLOSE, 0, 0);
-                    },
-                    NEW_MENU | TOOLS_MENU => popup(hwnd, id, None),
-                    OPEN_WITH | OPEN_DEFAULT => change_open_with(hwnd, id == OPEN_DEFAULT),
-                    CHOOSE_TARGET => choose_command_target(hwnd),
-                    ADD => {
-                        EDITOR.with(|c| {
-                            let mut state = c.borrow_mut();
-                            let s = state.as_mut().unwrap();
-                            s.draft.push(Entry {
-                                alias: String::new(),
-                                name: String::new(),
-                                command: String::new(),
-                                frequency: 0,
-                                param_type: ParamType::None,
-                                id: library::new_id(),
-                                working_directory: String::new(),
-                                open_target: None,
-                                kind: library::EntryKind::Command,
-                            });
-                            s.selected = s.draft.len() - 1;
-                        });
-                        refresh_list();
-                        status("ui.enter_an_alias_and_a_command_for", false);
-                        let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
-                        unsafe {
-                            SetFocus(field);
-                        }
-                    }
-                    DELETE => {
-                        let name = EDITOR.with(|c| {
-                            let s = c.borrow();
-                            let s = s.as_ref().unwrap();
-                            s.draft
-                                .get(s.selected)
-                                .map(|e| format!("{} · {}", e.alias, e.name))
-                        });
-                        if let Some(name) = name
-                            && confirm(
-                                hwnd,
-                                &crate::localization::message(
-                                    "ui.remove_name_from_the_draft_save_to",
-                                    &[("name", &name)],
-                                ),
-                            )
-                        {
-                            EDITOR.with(|c| {
-                                let mut state = c.borrow_mut();
-                                let s = state.as_mut().unwrap();
-                                s.draft.remove(s.selected);
-                                s.selected = s.selected.min(s.draft.len().saturating_sub(1));
-                            });
-                            refresh_list();
-                            pending_status("ui.removed_from_the_draft_changes_are_unsaved");
-                        }
-                    }
-                    SAVE => save(),
-                    TEST => test_selected(hwnd),
-                    CLOSE => unsafe {
-                        PostMessageW(hwnd, WM_CLOSE, 0, 0);
-                    },
-                    ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | SORT_ORIGINAL
-                    | SORT_ALIAS | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
-                    _ => {}
-                }
-            }
-            0
-        }
+        WM_COMMAND => handle_command(hwnd, w),
         WM_MEASUREITEM if l != 0 => {
             let item = unsafe { &mut *(l as *mut MEASUREITEMSTRUCT) };
             if menu_style::measure(item) {
@@ -300,6 +222,86 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }),
         _ => unsafe { DefWindowProcW(hwnd, msg, w, l) },
     }
+}
+
+fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
+    let id = w & 0xffff;
+    let notification = (w >> 16) & 0xffff;
+    if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
+        || id == KIND && notification == CBN_SELCHANGE as usize
+        || id == ASK_PARAMETER && notification == BN_CLICKED as usize
+    {
+        update_draft(id);
+    } else if notification == BN_CLICKED as usize {
+        match id {
+            CAPTION_CLOSE => unsafe {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            },
+            NEW_MENU | TOOLS_MENU => popup(hwnd, id, None),
+            OPEN_WITH | OPEN_DEFAULT => change_open_with(hwnd, id == OPEN_DEFAULT),
+            CHOOSE_TARGET => choose_command_target(hwnd),
+            ADD => {
+                EDITOR.with(|c| {
+                    let mut state = c.borrow_mut();
+                    let s = state.as_mut().unwrap();
+                    s.draft.push(Entry {
+                        alias: String::new(),
+                        name: String::new(),
+                        command: String::new(),
+                        frequency: 0,
+                        param_type: ParamType::None,
+                        id: library::new_id(),
+                        working_directory: String::new(),
+                        open_target: None,
+                        kind: library::EntryKind::Command,
+                    });
+                    s.selected = s.draft.len() - 1;
+                });
+                refresh_list();
+                status("ui.enter_an_alias_and_a_command_for", false);
+                let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
+                unsafe {
+                    SetFocus(field);
+                }
+            }
+            DELETE => {
+                let name = EDITOR.with(|c| {
+                    let s = c.borrow();
+                    let s = s.as_ref().unwrap();
+                    s.draft
+                        .get(s.selected)
+                        .map(|e| format!("{} · {}", e.alias, e.name))
+                });
+                if let Some(name) = name
+                    && confirm(
+                        hwnd,
+                        &crate::localization::message(
+                            "ui.remove_name_from_the_draft_save_to",
+                            &[("name", &name)],
+                        ),
+                    )
+                {
+                    EDITOR.with(|c| {
+                        let mut state = c.borrow_mut();
+                        let s = state.as_mut().unwrap();
+                        s.draft.remove(s.selected);
+                        s.selected = s.selected.min(s.draft.len().saturating_sub(1));
+                    });
+                    refresh_list();
+                    pending_status("ui.removed_from_the_draft_changes_are_unsaved");
+                }
+            }
+            SAVE => save(),
+            TEST => test_selected(hwnd),
+            CLOSE => unsafe {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            },
+            ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | SORT_ORIGINAL | SORT_ALIAS
+            | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
+            _ => {}
+        }
+    }
+    0
 }
 
 pub(super) fn run(
@@ -711,90 +713,6 @@ pub(super) fn run(
         UnregisterClassW(class_name.as_ptr(), instance);
     }
     Ok(())
-}
-
-fn paint_manager(hwnd: HWND) {
-    unsafe {
-        let mut ps: PAINTSTRUCT = zeroed();
-        let dc = BeginPaint(hwnd, &mut ps);
-        let mut bounds: RECT = zeroed();
-        GetClientRect(hwnd, &mut bounds);
-        let (dpi, font, caption) = EDITOR.with(|c| {
-            let s = c.borrow();
-            let s = s.as_ref().unwrap();
-            (s.dpi, s.font, s.caption)
-        });
-        let rect = |x, y, w, h| RECT {
-            left: scaled(x, dpi),
-            top: scaled(y, dpi),
-            right: scaled(x + w, dpi),
-            bottom: scaled(y + h, dpi),
-        };
-        crate::ui::fill(dc, &bounds, theme::surface());
-        crate::ui::fill(dc, &rect(0, 0, WIDTH, CAPTION), theme::chrome());
-        crate::ui::fill(
-            dc,
-            &rect(0, CAPTION, RAIL, FOOTER_TOP - CAPTION),
-            theme::chrome(),
-        );
-        crate::ui::fill(
-            dc,
-            &rect(0, FOOTER_TOP, WIDTH, HEIGHT - FOOTER_TOP),
-            theme::chrome(),
-        );
-        let mut list_card = rect(16, TABLE_TOP, RAIL - 32, 0);
-        list_card.bottom = scaled(TABLE_TOP + 1, dpi) + list_height(dpi) + scaled(2, dpi);
-        crate::ui::rounded(
-            dc,
-            list_card,
-            scaled(16, dpi),
-            theme::control_surface(),
-            theme::divider(),
-        );
-        let kind = EDITOR.with(|c| {
-            let s = c.borrow();
-            let s = s.as_ref().unwrap();
-            s.draft.get(s.selected).map(|e| e.kind)
-        });
-        if let Some(kind) = kind {
-            crate::ui::rounded(
-                dc,
-                rect(
-                    FORM_LEFT,
-                    FORM_TOP,
-                    FORM_WIDTH,
-                    if kind == library::EntryKind::Command {
-                        COMMAND_FORM_HEIGHT
-                    } else {
-                        164
-                    },
-                ),
-                scaled(16, dpi),
-                theme::control_surface(),
-                theme::divider(),
-            );
-        }
-        for line in [
-            rect(0, CAPTION, WIDTH, 1),
-            rect(RAIL, CAPTION, 1, FOOTER_TOP - CAPTION),
-            rect(0, FOOTER_TOP - 1, WIDTH, 1),
-        ] {
-            crate::ui::fill(dc, &line, theme::divider());
-        }
-        crate::ui::panel_caption(dc, dpi, caption, "ui.altrunnext_manage_shortcuts_2");
-        SetBkMode(dc, TRANSPARENT as i32);
-        SetTextColor(dc, theme::text());
-        SelectObject(dc, font);
-        let mut library_title = rect(17, 62, 120, 32);
-        DrawTextW(
-            dc,
-            ui("ui.shortcuts").as_ptr(),
-            -1,
-            &mut library_title,
-            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
-        );
-        EndPaint(hwnd, &ps);
-    }
 }
 
 pub(super) fn sync_kind_layout() {

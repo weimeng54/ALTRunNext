@@ -516,7 +516,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             let style = WS_TABSTOP
                 | ES_AUTOHSCROLL as u32
                 | if id == PATH { ES_READONLY as u32 } else { 0 };
-            ui::style_preview_edit(
+            ui::style_edit_with_colours(
                 control("EDIT", "", id, (140, form + dy, width - 162, 36), style),
                 dpi,
                 || (theme::surface(), theme::paper()),

@@ -47,13 +47,14 @@ use hotkeys::{cancel_capture, hotkey_proc, modifier_bits, record_key, stop_captu
 mod appearance;
 use appearance::{
     adjust_number, align_preview, background_image, choose_colour, choose_panel_font,
-    chrome_colors, draw, extra_color, paint_settings, preset, refresh_font_family, refresh_style,
-    set_colour, show_without_redraw, strength_label, toggle_extra_colors, update_background_mode,
+    chrome_colors, extra_color, preset, refresh_font_family, refresh_style, set_colour,
+    show_without_redraw, strength_label, toggle_extra_colors, update_background_mode,
     update_preview,
 };
 mod apply;
 use apply::{apply, choose_file};
 mod layout;
+mod paint;
 mod pickers;
 mod preview;
 use layout::BoxRect;
@@ -279,5 +280,9 @@ const PRESETS: [(&str, &str, &str); 3] = [
 ];
 
 pub fn is_open() -> bool {
-    WINDOW.load(Ordering::Acquire) != 0
+    match WINDOW.load(Ordering::Acquire) {
+        0 => false,
+        1 => true,
+        hwnd => unsafe { IsWindow(hwnd as HWND) != 0 },
+    }
 }

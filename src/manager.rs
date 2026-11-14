@@ -41,6 +41,7 @@ use intake::{add_paths, apply_intake};
 mod menu;
 use menu::popup;
 mod menu_style;
+mod paint;
 mod table;
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
 const WIDTH: i32 = crate::ui::geometry::WIDTH;
