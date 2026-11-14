@@ -531,7 +531,6 @@ pub(super) fn open(
         let is_bookmarks = matches!(&preview, Some(Preview::Bookmarks { .. }));
         let failed = preview.is_none();
         let height = if failed { 233 } else { HEIGHT };
-        let initially_enabled = IsWindowEnabled(owner) != 0;
         let mut dialog = Box::new(Dialog {
             model: RefCell::new(Model {
                 preview,
@@ -736,9 +735,7 @@ pub(super) fn open(
         } else {
             refresh(hwnd, &dialog);
         }
-        if initially_enabled {
-            EnableWindow(owner, 0);
-        }
+        let modal_owner = ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetFocus(if focus.is_null() { apply } else { focus });
         let mut message = MSG::default();
@@ -789,10 +786,7 @@ pub(super) fn open(
         if IsWindow(hwnd) != 0 {
             DestroyWindow(hwnd);
         }
-        if initially_enabled {
-            EnableWindow(owner, 1);
-        }
-        SetForegroundWindow(owner);
+        modal_owner.restore(true);
         DeleteObject(dialog.caption);
         DeleteObject(dialog.font);
         DeleteObject(dialog.surface);

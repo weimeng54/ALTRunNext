@@ -7,7 +7,7 @@ pub(super) fn change_open_with(hwnd: HWND, use_default: bool) {
     let program = if use_default {
         None
     } else {
-        match crate::shortcut_intake::pick_program(hwnd) {
+        match crate::windows::file_picker::pick_program(hwnd) {
             Ok(Some(path)) => Some(path),
             Ok(None) => return,
             Err(error) => {
@@ -221,4 +221,122 @@ pub(super) fn test_selected(hwnd: HWND) {
             crate::ui::show_error(&error);
         }
     });
+}
+
+pub(super) fn prepare_backup_restore(hwnd: HWND) -> Result<bool, &'static str> {
+    use crate::ui::dialogs::input::{Choice, choose};
+
+    if unsafe { IsWindowEnabled(hwnd) } == 0 || crate::shortcut_intake::is_open() {
+        return Err("backup.close_manager");
+    }
+    let dirty = || EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
+    if dirty() {
+        unsafe {
+            ShowWindow(hwnd, SW_SHOWNORMAL);
+            SetForegroundWindow(hwnd);
+        }
+        match choose(
+            hwnd,
+            "backup.unsaved_title",
+            "backup.unsaved_manager",
+            "backup.save_continue",
+            "backup.discard_continue",
+        ) {
+            Choice::Primary => {
+                save();
+                if dirty() {
+                    return Ok(false);
+                }
+            }
+            Choice::Alternate => {}
+            Choice::Cancel => return Ok(false),
+        }
+    }
+    unsafe { DestroyWindow(hwnd) };
+    Ok(true)
+}
+
+pub(super) fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
+    let id = w & 0xffff;
+    let notification = (w >> 16) & 0xffff;
+    if id == FILTER && notification == EN_CHANGE as usize {
+        let field = unsafe { GetDlgItem(hwnd, FILTER as i32) };
+        let value = text(field);
+        EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().query = value);
+        refresh_list_rows();
+    } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
+        || id == KIND && notification == CBN_SELCHANGE as usize
+        || id == ASK_PARAMETER && notification == BN_CLICKED as usize
+    {
+        update_draft(id);
+    } else if notification == BN_CLICKED as usize {
+        match id {
+            CAPTION_CLOSE => unsafe {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            },
+            NEW_MENU | TOOLS_MENU => popup(hwnd, id, None),
+            OPEN_WITH | OPEN_DEFAULT => change_open_with(hwnd, id == OPEN_DEFAULT),
+            CHOOSE_TARGET => choose_command_target(hwnd),
+            ADD => {
+                EDITOR.with(|c| {
+                    let mut state = c.borrow_mut();
+                    let s = state.as_mut().unwrap();
+                    s.draft.push(Entry {
+                        alias: String::new(),
+                        name: String::new(),
+                        command: String::new(),
+                        frequency: 0,
+                        param_type: ParamType::None,
+                        id: library::new_id(),
+                        working_directory: String::new(),
+                        open_target: None,
+                        kind: library::EntryKind::Command,
+                    });
+                    s.selected = s.draft.len() - 1;
+                });
+                refresh_list();
+                status("ui.enter_an_alias_and_a_command_for", false);
+                let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
+                unsafe {
+                    SetFocus(field);
+                }
+            }
+            DELETE => {
+                let name = EDITOR.with(|c| {
+                    let s = c.borrow();
+                    let s = s.as_ref().unwrap();
+                    s.draft
+                        .get(s.selected)
+                        .map(|e| format!("{} · {}", e.alias, e.name))
+                });
+                if let Some(name) = name
+                    && confirm(
+                        hwnd,
+                        &crate::localization::message(
+                            "ui.remove_name_from_the_draft_save_to",
+                            &[("name", &name)],
+                        ),
+                    )
+                {
+                    EDITOR.with(|c| {
+                        let mut state = c.borrow_mut();
+                        let s = state.as_mut().unwrap();
+                        s.draft.remove(s.selected);
+                        s.selected = s.selected.min(s.draft.len().saturating_sub(1));
+                    });
+                    refresh_list();
+                    pending_status("ui.removed_from_the_draft_changes_are_unsaved");
+                }
+            }
+            SAVE => save(),
+            TEST => test_selected(hwnd),
+            CLOSE => unsafe {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            },
+            ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | IMPORT_BOOKMARKS
+            | SORT_ORIGINAL | SORT_ALIAS | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
+            _ => {}
+        }
+    }
+    0
 }

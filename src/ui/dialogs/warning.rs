@@ -288,7 +288,7 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             buttons,
             body as usize,
         );
-        EnableWindow(owner, 0);
+        let modal_owner = super::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);
         SetFocus(change);
@@ -319,9 +319,8 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
         if IsWindow(hwnd) != 0 {
             DestroyWindow(hwnd);
         }
-        EnableWindow(owner, 1);
+        modal_owner.restore(!state.change);
         if !state.change && IsWindowVisible(owner) != 0 {
-            SetForegroundWindow(owner);
             SetFocus(GetDlgItem(owner, 1001));
         }
         for font in [caption, heading, body] {

@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 //! Native report list for the shortcut editor. Windows owns selection, hit testing and scrolling.
+use super::{FOOTER_TOP, LIST_TOP, ROW_HEIGHT, TABLE_TOP};
 use crate::{
     theme,
     ui::{self, scaled, ui, wide},
@@ -484,4 +485,10 @@ unsafe fn header_text(header: HWND, column: usize) -> String {
         .position(|&unit| unit == 0)
         .unwrap_or(text.len());
     String::from_utf16_lossy(&text[..end])
+}
+
+pub(super) fn list_height(dpi: i32) -> i32 {
+    let row = scaled(ROW_HEIGHT, dpi);
+    scaled(LIST_TOP, dpi) - scaled(TABLE_TOP, dpi)
+        + scaled(FOOTER_TOP - LIST_TOP - 33, dpi) / row * row
 }

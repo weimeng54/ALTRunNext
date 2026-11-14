@@ -31,6 +31,8 @@ use windows_sys::Win32::{
     },
 };
 
+mod commands;
+mod controls;
 mod pages;
 mod window;
 use pages::{

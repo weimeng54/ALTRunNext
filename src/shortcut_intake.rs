@@ -5,9 +5,10 @@
 use crate::{
     theme,
     ui::{self, make_font, scaled, ui, wide},
+    windows::file_picker::pick_program,
 };
 use altrun_probe::{Entry, library::OpenTarget};
-use std::{cell::Cell, path::Path, ptr::null_mut};
+use std::{cell::Cell, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -48,35 +49,6 @@ struct Dialog {
 
 pub fn is_open() -> bool {
     OPEN.with(Cell::get)
-}
-
-pub fn plain_path(text: &str) -> &str {
-    let text = text.trim();
-    text.strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or(text)
-}
-
-pub fn program_name(path: &str) -> &str {
-    Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(path)
-}
-
-pub fn pick_program(owner: HWND) -> Result<Option<String>, String> {
-    let mut filter = ui("ui.executable_programs");
-    filter.extend(wide("*.exe"));
-    filter.push(0);
-    let Some(path) =
-        crate::windows::file_picker::pick_path_filtered(owner, false, false, Some(&filter))
-    else {
-        return Ok(None);
-    };
-    if !path.is_file() || !altrun_probe::management::is_executable(&path) {
-        return Err("ui.select_a_valid_exe_application".into());
-    }
-    altrun_probe::management::absolute_path(&path).map(Some)
 }
 
 fn get(hwnd: HWND, id: usize) -> HWND {
@@ -547,7 +519,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         button("ui.cancel", CANCEL, (width - 257, height - 48, 86, 36));
         button("ui.add_shortcut", SAVE, (width - 159, height - 48, 137, 36));
         sync(hwnd, &mut state);
-        EnableWindow(owner, 0);
+        let modal_owner = ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);
         SetFocus(get(hwnd, ALIAS));
@@ -592,10 +564,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         if IsWindow(hwnd) != 0 {
             DestroyWindow(hwnd);
         }
-        EnableWindow(owner, 1);
-        if IsWindowVisible(owner) != 0 {
-            SetForegroundWindow(owner);
-        }
+        modal_owner.restore(true);
         DeleteObject(font);
         DeleteObject(state.caption);
         UnregisterClassW(class.as_ptr(), instance);

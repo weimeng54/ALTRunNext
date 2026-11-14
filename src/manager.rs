@@ -28,7 +28,9 @@ use windows_sys::Win32::{
 mod view;
 mod window;
 use view::{index_of, view_order};
-use window::{run, sync_kind_layout};
+use window::run;
+mod controls;
+use controls::sync_kind_layout;
 mod editor;
 use editor::{
     can_test, confirm, pending_status, publish_selection, refresh_list, refresh_list_rows, save,

@@ -85,7 +85,7 @@ pub(super) fn inspect(owner: HWND, rows: &[Entry], base: &Path) {
 fn pick_replacement(owner: HWND, target: RepairTarget) -> Result<Option<PathBuf>, String> {
     match target {
         RepairTarget::OpenWith => {
-            crate::shortcut_intake::pick_program(owner).map(|path| path.map(PathBuf::from))
+            crate::windows::file_picker::pick_program(owner).map(|path| path.map(PathBuf::from))
         }
         RepairTarget::Program => {
             let filter =
@@ -418,7 +418,7 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
                 (x, FOOTER + 12, width, 36),
             );
         }
-        EnableWindow(owner, 0);
+        let modal_owner = crate::ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetFocus(list);
         let mut message = MSG::default();
@@ -457,8 +457,7 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
         if IsWindow(hwnd) != 0 {
             DestroyWindow(hwnd);
         }
-        EnableWindow(owner, 1);
-        SetForegroundWindow(owner);
+        modal_owner.restore(true);
         UnregisterClassW(class.as_ptr(), instance);
         DeleteObject(state.font);
         DeleteObject(state.caption);

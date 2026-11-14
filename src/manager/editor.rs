@@ -125,7 +125,7 @@ pub(super) fn sync_fields() {
         let hwnd = GetParent(command);
         let label = program.map_or_else(
             || crate::localization::tr("ui.choose_app"),
-            |p| crate::shortcut_intake::program_name(p).to_owned(),
+            |p| altrun_probe::local_target::program_name(p).to_owned(),
         );
         SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
         sync_parameter_controls(entry.as_ref(), toggle, kind);
@@ -267,7 +267,7 @@ pub(super) fn update_draft(changed: usize) {
             entry.alias = alias;
             if entry.command != command_text {
                 entry.command = if entry.open_target.is_some() {
-                    crate::shortcut_intake::plain_path(&command_text).to_owned()
+                    altrun_probe::local_target::plain_path(&command_text).to_owned()
                 } else {
                     command_text
                 };

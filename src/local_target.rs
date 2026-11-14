@@ -46,3 +46,17 @@ pub fn directory(command: &str, base: &Path) -> Result<PathBuf, String> {
         .ok_or("ui.could_not_find_the_command_s_folder")?;
     Ok(parent.to_path_buf())
 }
+
+pub fn plain_path(text: &str) -> &str {
+    let text = text.trim();
+    text.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(text)
+}
+
+pub fn program_name(path: &str) -> &str {
+    Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
+}

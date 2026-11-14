@@ -116,3 +116,16 @@ pub(crate) fn drop_paths(handle: windows_sys::Win32::UI::Shell::HDROP) -> Vec<Pa
         paths
     }
 }
+
+pub(crate) fn pick_program(owner: HWND) -> Result<Option<String>, String> {
+    let mut filter = crate::ui::ui("ui.executable_programs");
+    filter.extend(crate::ui::wide("*.exe"));
+    filter.push(0);
+    let Some(path) = pick_path_filtered(owner, false, false, Some(&filter)) else {
+        return Ok(None);
+    };
+    if !path.is_file() || !altrun_probe::management::is_executable(&path) {
+        return Err("ui.select_a_valid_exe_application".into());
+    }
+    altrun_probe::management::absolute_path(&path).map(Some)
+}
