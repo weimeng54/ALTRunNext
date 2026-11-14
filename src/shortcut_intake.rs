@@ -577,16 +577,11 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
                     DispatchMessageW(&msg);
                     continue;
                 }
-                let id = GetDlgCtrlID(focus) as usize;
-                let command = if msg.wParam as u16 == VK_ESCAPE {
-                    CANCEL
+                if msg.wParam as u16 == VK_ESCAPE {
+                    SendMessageW(hwnd, WM_COMMAND, CANCEL, 0);
                 } else {
-                    match id {
-                        PROGRAM | DEFAULT | TEST | CANCEL | CLOSE => id,
-                        _ => SAVE,
-                    }
-                };
-                SendMessageW(hwnd, WM_COMMAND, command, 0);
+                    ui::dialogs::accept_key(hwnd, SAVE, &[PROGRAM, DEFAULT, TEST, CANCEL, CLOSE]);
+                }
                 continue;
             }
             if IsDialogMessageW(hwnd, &msg) == 0 {

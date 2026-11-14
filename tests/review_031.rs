@@ -12,7 +12,7 @@ use windows_sys::Win32::{
     Graphics::Gdi::{GetPixel, GetWindowDC, ReleaseDC},
     UI::{
         Controls::*,
-        Input::KeyboardAndMouse::{VK_F2, VK_RETURN},
+        Input::KeyboardAndMouse::{VK_ESCAPE, VK_F2, VK_RETURN},
         WindowsAndMessaging::*,
     },
 };
@@ -50,6 +50,12 @@ fn ready_window(pid: u32, class: &str, control: i32) -> HWND {
 fn begin(hwnd: HWND, action: usize) {
     unsafe {
         assert_ne!(PostMessageW(hwnd, WM_COMMAND, action, 0), 0);
+    }
+}
+
+fn press(hwnd: HWND, key: u16) {
+    unsafe {
+        assert_ne!(PostMessageW(hwnd, WM_KEYDOWN, key as usize, 0), 0);
     }
 }
 
@@ -130,7 +136,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
     native_snapshot::save(preview, &format!("031-backup-{theme}-{scale}"));
     eprintln!("Confirming the backup preview");
-    begin(preview, 1);
+    press(preview, VK_RETURN);
     wait(|| unsafe { IsWindow(preview) == 0 });
     choose_file(pid, &archive);
     wait(|| altrun_probe::backup::Backup::load(&archive).is_ok_and(|backup| backup.count() == 5));
@@ -141,7 +147,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     choose_file(pid, &archive);
     let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
     native_snapshot::save(preview, &format!("031-restore-{theme}-{scale}"));
-    begin(preview, 2);
+    press(preview, VK_ESCAPE);
     wait(|| unsafe { IsWindow(preview) == 0 });
     assert_eq!(std::fs::read(data).unwrap(), original);
     unsafe { assert_ne!(PostMessageW(settings, WM_CLOSE, 0, 0), 0) };
@@ -204,7 +210,7 @@ fn check_restore_and_restart(running: &mut Running, launcher: HWND, data: &Path)
     begin(settings, 2366);
     choose_file(pid, &data.with_file_name("synthetic-dark-200.zip"));
     let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
-    begin(preview, 1);
+    press(preview, VK_RETURN);
     wait(|| running.0.try_wait().unwrap().is_some());
     assert!(running.0.wait().unwrap().success());
     assert_eq!(std::fs::read(data).unwrap(), original);
@@ -242,7 +248,7 @@ fn check_legacy_import(manager: HWND, pid: u32, dir: &Path, list: HWND) {
     choose_file(pid, &invalid);
     let error = ready_window(pid, "ALTRun.Native.ImportPreview", 2913);
     assert!(!text(child(error, 2913)).is_empty());
-    begin(error, 2902);
+    press(error, VK_RETURN);
     wait(|| unsafe { IsWindow(error) == 0 });
 
     let legacy = dir.join("ShortCutList.txt");
@@ -258,7 +264,7 @@ fn check_legacy_import(manager: HWND, pid: u32, dir: &Path, list: HWND) {
     assert_eq!(count(child(preview, 2901)), 1);
     command(preview, 2906);
     assert!(text(child(preview, 2912)).contains('3'));
-    begin(preview, 2903);
+    press(preview, VK_ESCAPE);
     wait(|| unsafe { IsWindow(preview) == 0 });
     assert_eq!(count(list), 3);
 }
@@ -391,7 +397,7 @@ fn windows_031_management_and_import_previews() {
         let report = ready_window(pid, "ALTRun.Native.MissingPaths", 2180);
         assert_eq!(count(child(report, 2180)), 1);
         native_snapshot::save(report, &format!("031-missing-paths-{theme}-{scale}"));
-        begin(report, 2181);
+        press(report, VK_RETURN);
         choose_file(pid, &available);
         wait(|| text(cmd).contains("existing file.txt"));
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
@@ -408,7 +414,7 @@ fn windows_031_management_and_import_previews() {
         command(preview, 2906);
         native_snapshot::save(preview, &format!("031-import-replace-{theme}-{scale}"));
         command(preview, 2905);
-        begin(preview, 2902);
+        press(preview, VK_RETURN);
         wait(|| count(list) == 3);
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
 
@@ -453,9 +459,7 @@ fn windows_031_management_and_import_previews() {
             );
         }
         set(alias, "calculator-links");
-        unsafe {
-            PostMessageW(alias, WM_KEYDOWN, VK_RETURN as usize, 0);
-        }
+        press(alias, VK_RETURN);
         wait(|| unsafe { IsWindowVisible(alias) == 0 });
         command(preview, 2910);
         assert_eq!(
@@ -469,7 +473,7 @@ fn windows_031_management_and_import_previews() {
         command(preview, 2909);
         set(child(preview, 2907), "");
         native_snapshot::save(preview, &format!("031-browser-bookmarks-{theme}-{scale}"));
-        begin(preview, 2902);
+        press(preview, VK_RETURN);
         wait(|| count(list) == 5);
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
         command(manager, 2113);

@@ -24,7 +24,6 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
                 (ID_OPEN_FOLDER, "ui.open_containing_folder_ctrl_d"),
                 (ID_RECENT, "ui.recent_launches_ctrl_l"),
                 (0, ""),
-                (ID_ABOUT, "ui.about_f1"),
                 (ID_HIDE, "ui.hide"),
             ]
         };

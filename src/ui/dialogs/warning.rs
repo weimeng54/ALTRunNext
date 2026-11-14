@@ -307,13 +307,7 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
                     continue;
                 }
                 if msg.wParam == VK_RETURN as usize {
-                    let id = GetDlgCtrlID(GetFocus()) as usize;
-                    SendMessageW(
-                        hwnd,
-                        WM_COMMAND,
-                        if id == CLOSE { CLOSE } else { CHANGE },
-                        0,
-                    );
+                    super::accept_key(hwnd, CHANGE, &[CLOSE, CAPTION_CLOSE]);
                     continue;
                 }
             }

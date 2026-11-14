@@ -60,7 +60,10 @@ fn startup_shows_launcher_and_exits_cleanly_when_hotkey_is_taken() {
     });
     assert!(has_text(warning, "Ctrl+Alt+F10"));
     native_snapshot::save(warning, "startup-hotkey-warning");
-    command(warning, 1);
+    assert_ne!(
+        unsafe { PostMessageW(warning, WM_KEYDOWN, VK_RETURN as usize, 0) },
+        0
+    );
     let mut settings = null_mut();
     wait(|| {
         settings = window("ALTRun.Native.Settings", process.0.id());

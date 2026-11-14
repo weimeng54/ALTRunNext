@@ -637,7 +637,7 @@ fn open(
                 std::ptr::null(),
             );
             SendMessageW(button, WM_SETFONT, font as usize, 0);
-            if message.is_some() && (id == 2 || actions.len() == 1) {
+            if message.is_some() && id == 1 {
                 focus = button;
             }
         }
@@ -664,22 +664,11 @@ fn open(
                     DispatchMessageW(&msg);
                     continue;
                 }
-                let focused = GetDlgCtrlID(GetFocus());
-                if has_rows && msg.wParam as u16 == VK_RETURN && !matches!(focused, 1 | 2 | 4) {
-                    continue;
+                if msg.wParam as u16 == VK_ESCAPE {
+                    SendMessageW(hwnd, WM_COMMAND, 2, 0);
+                } else {
+                    super::accept_key(hwnd, 1, &[2, 3, 4]);
                 }
-                SendMessageW(
-                    hwnd,
-                    WM_COMMAND,
-                    if msg.wParam as u16 == VK_ESCAPE || matches!(focused, 2 | 4) {
-                        2
-                    } else if focused == 3 {
-                        3
-                    } else {
-                        1
-                    },
-                    0,
-                );
                 continue;
             }
             if IsDialogMessageW(hwnd, &msg) == 0 {

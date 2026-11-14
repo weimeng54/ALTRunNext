@@ -7,7 +7,10 @@ mod review_native_support;
 use altrun_probe::library::{OpenTarget, Snapshot};
 use review_native_support::*;
 use std::process::Command;
-use windows_sys::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{
+    Graphics::Gdi::*,
+    UI::{Input::KeyboardAndMouse::VK_RETURN, WindowsAndMessaging::*},
+};
 
 fn assert_surface(dialog: windows_sys::Win32::Foundation::HWND, expected: u32) {
     unsafe {
@@ -86,7 +89,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
         assert!(text(GetDlgItem(dialog, 3108)).contains("已存在"));
         set(GetDlgItem(dialog, 3101), "notes");
-        command(dialog, 1);
+        assert_ne!(PostMessageW(dialog, WM_KEYDOWN, VK_RETURN as usize, 0), 0);
         wait(|| IsWindow(dialog) == 0);
     }
     let entries = Snapshot::open(&data).unwrap().entries;

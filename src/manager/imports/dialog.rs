@@ -711,7 +711,7 @@ pub(super) fn open(
             if is_bookmarks {
                 child(hwnd, FILTER)
             } else {
-                child(hwnd, APPEND)
+                list
             }
         };
         control(
@@ -721,12 +721,12 @@ pub(super) fn open(
             (20, height - 42, WIDTH - 345, 28),
             STATIC_NOPREFIX | ui::STATIC_CENTER_IMAGE,
         );
-        let cancel = button(
+        button(
             if failed { "ui.close" } else { "ui.cancel" },
             CANCEL,
             (WIDTH - 308, height - 43, 114, 31),
         );
-        button(
+        let apply = button(
             "ui.choose_again",
             APPLY,
             (WIDTH - 186, height - 43, 166, 31),
@@ -740,7 +740,7 @@ pub(super) fn open(
             EnableWindow(owner, 0);
         }
         ShowWindow(hwnd, SW_SHOW);
-        SetFocus(if focus.is_null() { cancel } else { focus });
+        SetFocus(if focus.is_null() { apply } else { focus });
         let mut message = MSG::default();
         while IsWindow(hwnd) != 0 {
             let result = GetMessageW(&mut message, null_mut(), 0, 0);
@@ -753,12 +753,13 @@ pub(super) fn open(
             if message.message == WM_KEYDOWN
                 && (message.hwnd == hwnd || IsChild(hwnd, message.hwnd) != 0)
             {
-                if message.hwnd == dialog.composing.get() {
+                let focus = GetFocus();
+                if focus == dialog.composing.get() && !focus.is_null() {
                     TranslateMessage(&message);
                     DispatchMessageW(&message);
                     continue;
                 }
-                let id = GetDlgCtrlID(GetFocus()) as usize;
+                let id = GetDlgCtrlID(focus) as usize;
                 if message.wParam == VK_ESCAPE as usize {
                     if id == ALIAS {
                         SetFocus(child(hwnd, TABLE));
@@ -770,12 +771,12 @@ pub(super) fn open(
                 if message.wParam == VK_RETURN as usize {
                     if id == ALIAS {
                         SetFocus(child(hwnd, TABLE));
-                    } else if matches!(
-                        id,
-                        APPLY | CANCEL | CAPTION_CLOSE | APPEND | REPLACE | ALL | INVERT | CLEAR
-                    ) && IsWindowEnabled(child(hwnd, id)) != 0
-                    {
-                        SendMessageW(hwnd, WM_COMMAND, id, 0);
+                    } else {
+                        ui::dialogs::accept_key(
+                            hwnd,
+                            APPLY,
+                            &[CANCEL, CAPTION_CLOSE, APPEND, REPLACE, ALL, INVERT, CLEAR],
+                        );
                     }
                     continue;
                 }

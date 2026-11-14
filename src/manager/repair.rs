@@ -433,19 +433,16 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             if message.message == WM_KEYDOWN
                 && (message.hwnd == hwnd || IsChild(hwnd, message.hwnd) != 0)
             {
-                let command = match message.wParam as u16 {
-                    VK_ESCAPE => Some(CLOSE),
-                    VK_RETURN => match GetDlgCtrlID(GetFocus()) as usize {
-                        LIST | REPAIR => Some(REPAIR),
-                        REMOVE => Some(REMOVE),
-                        CLOSE | CAPTION_CLOSE => Some(CLOSE),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                if let Some(command) = command {
-                    SendMessageW(hwnd, WM_COMMAND, command, 0);
-                    continue;
+                match message.wParam as u16 {
+                    VK_ESCAPE => {
+                        SendMessageW(hwnd, WM_COMMAND, CLOSE, 0);
+                        continue;
+                    }
+                    VK_RETURN => {
+                        ui::dialogs::accept_key(hwnd, REPAIR, &[REMOVE, CLOSE, CAPTION_CLOSE]);
+                        continue;
+                    }
+                    _ => {}
                 }
             }
             if IsDialogMessageW(hwnd, &message) == 0 {

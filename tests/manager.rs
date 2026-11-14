@@ -14,7 +14,8 @@ use windows_sys::Win32::{
         Controls::*,
         HiDpi::GetDpiForWindow,
         Input::KeyboardAndMouse::{
-            IsWindowEnabled, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, mouse_event,
+            IsWindowEnabled, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, VK_ESCAPE, VK_RETURN,
+            mouse_event,
         },
         WindowsAndMessaging::*,
     },
@@ -169,10 +170,10 @@ fn choose_row(list: HWND, row: usize, dpi: i32) {
         SendMessageW(list, WM_LBUTTONUP, 0, position);
     }
 }
-fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answer: i32) {
-    let address = owner as usize;
-    let pending =
-        thread::spawn(move || unsafe { SendMessageW(address as HWND, message, command, 0) });
+fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, key: u16) {
+    unsafe {
+        assert_ne!(PostMessageW(owner, message, command, 0), 0);
+    }
     let mut dialog = std::ptr::null_mut();
     wait(|| {
         dialog = window("ALTRun.Native.Confirmation", pid);
@@ -180,11 +181,8 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, answ
             && unsafe { GetWindow(dialog, GW_OWNER) == owner && IsWindowVisible(dialog) != 0 }
     });
     unsafe {
-        let button = GetDlgItem(dialog, answer);
-        assert!(!button.is_null());
-        SendMessageW(button, BM_CLICK, 0, 0);
+        assert_ne!(PostMessageW(dialog, WM_KEYDOWN, key as usize, 0), 0);
     }
-    pending.join().unwrap();
     wait(|| unsafe { IsWindow(dialog) == 0 });
 }
 
@@ -402,12 +400,12 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
                 && bounds.bottom <= monitor.rcWork.bottom,
             "manager controls must fit the work area"
         );
-        answer_confirmation(manager, pid, WM_COMMAND, 2111, IDCANCEL);
+        answer_confirmation(manager, pid, WM_COMMAND, 2111, VK_ESCAPE);
         assert_eq!(
             SendMessageW(GetDlgItem(manager, 2101), LVM_GETITEMCOUNT, 0, 0),
             3
         );
-        answer_confirmation(manager, pid, WM_COMMAND, 2111, IDOK);
+        answer_confirmation(manager, pid, WM_COMMAND, 2111, VK_RETURN);
         assert_eq!(
             SendMessageW(GetDlgItem(manager, 2101), LVM_GETITEMCOUNT, 0, 0),
             2
@@ -419,7 +417,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
                 .len(),
             3
         );
-        answer_confirmation(manager, pid, WM_CLOSE, 0, IDCANCEL);
+        answer_confirmation(manager, pid, WM_CLOSE, 0, VK_ESCAPE);
         assert_ne!(IsWindowVisible(manager), 0);
         SendMessageW(manager, WM_COMMAND, 2113, 0);
         assert_eq!(
