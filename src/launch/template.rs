@@ -238,7 +238,10 @@ pub(crate) fn resolve_typed_in(
     }
     Ok(result)
 }
-fn encode_parameter(kind: crate::library::ParamType, value: &str) -> Result<String, String> {
+pub(super) fn encode_parameter(
+    kind: crate::library::ParamType,
+    value: &str,
+) -> Result<String, String> {
     use crate::library::ParamType;
     if value.contains(['\0', '\r', '\n']) {
         return Err("ui.the_command_or_arguments_contain_invalid_control".into());

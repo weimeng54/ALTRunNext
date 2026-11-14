@@ -9,8 +9,8 @@ mod template;
 
 pub use parser::replace_command_target;
 pub(crate) use parser::{normalize_original_command, resolve_target};
-use template::expand_environment;
 pub(crate) use template::resolve_typed_in;
+use template::{encode_parameter, expand_environment};
 pub use template::{has_context, has_parameter, resolve, resolve_context, resolve_typed};
 
 #[derive(Debug, PartialEq, Eq)]
