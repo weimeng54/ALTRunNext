@@ -7,7 +7,7 @@ use crate::{
     ui::{self, make_font, scaled, ui, wide},
     windows::file_picker::pick_program,
 };
-use altrun_probe::{Entry, library::OpenTarget};
+use altrun_probe::{Entry, library::OpenTarget, local_target::program_name};
 use std::{cell::Cell, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::*,

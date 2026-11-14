@@ -38,7 +38,7 @@ use editor::{
     update_draft,
 };
 mod actions;
-use actions::{change_open_with, choose_command_target, test_selected, tool};
+use actions::tool;
 mod imports;
 mod intake;
 use intake::{add_paths, apply_intake};

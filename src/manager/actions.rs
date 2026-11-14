@@ -3,7 +3,7 @@
 
 use super::*;
 
-pub(super) fn change_open_with(hwnd: HWND, use_default: bool) {
+fn change_open_with(hwnd: HWND, use_default: bool) {
     let program = if use_default {
         None
     } else {
@@ -37,7 +37,7 @@ pub(super) fn change_open_with(hwnd: HWND, use_default: bool) {
     }
 }
 
-pub(super) fn choose_command_target(hwnd: HWND) {
+fn choose_command_target(hwnd: HWND) {
     let Some(path) = pick_path(hwnd, false, false) else {
         return;
     };
@@ -153,7 +153,7 @@ pub(super) fn tool(hwnd: HWND, id: usize) {
     }
 }
 
-pub(super) fn test_selected(hwnd: HWND) {
+fn test_selected(hwnd: HWND) {
     if !EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled) {
         status("ui.preview_mode_the_test_command_was_not", false);
         return;
