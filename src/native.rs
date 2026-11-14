@@ -27,6 +27,7 @@ const ID_CLEAN: usize = 18009;
 const ID_COPY: usize = 18010;
 const ID_OPEN_FOLDER: usize = 18011;
 const ID_SHOW: usize = 18012;
+const ID_EDIT_COMMAND: usize = 18013;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
 const STATE_ERROR: u32 = WM_APP + 17;
@@ -76,6 +77,8 @@ struct State {
     list: HWND,
     title: HWND,
     command: HWND,
+    inline_error: HWND,
+    error_font: HFONT,
     font: HFONT,
     title_font: HFONT,
     input_font: HFONT,
@@ -135,13 +138,25 @@ fn selected_text() -> (HWND, HWND, Vec<u16>, Vec<u16>) {
             s.title,
             s.command,
             wide(e.map(|e| e.name.as_str()).unwrap_or("ALTRunNext")),
-            wide(&e.map(|e| format!("CMD  {}", e.command)).unwrap_or_default()),
+            wide(
+                &e.map(|e| {
+                    format!(
+                        "{}  {}",
+                        crate::localization::tr("ui.command_label"),
+                        e.command
+                    )
+                })
+                .unwrap_or_default(),
+            ),
         )
     })
 }
 
 fn update_selection() {
-    STATE.with(|c| c.borrow_mut().as_mut().unwrap().error = false);
+    let changed = STATE.with(|c| std::mem::take(&mut c.borrow_mut().as_mut().unwrap().error));
+    if changed {
+        layout_inline_error();
+    }
     let (title, command, name, line) = selected_text();
     unsafe {
         SetWindowTextW(title, name.as_ptr());
@@ -376,18 +391,115 @@ fn edit_text(hwnd: HWND) -> String {
     }
 }
 fn show_inline_error(message: &str) {
-    let (hwnd, edit, command) = STATE.with(|c| {
+    let (hwnd, edit, error) = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.error = true;
-        (s.hwnd, s.edit, s.command)
+        (s.hwnd, s.edit, s.inline_error)
     });
     unsafe {
-        SetWindowTextW(command, ui(message).as_ptr());
-        InvalidateRect(command, std::ptr::null(), 1);
+        SetWindowTextW(error, ui(message).as_ptr());
+        layout_inline_error();
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         SetForegroundWindow(hwnd);
         SetFocus(edit);
+    }
+}
+
+fn layout_inline_error() {
+    let (hwnd, list, command, error, font, dpi, visible, preview) = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (
+            s.hwnd,
+            s.list,
+            s.command,
+            s.inline_error,
+            s.error_font,
+            s.dpi,
+            s.error,
+            s.preferences.flag("ShowCommandLine"),
+        )
+    });
+    unsafe {
+        ShowWindow(
+            command,
+            if preview && !visible {
+                SW_SHOWNOACTIVATE
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(error, SW_HIDE);
+        let mut panel = RECT::default();
+        let mut rows = RECT::default();
+        GetClientRect(hwnd, &mut panel);
+        GetClientRect(list, &mut rows);
+        let mut origin = POINT {
+            x: 0,
+            y: rows.bottom,
+        };
+        ClientToScreen(list, &mut origin);
+        ScreenToClient(hwnd, &mut origin);
+        let y = origin.y + scaled(8, dpi);
+        let inset = scaled(12, dpi);
+        let mut height = 0;
+        if visible {
+            let dc = GetDC(error);
+            let old = SelectObject(dc, font);
+            let mut measure = RECT {
+                right: (panel.right - 2 * inset).max(1),
+                ..Default::default()
+            };
+            let text = wide(&edit_text(error));
+            height = DrawTextW(
+                dc,
+                text.as_ptr(),
+                -1,
+                &mut measure,
+                DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL,
+            )
+            .max(scaled(16, dpi));
+            SelectObject(dc, old);
+            ReleaseDC(error, dc);
+            SetWindowPos(
+                error,
+                null_mut(),
+                inset,
+                y,
+                (panel.right - 2 * inset).max(1),
+                height,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+        let height = if visible {
+            y + height + scaled(5, dpi)
+        } else {
+            origin.y
+                + scaled(
+                    if preview {
+                        theme::BASE_HEIGHT - theme::LIST_Y
+                    } else {
+                        70 - theme::LIST_Y
+                    },
+                    dpi,
+                )
+        };
+        SetWindowPos(
+            hwnd,
+            null_mut(),
+            0,
+            0,
+            panel.right,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        let radius = scaled(16, dpi);
+        let region = CreateRoundRectRgn(0, 0, panel.right + 1, height + 1, radius, radius);
+        if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
+            DeleteObject(region);
+        }
+        InvalidateRect(hwnd, std::ptr::null(), 1);
     }
 }
 fn search_hint(show_operations: bool) -> Vec<u16> {
@@ -768,17 +880,27 @@ fn paint_panel(hwnd: HWND) {
             );
             let mut rect: RECT = zeroed();
             GetClientRect(hwnd, &mut rect);
-            if s.preferences.flag("ShowCommandLine") {
+            if s.preferences.flag("ShowCommandLine") || s.error {
+                let mut label = RECT::default();
+                if s.error {
+                    GetWindowRect(s.inline_error, &mut label);
+                    let mut start = POINT {
+                        x: label.left,
+                        y: label.top,
+                    };
+                    ScreenToClient(hwnd, &mut start);
+                    rect.bottom = start.y + scaled(4, s.dpi);
+                }
                 MoveToEx(
                     dc,
                     scaled(12, s.dpi),
-                    rect.bottom - scaled(25, s.dpi),
+                    rect.bottom - scaled(if s.error { 8 } else { 25 }, s.dpi),
                     std::ptr::null_mut(),
                 );
                 LineTo(
                     dc,
                     rect.right - scaled(12, s.dpi),
-                    rect.bottom - scaled(25, s.dpi),
+                    rect.bottom - scaled(if s.error { 8 } else { 25 }, s.dpi),
                 );
             }
             SelectObject(dc, old_brush);
@@ -787,7 +909,7 @@ fn paint_panel(hwnd: HWND) {
         EndPaint(hwnd, &ps);
     }
 }
-fn show_menu(hwnd: HWND, tray: bool) {
+fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
     unsafe {
         let menu = CreatePopupMenu();
         if menu.is_null() {
@@ -804,6 +926,7 @@ fn show_menu(hwnd: HWND, tray: bool) {
         } else {
             &[
                 (ID_COPY, "ui.copy_command_ctrl_c"),
+                (ID_EDIT_COMMAND, "ui.edit_command_f2"),
                 (ID_OPEN_FOLDER, "ui.open_containing_folder_ctrl_d"),
                 (ID_RECENT, "ui.recent_launches_ctrl_l"),
                 (0, ""),
@@ -814,13 +937,14 @@ fn show_menu(hwnd: HWND, tray: bool) {
         let has_selection = STATE.with(|c| {
             let state = c.borrow();
             let s = state.as_ref().unwrap();
-            s.hits.get(s.selected).is_some() && s.parameter_entry.is_none()
+            s.hits.get(s.selected).is_some() && s.parameter_entry.is_none() && allow_selection
         });
         for &(id, label) in items {
             if id == 0 {
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             } else {
-                let unavailable = matches!(id, ID_COPY | ID_OPEN_FOLDER) && !has_selection;
+                let unavailable =
+                    matches!(id, ID_COPY | ID_EDIT_COMMAND | ID_OPEN_FOLDER) && !has_selection;
                 let flags = MF_STRING | if unavailable { MF_GRAYED } else { 0 };
                 AppendMenuW(menu, flags, id, ui(label).as_ptr());
             }
@@ -839,6 +963,23 @@ fn show_menu(hwnd: HWND, tray: bool) {
         );
         DestroyMenu(menu);
         PostMessageW(hwnd, WM_NULL, 0, 0);
+    }
+}
+
+fn edit_selected_command() {
+    let id = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        if s.parameter_entry.is_some() {
+            return None;
+        }
+        s.hits
+            .get(s.selected)
+            .map(|&index| s.entries[index].id.clone())
+    });
+    if let Some(id) = id {
+        crate::manager::enqueue(Vec::new(), Some((id, VK_F2)));
+        open_manager();
     }
 }
 fn tray_icon(hwnd: HWND, operation: u32) {
@@ -942,7 +1083,11 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 about();
                 return 0;
             }
-            VK_F2 | VK_INSERT | VK_DELETE if !parameter_mode => {
+            VK_F2 if !parameter_mode => {
+                edit_selected_command();
+                return 0;
+            }
+            VK_INSERT | VK_DELETE if !parameter_mode => {
                 let id = STATE.with(|c| {
                     let s = c.borrow();
                     let s = s.as_ref().unwrap();
@@ -1139,12 +1284,49 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             unsafe { DefWindowProcW(hwnd, msg, w, l) }
         }
         WM_CONTEXTMENU => {
-            show_menu(hwnd, false);
+            let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
+            let allow_selection = if w as HWND == list && l != -1 {
+                let mut point = POINT {
+                    x: l as i16 as i32,
+                    y: (l >> 16) as i16 as i32,
+                };
+                unsafe {
+                    ScreenToClient(list, &mut point);
+                }
+                let hit = unsafe {
+                    SendMessageW(
+                        list,
+                        LB_ITEMFROMPOINT,
+                        0,
+                        ((point.y as u16 as u32) << 16 | point.x as u16 as u32) as LPARAM,
+                    )
+                };
+                let row = (hit & 65535) as usize;
+                let selected = STATE.with(|c| {
+                    let mut state = c.borrow_mut();
+                    let s = state.as_mut().unwrap();
+                    if hit >> 16 != 0 || s.parameter_entry.is_some() || row >= s.hits.len() {
+                        return false;
+                    }
+                    s.selected = row;
+                    true
+                });
+                if selected {
+                    unsafe {
+                        SendMessageW(list, LB_SETCURSEL, row, 0);
+                    }
+                    update_selection();
+                }
+                selected
+            } else {
+                true
+            };
+            show_menu(hwnd, false, allow_selection);
             0
         }
         TRAY => {
             if l as u32 == WM_RBUTTONUP {
-                show_menu(hwnd, true);
+                show_menu(hwnd, true, true);
             } else if l as u32 == WM_LBUTTONUP {
                 unsafe {
                     SendMessageW(hwnd, SHOW, 0, 0);
@@ -1395,6 +1577,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             0
         }
         WM_COMMAND => {
+            if w & 65535 == ID_EDIT_COMMAND {
+                edit_selected_command();
+                return 0;
+            }
             if w & 65535 == ID_COPY {
                 selected_action(true);
                 return 0;
@@ -1618,11 +1804,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 return 0;
             };
             let dc = w as HDC;
-            let paper = l as HWND == s.edit || l as HWND == s.list || l as HWND == s.command;
+            let paper = l as HWND == s.edit
+                || l as HWND == s.list
+                || l as HWND == s.command
+                || l as HWND == s.inline_error;
             unsafe {
                 SetTextColor(
                     dc,
-                    if l as HWND == s.command && s.error {
+                    if l as HWND == s.inline_error {
                         theme::error()
                     } else if l as HWND == s.command || l as HWND == s.empty {
                         theme::muted()
@@ -1889,6 +2078,18 @@ pub fn run() -> Result<(), String> {
             16,
             1003,
         );
+        let inline_error = control(
+            "EDIT",
+            (ES_MULTILINE | ES_READONLY) as u32,
+            12,
+            178,
+            396,
+            16,
+            1005,
+        );
+        ShowWindow(inline_error, SW_HIDE);
+        let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
+        SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
         let buttons = [
             control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_MANAGE),
             control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_SETTINGS),
@@ -1900,7 +2101,7 @@ pub fn run() -> Result<(), String> {
         }
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);
         SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
-        if [title, edit, list, command, empty]
+        if [title, edit, list, command, inline_error, empty]
             .iter()
             .any(|h| h.is_null())
         {
@@ -1968,6 +2169,8 @@ pub fn run() -> Result<(), String> {
                 list,
                 title,
                 command,
+                inline_error,
+                error_font,
                 font,
                 title_font,
                 input_font,
@@ -2002,11 +2205,12 @@ pub fn run() -> Result<(), String> {
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
         let mut startup_warnings = Vec::new();
+        let mut failed_primary = None;
         match register_bindings(
             hwnd,
             &prefs,
             &[],
-            BindingUpdate::Startup(&mut startup_warnings),
+            BindingUpdate::Startup(&mut startup_warnings, &mut failed_primary),
         ) {
             Ok(keys) => STATE.with(|c| c.borrow_mut().as_mut().unwrap().hotkeys = keys),
             Err(error) => startup_warnings.push(error),
@@ -2024,6 +2228,7 @@ pub fn run() -> Result<(), String> {
         }
         if args.iter().any(|a| a == "--show")
             || !startup_warnings.is_empty()
+            || failed_primary.is_some()
             || STATE.with(|c| {
                 c.borrow()
                     .as_ref()
@@ -2034,8 +2239,15 @@ pub fn run() -> Result<(), String> {
         {
             SendMessageW(hwnd, SHOW, 0, 0);
         }
+        if let Some(binding) = failed_primary
+            && crate::startup_warning::show(hwnd, &binding, prefs.flag("ShowTrayIcon"))
+        {
+            open_settings_page(Some(crate::settings_layout::HOTKEYS_PAGE));
+        }
         if !startup_warnings.is_empty() {
-            show_inline_error(&startup_warnings.join("，"));
+            if IsWindowVisible(hwnd) != 0 {
+                show_inline_error(&startup_warnings.join("\n"));
+            }
         }
         let accelerator = ACCEL {
             fVirt: FVIRTKEY | FALT,
@@ -2065,6 +2277,7 @@ pub fn run() -> Result<(), String> {
                     s.title_font,
                     s.input_font,
                     s.command_font,
+                    s.error_font,
                     s.alias_font,
                 ] {
                     DeleteObject(font);
@@ -2249,12 +2462,12 @@ fn recent() {
     render_hits();
 }
 fn about() {
-    open_settings_page(true);
+    open_settings_page(Some(crate::settings_layout::ABOUT_PAGE));
 }
 fn open_settings() {
-    open_settings_page(false);
+    open_settings_page(None);
 }
-fn open_settings_page(about: bool) {
+fn open_settings_page(page: Option<usize>) {
     let (path, prefs, hwnd, sender) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -2265,14 +2478,14 @@ fn open_settings_page(about: bool) {
             s.settings_sender.clone(),
         )
     });
-    crate::settings::open(path, prefs, hwnd, sender, about);
+    crate::settings::open(path, prefs, hwnd, sender, page);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }
 }
 type Bindings = Vec<(i32, Option<altrun_probe::preferences::Hotkey>)>;
 enum BindingUpdate<'a> {
-    Startup(&'a mut Vec<String>),
+    Startup(&'a mut Vec<String>, &'a mut Option<String>),
     Settings(&'a altrun_probe::preferences::Preferences),
 }
 
@@ -2318,12 +2531,16 @@ fn register_bindings(
             if unsafe { RegisterHotKey(hwnd, id, value.modifiers | MOD_NOREPEAT, value.key) } == 0 {
                 let error = unsafe { GetLastError() };
                 let binding = prefs.get(key);
-                if let BindingUpdate::Startup(warnings) = &mut update {
+                if let BindingUpdate::Startup(warnings, primary) = &mut update {
                     eprintln!("RegisterHotKey({binding}) failed: Win32 {error}");
-                    warnings.push(
-                        crate::localization::tr("ui.hotkey_binding_is_unavailable")
-                            .replace("{binding}", &binding),
-                    );
+                    if i == 0 {
+                        **primary = Some(binding);
+                    } else {
+                        warnings.push(
+                            crate::localization::tr("ui.hotkey_binding_is_unavailable")
+                                .replace("{binding}", &binding),
+                        );
+                    }
                     next.push((id, None));
                     continue;
                 }
@@ -2455,7 +2672,7 @@ fn apply_settings_messages() {
     }
 }
 fn apply_appearance() {
-    let (hwnd, edit, list, title, command, prefs, dpi) = STATE.with(|c| {
+    let (hwnd, edit, list, title, command, inline_error, prefs, dpi) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
@@ -2464,12 +2681,23 @@ fn apply_appearance() {
             s.list,
             s.title,
             s.command,
+            s.inline_error,
             s.preferences.clone(),
             s.dpi,
         )
     });
     theme::install(&prefs);
     unsafe {
+        let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
+        if !error_font.is_null() {
+            SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
+            STATE.with(|c| {
+                DeleteObject(std::mem::replace(
+                    &mut c.borrow_mut().as_mut().unwrap().error_font,
+                    error_font,
+                ))
+            });
+        }
         STATE.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();

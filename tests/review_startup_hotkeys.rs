@@ -1,4 +1,5 @@
 #![cfg(windows)]
+mod native_snapshot;
 mod review_native_support;
 
 use review_native_support::{Running, command, has_text, wait, window};
@@ -47,7 +48,25 @@ fn startup_shows_launcher_and_exits_cleanly_when_hotkey_is_taken() {
         launcher = window("ALTRun.Native.PerformanceProbe", process.0.id());
         !launcher.is_null() && unsafe { IsWindowVisible(launcher) != 0 }
     });
-    wait(|| has_text(launcher, "Ctrl+Alt+F10 不可用"));
+    let mut warning = null_mut();
+    wait(|| {
+        warning = window("ALTRun.Native.StartupWarning", process.0.id());
+        !warning.is_null() && unsafe { IsWindowVisible(warning) != 0 }
+    });
+    assert!(has_text(warning, "Ctrl+Alt+F10"));
+    native_snapshot::save(warning, "startup-hotkey-warning");
+    command(warning, 1);
+    let mut settings = null_mut();
+    wait(|| {
+        settings = window("ALTRun.Native.Settings", process.0.id());
+        !settings.is_null() && unsafe { IsWindowVisible(settings) != 0 }
+    });
+    assert_eq!(
+        unsafe { SendMessageW(GetDlgItem(settings, 2301), LB_GETCURSEL, 0, 0) },
+        1
+    );
+    command(settings, 2314);
+    wait(|| unsafe { IsWindow(settings) == 0 });
     command(launcher, 18002);
     wait(|| process.0.try_wait().unwrap().is_some());
     assert!(process.0.wait().unwrap().success());

@@ -85,6 +85,7 @@ const CLOSE: usize = 2114;
 const OPEN_WITH: usize = 2115;
 const OPEN_DEFAULT: usize = 2118;
 const OPEN_LABEL: usize = 2174;
+const CHOOSE_TARGET: usize = 2175;
 const ASK_PARAMETER: usize = 2139;
 const ADD_FILE: usize = 2120;
 const ADD_FOLDER: usize = 2121;
@@ -679,6 +680,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     },
                     NEW_MENU | TOOLS_MENU => popup(hwnd, id, None),
                     OPEN_WITH | OPEN_DEFAULT => change_open_with(hwnd, id == OPEN_DEFAULT),
+                    CHOOSE_TARGET => choose_command_target(hwnd),
                     ADD => {
                         EDITOR.with(|c| {
                             let mut state = c.borrow_mut();
@@ -922,7 +924,8 @@ fn run(
                 EMPTY_HELP => (FIELD_LEFT, 128, FIELD_WIDTH, 40),
                 ALIAS => (FIELD_LEFT, 154, HALF_FIELD, 36),
                 NAME => (FIELD_RIGHT - HALF_FIELD, 154, HALF_FIELD, 36),
-                COMMAND => (FIELD_LEFT, 238, FIELD_WIDTH, 36),
+                COMMAND => (FIELD_LEFT, 238, FIELD_WIDTH - 116, 36),
+                CHOOSE_TARGET => (FIELD_RIGHT - 106, 238, 106, 36),
                 KIND => (FIELD_LEFT, 378, FIELD_WIDTH, 190),
                 ASK_PARAMETER => (FIELD_LEFT, 293, FIELD_WIDTH, 40),
                 OPEN_LABEL => (FIELD_LEFT, 296, FIELD_WIDTH, 21),
@@ -1041,6 +1044,7 @@ fn run(
             28,
             COMMAND,
         );
+        control("BUTTON", "ui.browse", WS_TABSTOP, 0, 0, 0, 0, CHOOSE_TARGET);
         let ask_parameter = control(
             "BUTTON",
             "ui.ask_for_input_on_launch",
@@ -1286,13 +1290,20 @@ fn apply_intake(hwnd: HWND) {
     }
     let action = ACTION.lock().ok().and_then(|mut p| p.take());
     if let Some((id, action)) = action {
-        EDITOR.with(|c| {
+        let found = EDITOR.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
             if let Some(index) = s.draft.iter().position(|e| e.id == id) {
                 s.selected = index;
+                true
+            } else {
+                false
             }
         });
+        if action != VK_INSERT && !found {
+            status("ui.launch_item_no_longer_in_draft", true);
+            return;
+        }
         refresh_list();
         unsafe {
             if action == VK_INSERT {
@@ -1304,7 +1315,7 @@ fn apply_intake(hwnd: HWND) {
             } else if action == VK_DELETE {
                 SendMessageW(hwnd, WM_COMMAND, DELETE, 0);
             } else {
-                let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
+                let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().command);
                 SetFocus(field);
             }
         }
@@ -1389,6 +1400,38 @@ fn change_open_with(hwnd: HWND, use_default: bool) {
     if changed {
         sync_fields();
         pending_status("ui.unsaved_saving_updates_the_launcher_immediately");
+    }
+}
+
+fn choose_command_target(hwnd: HWND) {
+    let Some(path) = pick_path(hwnd, false, false) else {
+        return;
+    };
+    let Ok(path) = altrun_probe::management::absolute_path(&path) else {
+        return;
+    };
+    let field = unsafe { GetDlgItem(hwnd, COMMAND as i32) };
+    let existing = text(field);
+    let value = EDITOR.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        let entry = s.draft.get(s.selected)?;
+        if entry.open_target.is_some() {
+            Some(path.clone())
+        } else {
+            altrun_probe::launch::replace_command_target(&existing, &path)
+        }
+    });
+    let value = match value {
+        Some(value) => value,
+        None if confirm(hwnd, "ui.replace_ambiguous_command") => format!("\"{path}\""),
+        None => return,
+    };
+    unsafe {
+        SetWindowTextW(field, wide(&value).as_ptr());
+        SetFocus(field);
+        let end = value.encode_utf16().count();
+        SendMessageW(field, EM_SETSEL, end, end as isize);
     }
 }
 pub fn drop_paths(handle: windows_sys::Win32::UI::Shell::HDROP) -> Vec<PathBuf> {
@@ -1986,6 +2029,7 @@ fn sync_kind_layout() {
         for (id, show) in [
             (ALIAS, true),
             (COMMAND, true),
+            (CHOOSE_TARGET, true),
             (KIND, parameter_visible),
             (ASK_PARAMETER, parameter_supported),
             (2170, true),

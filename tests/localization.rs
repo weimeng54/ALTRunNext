@@ -63,7 +63,6 @@ fn malformed_pack_is_skipped_without_preventing_language_selection() {
     let root = fixture("invalid");
     for (name, strings) in [
         ("duplicate", r#""about.title":"Uno","about.title":"Dos""#),
-        ("unknown", r#""about.unknown":"Texto""#),
         ("placeholder", r#""launcher.startup_error":"Erreur""#),
     ] {
         fs::write(
@@ -72,14 +71,27 @@ fn malformed_pack_is_skipped_without_preventing_language_selection() {
         ).unwrap();
     }
     let catalog = Catalog::load(&root);
-    assert_eq!(
-        catalog.invalid,
-        ["duplicate.json", "placeholder.json", "unknown.json"]
-    );
+    assert_eq!(catalog.invalid, ["duplicate.json", "placeholder.json"]);
     assert_eq!(
         catalog.resolve("system", ["es-ES", "zh-CN"]).locale(),
         "zh-Hans"
     );
     assert_eq!(catalog.resolve("es", ["zh-CN"]).locale(), "en");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn an_old_external_pack_keeps_active_translations_and_ignores_retired_keys() {
+    let root = fixture("old-pack");
+    fs::write(
+        root.join("es.json"),
+        r#"{"locale":"es","nativeName":"Español","formatVersion":1,"strings":{"about.title":"Acerca de","ui.convert_to_relative_paths":"Antiguo"}}"#,
+    )
+    .unwrap();
+    let catalog = Catalog::load(&root);
+    assert!(catalog.invalid.is_empty());
+    let language = catalog.resolve("es", []);
+    assert_eq!(language.text("about.title"), "Acerca de");
+    assert_eq!(language.text("about.open_repository"), "Open repository");
     fs::remove_dir_all(root).unwrap();
 }

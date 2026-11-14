@@ -369,29 +369,162 @@ fn percent_encode(bytes: &[u8]) -> String {
 pub fn resolve(command: &str, parameter: Option<&str>) -> Result<LaunchRequest, String> {
     resolve_typed(command, parameter, crate::library::ParamType::Auto)
 }
-fn resolve_base(
-    command: &str,
-    parameter: Option<&str>,
+
+fn is_web_address(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+}
+
+fn split_target<'a>(
+    command: &'a str,
     base: Option<&Path>,
-) -> Result<LaunchRequest, String> {
-    if command.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
-        || parameter.is_some_and(|p| p.chars().any(|c| matches!(c, '\0' | '\r' | '\n')))
+    check_files: bool,
+) -> Result<(&'a str, &'a str), &'static str> {
+    if is_web_address(command)
+        || command.starts_with("::")
+        || command.to_ascii_lowercase().starts_with("shell:")
     {
-        return Err("命令或参数中包含无效控制字符".into());
+        return Ok((command, ""));
     }
-    let command = command.trim();
-    if command.is_empty() {
-        return Err("ui.the_command_is_empty".into());
+    if let Some(quoted) = command.strip_prefix('"') {
+        let (file, rest) = quoted
+            .split_once('"')
+            .ok_or("ui.close_the_quote_around_the_program_path")?;
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return Err("ui.add_a_space_after_the_program_path");
+        }
+        return Ok((file, rest.trim_start()));
     }
-    let lowercase = command.to_ascii_lowercase();
-    let url = lowercase.starts_with("https://")
-        || lowercase.starts_with("http://")
-        || lowercase.starts_with("mailto:");
-    let executable = if let Some(quoted) = command.strip_prefix('"') {
-        quoted.split('"').next().unwrap_or("")
-    } else {
-        command.split_whitespace().next().unwrap_or("")
+    let split = command.find(char::is_whitespace).unwrap_or(command.len());
+    let first = &command[..split];
+    let explicit = |text: &str| explicit_path(text) || text.as_bytes().get(1) == Some(&b':');
+    if split == command.len() || !explicit(first) {
+        return Ok((first, command[split..].trim_start()));
+    }
+    let local_path = |value: &str| {
+        let path = base.unwrap_or(Path::new("")).join(value);
+        check_files
+            && !is_network_path(&path.to_string_lossy())
+            && path.is_absolute()
+            && path.exists()
     };
+    // A path can contain spaces before its extension. Stop scanning when the
+    // following tokens begin an option, quoted argument or separate rooted path.
+    let candidate = local_path(command).then_some((command, ""));
+    let mut suffix: Option<(&str, &str)> = None;
+    for (index, _) in command
+        .char_indices()
+        .filter(|&(_, ch)| ch.is_whitespace())
+        .chain(std::iter::once((command.len(), ' ')))
+    {
+        let file = &command[..index];
+        if file.ends_with(char::is_whitespace) {
+            continue;
+        }
+        let rest = command[index..].trim_start();
+        let extension = Path::new(file).extension().and_then(|ext| ext.to_str());
+        if extension.is_some_and(|ext| {
+            ["exe", "com", "bat", "cmd", "lnk"]
+                .iter()
+                .any(|kind| ext.eq_ignore_ascii_case(kind))
+        }) {
+            if let Some((previous, _)) = suffix {
+                if file[previous.len()..].contains(['\\', '/']) {
+                    return Err("ui.ambiguous_command_target");
+                }
+            } else {
+                suffix = Some((file, rest));
+            }
+        }
+        if rest.is_empty() {
+            break;
+        }
+        let next = rest.split_whitespace().next().unwrap_or("");
+        if next.starts_with(['"', '-', '/'])
+            || is_network_path(next)
+            || next.as_bytes().get(1) == Some(&b':')
+        {
+            break;
+        }
+    }
+    match (candidate, suffix) {
+        (Some(file), Some(executable)) if file != executable => Err("ui.ambiguous_command_target"),
+        (Some(target), _) | (_, Some(target)) => Ok(target),
+        _ => Err("ui.ambiguous_command_target"),
+    }
+}
+
+pub(crate) fn normalize_original_command(command: &str) -> String {
+    let (prefix, body) = ["@+", "@-", "@"]
+        .into_iter()
+        .find_map(|prefix| command.strip_prefix(prefix).map(|rest| (prefix, rest)))
+        .unwrap_or(("", command));
+    let body = body.trim_start();
+    let Ok((file, arguments)) = split_target(body, None, false) else {
+        return command.to_owned();
+    };
+    if !body.starts_with('"') || file.contains('%') {
+        return command.to_owned();
+    }
+    let unquoted = format!("{file}{}", &body[file.len() + 2..]);
+    if split_target(&unquoted, None, false).ok() == Some((file, arguments)) {
+        format!(
+            "{prefix}{}{unquoted}",
+            &command[prefix.len()..command.len() - body.len()]
+        )
+    } else {
+        command.to_owned()
+    }
+}
+
+pub fn replace_command_target(command: &str, path: &str) -> Option<String> {
+    let command = command.trim();
+    let (prefix, body) = ["@+", "@-", "@"]
+        .into_iter()
+        .find_map(|prefix| {
+            command
+                .strip_prefix(prefix)
+                .map(|rest| (prefix, rest.trim_start()))
+        })
+        .unwrap_or(("", command));
+    let parameters = if body
+        .get(..path.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(path))
+        && body
+            .get(path.len()..)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+        body[path.len()..].trim_start()
+    } else {
+        split_target(body, None, false).ok()?.1
+    };
+    let mut result = format!("{prefix}\"{path}\"");
+    if !parameters.is_empty() {
+        result.push(' ');
+        result.push_str(parameters);
+    }
+    Some(result)
+}
+
+pub(crate) fn resolve_target(command: &str, base: &Path) -> Result<String, String> {
+    let command = command.trim();
+    let command = ["@+", "@-", "@"]
+        .into_iter()
+        .find_map(|prefix| command.strip_prefix(prefix))
+        .unwrap_or(command)
+        .trim_start();
+    let (file, _) = split_target(command, Some(base), true)?;
+    let file = expand_environment(file, is_web_address(file))?;
+    if file.is_empty() || (!is_web_address(&file) && (has_parameter(&file) || has_context(&file))) {
+        return Err("ui.an_argument_cannot_replace_the_program_path".into());
+    }
+    Ok(file)
+}
+
+fn target_parts(command: &str, base: Option<&Path>) -> Result<(String, String), String> {
+    let executable = split_target(command, None, false).map_or("", |(file, _)| file);
     let name = executable
         .rsplit(['\\', '/'])
         .next()
@@ -407,38 +540,27 @@ fn resolve_base(
         "%comspec%",
     ]
     .contains(&name.as_str());
-    let expanded = expand_environment_mode(command, url, shell)?;
-    let (file, parameters) = if url {
-        (expanded.as_str(), "")
-    } else if let Some(quoted) = expanded.strip_prefix('"') {
-        let end = quoted
-            .find('"')
-            .ok_or("ui.close_the_quote_around_the_program_path")?;
-        let rest = &quoted[end + 1..];
-        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
-            return Err("ui.add_a_space_after_the_program_path".into());
-        }
-        (&quoted[..end], rest.trim_start())
-    } else if expanded.contains(char::is_whitespace) && {
-        let path = base.unwrap_or(Path::new("")).join(&expanded);
-        !is_network_path(&path.to_string_lossy()) && path.exists()
-    } {
-        // Accommodate existing unquoted paths with spaces. This disk check is
-        // performed only after Enter, never on show/search.
-        (expanded.as_str(), "")
-    } else {
-        let split = expanded.find(char::is_whitespace).unwrap_or(expanded.len());
-        let first = &expanded[..split];
-        let path = first.contains(['\\', '/']) || first.as_bytes().get(1) == Some(&b':');
-        let explicit_executable = [".exe", ".com", ".bat", ".cmd", ".lnk"]
-            .iter()
-            .any(|extension| first.to_ascii_lowercase().ends_with(extension));
-        if split < expanded.len() && path && !explicit_executable {
-            return Err("ui.put_the_program_path_in_double_quotes".into());
-        }
-        (&expanded[..split], expanded[split..].trim_start())
-    };
-    if file.is_empty() || (!url && file.contains("%p")) {
+    let expanded = expand_environment_mode(command, is_web_address(command), shell)?;
+    let (file, parameters) = split_target(&expanded, base, true)?;
+    Ok((file.to_owned(), parameters.to_owned()))
+}
+
+fn resolve_base(
+    command: &str,
+    parameter: Option<&str>,
+    base: Option<&Path>,
+) -> Result<LaunchRequest, String> {
+    if command.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
+        || parameter.is_some_and(|p| p.chars().any(|c| matches!(c, '\0' | '\r' | '\n')))
+    {
+        return Err("命令或参数中包含无效控制字符".into());
+    }
+    let command = command.trim();
+    if command.is_empty() {
+        return Err("ui.the_command_is_empty".into());
+    }
+    let (file, parameters) = target_parts(command, base)?;
+    if file.is_empty() || (!is_web_address(command) && file.contains("%p")) {
         return Err("ui.an_argument_cannot_replace_the_program_path".into());
     }
     let substitute = |text: &str| -> Result<String, String> {
@@ -449,8 +571,8 @@ fn resolve_base(
         }
     };
     Ok(LaunchRequest {
-        file: substitute(file)?,
-        parameters: substitute(parameters)?,
+        file: substitute(&file)?,
+        parameters: substitute(&parameters)?,
     })
 }
 

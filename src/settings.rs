@@ -57,7 +57,7 @@ const PICK: usize = 2500;
 const CLEAR: usize = 2600;
 const STRENGTH_UNIT: usize = 2355;
 const OWNER_STATIC: u32 = 0x0d;
-const OPEN_ABOUT: u32 = WM_APP + 3;
+const OPEN_PAGE: u32 = WM_APP + 3;
 const EMAIL_LINK: usize = 2360;
 const OPEN_RELEASES: usize = 2361;
 const OPEN_SOURCE: usize = 2362;
@@ -1880,8 +1880,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 DefWindowProcW(hwnd, msg, w, l)
             }
         }
-        OPEN_ABOUT => {
-            show_page(layout::ABOUT_PAGE);
+        OPEN_PAGE if w < PAGES.len() => {
+            show_page(w);
             0
         }
         WM_COMMAND => {
@@ -2186,7 +2186,7 @@ pub fn open(
     prefs: Preferences,
     owner: HWND,
     sender: mpsc::Sender<Change>,
-    about: bool,
+    page: Option<usize>,
 ) {
     if WINDOW
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
@@ -2195,8 +2195,8 @@ pub fn open(
         let h = WINDOW.load(Ordering::Acquire);
         if h > 1 {
             unsafe {
-                if about {
-                    PostMessageW(h as HWND, OPEN_ABOUT, 0, 0);
+                if let Some(page) = page {
+                    PostMessageW(h as HWND, OPEN_PAGE, page, 0);
                 }
                 ShowWindow(h as HWND, SW_SHOW);
                 SetForegroundWindow(h as HWND);
@@ -2892,7 +2892,7 @@ pub fn open(
                 });
                 load_form(&prefs);
                 report_language_packs(&prefs);
-                show_page(if about { layout::ABOUT_PAGE } else { 0 });
+                show_page(page.unwrap_or(0));
                 WINDOW.store(hwnd as usize, Ordering::Release);
                 ShowWindow(hwnd, SW_SHOW);
                 SetFocus(tabs);

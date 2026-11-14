@@ -29,6 +29,8 @@ mod shortcut_intake;
 #[cfg(windows)]
 mod skin;
 #[cfg(windows)]
+mod startup_warning;
+#[cfg(windows)]
 mod theme;
 #[cfg(windows)]
 mod theme_ui;

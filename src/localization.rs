@@ -45,7 +45,7 @@ impl Catalog {
                 if input.len() > 512 * 1024 {
                     return Err("file exceeds 512 KiB".into());
                 }
-                let pack = LanguagePack::parse(&input)?;
+                let mut pack = LanguagePack::parse(&input)?;
                 pack.check(
                     MESSAGES.iter().map(|(key, english, _)| (*key, *english)),
                     false,
@@ -53,6 +53,11 @@ impl Catalog {
                 if matches!(pack.locale.as_str(), "en" | "zh-Hans") {
                     return Err("locale is built in".into());
                 }
+                pack.strings.retain(|key, _| {
+                    MESSAGES
+                        .binary_search_by_key(&key.as_str(), |(key, _, _)| *key)
+                        .is_ok()
+                });
                 Ok(pack)
             })();
             match result {

@@ -12,6 +12,7 @@ pub const FOOTER: i32 = 62;
 pub const PREVIEW: BoxRect = BoxRect::new(RIGHT, 180, 549, 246);
 pub const EXTRA_COLORS: BoxRect = BoxRect::new(RIGHT, 478, 549, 161);
 pub const ABOUT_PAGE: usize = 6;
+pub const HOTKEYS_PAGE: usize = 1;
 pub const ABOUT_PROFILE: BoxRect = BoxRect::new(CONTENT, 132, 859, 190);
 pub const ABOUT_LINKS: BoxRect = BoxRect::new(CONTENT, 382, 859, 204);
 

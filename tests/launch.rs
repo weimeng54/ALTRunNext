@@ -81,17 +81,34 @@ fn malformed_commands_cannot_be_truncated_by_native_apis() {
 #[test]
 fn ambiguous_unquoted_paths_never_launch_a_shorter_executable() {
     for command in [
-        r"D:\Program Files\App\app.exe --flag",
-        r"D:\Missing folder\missing.exe --flag",
-        r"\\server\shared folder\app.exe --flag",
+        r"D:\Program Files\App --flag",
+        r"D:\Tools\tool.exe Folder\another.exe --flag",
     ] {
         assert!(
             resolve(command, None).is_err(),
-            "must request quotes rather than execute the first path token: {command}"
+            "must not execute a partial path: {command}"
         );
     }
     assert_eq!(
         resolve(r"D:\Tools\app.exe --flag", None).unwrap(),
         request(r"D:\Tools\app.exe", "--flag")
+    );
+}
+
+#[test]
+fn unquoted_windows_paths_split_from_arguments_without_rewriting_them() {
+    for file in [
+        r"D:\Program Files\应用\app.exe",
+        r"\\server\shared folder\app.exe",
+    ] {
+        let arguments = r#"--open "中文 文档.txt""#;
+        assert_eq!(
+            resolve(&format!("{file} {arguments}"), None).unwrap(),
+            request(file, arguments)
+        );
+    }
+    assert_eq!(
+        resolve(r"D:\Program Files\应用\app.exe %p", Some("other.exe")).unwrap(),
+        request(r"D:\Program Files\应用\app.exe", "other.exe")
     );
 }

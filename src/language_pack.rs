@@ -115,9 +115,12 @@ impl LanguagePack {
     ) -> Result<(), String> {
         let base: BTreeMap<_, _> = base.into_iter().collect();
         for (key, value) in &self.strings {
-            let original = base
-                .get(key.as_str())
-                .ok_or_else(|| format!("unknown key {key}"))?;
+            let Some(original) = base.get(key.as_str()) else {
+                if complete {
+                    return Err(format!("unknown key {key}"));
+                }
+                continue;
+            };
             if placeholders(original) != placeholders(value)
                 || original.matches('\t').count() != value.matches('\t').count()
             {

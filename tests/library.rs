@@ -5,6 +5,28 @@ use altrun_probe::{
 };
 
 #[test]
+fn original_import_removes_only_redundant_target_quotes() {
+    let input = concat!(
+        "F12|no_encoding|app|示例|@- \"D:\\Program Files\\示例\\app.exe\" --open \"中文 文件.txt\"\n",
+        "folder|文件夹|\"D:\\My Files\\Projects\"\n",
+        "ambiguous|示例|\"D:\\A.exe Files\\App.exe\" --flag\n",
+    );
+    let imported = library::decode_shortcut_import(input.as_bytes()).unwrap();
+    assert_eq!(
+        imported.entries[0].command,
+        r#"@- D:\Program Files\示例\app.exe --open "中文 文件.txt""#
+    );
+    assert_eq!(imported.entries[0].frequency, 12);
+    assert_eq!(imported.entries[1].command, r#""D:\My Files\Projects""#);
+    assert_eq!(
+        imported.entries[2].command,
+        r#""D:\A.exe Files\App.exe" --flag"#
+    );
+    let tsv = library::serialize(&imported.entries).unwrap();
+    assert_eq!(parse_entries(&tsv).unwrap(), imported.entries);
+}
+
+#[test]
 fn malformed_data_does_not_silently_drop_shortcuts() {
     assert!(parse_entries("F1|utf8_query|only_alias").is_err());
     assert!(parse_entries("a\tname\tapp.exe\t2\tunknown_type\n").is_err());

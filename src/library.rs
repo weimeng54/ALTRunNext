@@ -345,7 +345,7 @@ fn parse_original_shortcuts(text: &str) -> Result<ShortcutImport, String> {
         let entry = Entry {
             alias: alias.into(),
             name: name.into(),
-            command: command.into(),
+            command: crate::launch::normalize_original_command(command),
             frequency,
             param_type,
             id: derived_id(alias, name, command, row),

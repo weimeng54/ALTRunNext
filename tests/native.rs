@@ -272,7 +272,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 );
                 thread::sleep(Duration::from_millis(20));
             }
-            let command = GetDlgItem(hwnd, 1003);
+            let command = GetDlgItem(hwnd, 1005);
             let mut error = [0_u16; 256];
             let length = SendMessageW(command, WM_GETTEXT, 256, error.as_mut_ptr() as isize);
             assert!(String::from_utf16_lossy(&error[..length as usize]).contains("无法启动"));

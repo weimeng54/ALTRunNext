@@ -1,42 +1,26 @@
 use std::path::{Path, PathBuf};
 pub fn directory(command: &str, base: &Path) -> Result<PathBuf, String> {
-    let command = command
-        .trim()
-        .strip_prefix("@+")
-        .or_else(|| command.trim().strip_prefix("@-"))
-        .or_else(|| command.trim().strip_prefix('@'))
-        .unwrap_or(command.trim())
-        .trim();
-    let target = if let Some(quoted) = command.strip_prefix('"') {
-        let end = quoted
-            .find('"')
-            .ok_or("ui.the_program_path_has_an_unclosed_quote")?;
-        format!("\"{}\"", &quoted[..end])
-    } else if Path::new(command).exists() {
-        format!("\"{command}\"")
-    } else {
-        command.split_whitespace().next().unwrap_or("").to_owned()
-    };
-    let request = crate::launch::resolve_typed(&target, None, crate::library::ParamType::Auto)?;
-    if request.file.contains("://")
-        || request.file.starts_with("shell:")
-        || request.file.starts_with("::")
+    let file = crate::launch::resolve_target(command, base)?;
+    let lower = file.to_ascii_lowercase();
+    if file.contains("://")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("shell:")
+        || file.starts_with("::")
     {
         return Err("ui.web_addresses_and_windows_locations_do_not".into());
     }
-    let mut path = PathBuf::from(&request.file);
+    let mut path = PathBuf::from(&file);
     if !path.is_absolute() {
-        if request.file.contains(['\\', '/']) || base.join(&path).exists() {
+        if file.contains(['\\', '/'])
+            || (!crate::launch::is_network_path(&base.to_string_lossy())
+                && base.join(&path).exists())
+        {
             path = base.join(path);
         } else {
             #[cfg(windows)]
             unsafe {
                 use windows_sys::Win32::Storage::FileSystem::SearchPathW;
-                let file = request
-                    .file
-                    .encode_utf16()
-                    .chain(Some(0))
-                    .collect::<Vec<_>>();
+                let file = file.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
                 let extension = ".exe".encode_utf16().chain(Some(0)).collect::<Vec<_>>();
                 let mut buffer = vec![0u16; 32768];
                 let n = SearchPathW(

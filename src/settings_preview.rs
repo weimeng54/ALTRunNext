@@ -311,7 +311,7 @@ impl Preview {
                 theme_ui::line_text(
                     dc,
                     area(16, y + 1, bounds.w - 32, 24),
-                    &format!("CMD  {path}"),
+                    &format!("{}  {path}", crate::localization::tr("ui.command_label")),
                     theme::muted(),
                     0,
                 );
