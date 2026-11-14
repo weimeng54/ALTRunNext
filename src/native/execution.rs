@@ -31,7 +31,7 @@ pub(super) fn launch_selected() {
                     hwnd,
                     ui("ui.no_matches_add_a_new_shortcut").as_ptr(),
                     ui("ui.new_shortcut").as_ptr(),
-                    MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
+                    MB_OKCANCEL | MB_ICONQUESTION,
                 )
             } == IDOK
         {

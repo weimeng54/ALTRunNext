@@ -163,7 +163,7 @@ pub(super) fn lifecycle(clean: bool) {
                 hwnd,
                 ui("ui.turn_off_startup_remove_the_send_to").as_ptr(),
                 ui("ui.remove_windows_integrations").as_ptr(),
-                MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
+                MB_OKCANCEL | MB_ICONQUESTION,
             )
         } != IDOK
         {
