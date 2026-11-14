@@ -181,6 +181,7 @@ pub(crate) fn run() -> Result<(), String> {
                 | LBS_OWNERDRAWFIXED as u32
                 | LBS_HASSTRINGS as u32
                 | LBS_NOINTEGRALHEIGHT as u32
+                | WS_CLIPSIBLINGS
                 | WS_VSCROLL,
             8,
             theme::LIST_Y,
@@ -320,6 +321,7 @@ pub(crate) fn run() -> Result<(), String> {
                 library_updates,
             })
         });
+        crate::ui::style_vertical_scrollbar(list, ID_SCROLLBAR, 0);
         STATE.with(|c| rebuild_index(c.borrow_mut().as_mut().unwrap()));
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());

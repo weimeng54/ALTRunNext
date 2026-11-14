@@ -16,7 +16,7 @@ use windows_sys::Win32::{
     },
 };
 
-pub fn vertical_scrollbar(hwnd: HWND) -> Option<SCROLLBARINFO> {
+fn vertical_scrollbar(hwnd: HWND) -> Option<SCROLLBARINFO> {
     scrollbar_info(hwnd, OBJID_VSCROLL)
 }
 
@@ -30,10 +30,6 @@ fn scrollbar_info(hwnd: HWND, object: OBJECT_IDENTIFIER) -> Option<SCROLLBARINFO
             && bar.rgstate[0] & STATE_SYSTEM_INVISIBLE == 0)
             .then_some(bar)
     }
-}
-
-pub fn draw_scrollbar(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32) {
-    draw_scrollbar_on_axis(dc, track, bar, dpi, false);
 }
 
 fn draw_scrollbar_on_axis(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32, horizontal: bool) {
@@ -62,6 +58,7 @@ fn draw_scrollbar_on_axis(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32, h
 }
 
 pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
+    // A DPI of zero follows a window that can move between monitors while open.
     style_scrollbar(control, id, dpi, false);
 }
 
@@ -212,7 +209,11 @@ unsafe extern "system" fn scrollbar_proc(
                 OBJID_VSCROLL
             };
             if let Some(bar) = scrollbar_info(list as HWND, object) {
-                draw_scrollbar_on_axis(dc, track, &bar, (style / 2) as i32, horizontal);
+                let dpi = match style / 2 {
+                    0 => super::geometry::window_dpi(list as HWND),
+                    dpi => dpi as i32,
+                };
+                draw_scrollbar_on_axis(dc, track, &bar, dpi, horizontal);
             } else {
                 fill(dc, &track, theme::paper());
             }

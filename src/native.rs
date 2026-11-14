@@ -52,6 +52,7 @@ use execution::{
 
 const ID_EDIT: usize = 1001;
 const ID_LIST: usize = 1002;
+const ID_SCROLLBAR: usize = 1006;
 const HOTKEY: i32 = 17001;
 const SHOW: u32 = WM_APP + 1;
 const QUIT: u32 = WM_APP + 2;

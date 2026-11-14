@@ -72,6 +72,7 @@ struct EditStyle {
     dpi: i32,
     number: bool,
     colours: Option<fn() -> (u32, u32)>,
+    cue: Option<&'static str>,
 }
 
 pub fn style_edit(hwnd: HWND, dpi: i32) {
@@ -81,6 +82,7 @@ pub fn style_edit(hwnd: HWND, dpi: i32) {
             dpi,
             number: false,
             colours: None,
+            cue: None,
         },
     );
 }
@@ -92,6 +94,22 @@ pub fn style_edit_with_colours(hwnd: HWND, dpi: i32, colours: fn() -> (u32, u32)
             dpi,
             number: false,
             colours: Some(colours),
+            cue: None,
+        },
+    );
+}
+
+pub fn style_search(hwnd: HWND, dpi: i32, cue: &'static str, colours: fn() -> (u32, u32)) {
+    unsafe {
+        SendMessageW(hwnd, EM_SETCUEBANNER, 0, super::ui(cue).as_ptr() as LPARAM);
+    }
+    set_edit_style(
+        hwnd,
+        EditStyle {
+            dpi,
+            number: false,
+            colours: Some(colours),
+            cue: Some(cue),
         },
     );
 }
@@ -105,6 +123,7 @@ pub fn style_number(hwnd: HWND, dpi: i32) {
             dpi,
             number: true,
             colours: None,
+            cue: None,
         },
     );
 }
@@ -149,6 +168,23 @@ fn set_edit_style(hwnd: HWND, style: EditStyle) {
     }
 }
 
+unsafe fn search_inset(hwnd: HWND, height: i32, dpi: i32) -> i32 {
+    unsafe {
+        let dc = GetDC(hwnd);
+        let font = SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT;
+        let old = SelectObject(dc, font);
+        let mut metrics = TEXTMETRICW::default();
+        let measured = GetTextMetricsW(dc, &mut metrics) != 0;
+        SelectObject(dc, old);
+        ReleaseDC(hwnd, dc);
+        if measured {
+            ((height - metrics.tmHeight) / 2).max(0)
+        } else {
+            scaled(4, dpi)
+        }
+    }
+}
+
 unsafe extern "system" fn edit_proc(
     hwnd: HWND,
     msg: u32,
@@ -169,6 +205,7 @@ unsafe extern "system" fn edit_proc(
         dpi,
         number,
         colours,
+        cue,
     } = unsafe { *style };
     let inset_x = scaled(9, dpi);
     let inset_y = scaled(7, dpi);
@@ -219,7 +256,13 @@ unsafe extern "system" fn edit_proc(
             let rect = &mut *(l as *mut RECT);
             let available = (rect.right - rect.left - 1).max(0);
             let x = inset_x.min(available / 2);
-            let y = inset_y.min((rect.bottom - rect.top - 1).max(0) / 2);
+            let height = rect.bottom - rect.top;
+            let y = if cue.is_some() {
+                search_inset(hwnd, height, dpi)
+            } else {
+                inset_y
+            }
+            .min((height - 1).max(0) / 2);
             rect.left += x;
             rect.right -= inset_right.min(available - x);
             rect.top += y;
@@ -231,14 +274,12 @@ unsafe extern "system" fn edit_proc(
             if !dc.is_null() {
                 let mut rect: RECT = std::mem::zeroed();
                 GetWindowRect(hwnd, &mut rect);
+                let mut client = RECT::default();
+                GetClientRect(hwnd, &mut client);
+                MapWindowPoints(hwnd, null_mut(), (&raw mut client).cast::<POINT>(), 2);
+                OffsetRect(&mut client, -rect.left, -rect.top);
                 OffsetRect(&mut rect, -rect.left, -rect.top);
-                ExcludeClipRect(
-                    dc,
-                    inset_x,
-                    inset_y,
-                    rect.right - inset_right,
-                    rect.bottom - inset_y,
-                );
+                ExcludeClipRect(dc, client.left, client.top, client.right, client.bottom);
                 let (backdrop, paper) = colours.map_or_else(
                     || (theme::control_surface(), theme::paper()),
                     |colours| colours(),
@@ -263,6 +304,32 @@ unsafe extern "system" fn edit_proc(
             return 0;
         }
         let result = DefSubclassProc(hwnd, msg, w, l);
+        if let Some(cue) = cue
+            && matches!(msg, WM_PAINT | WM_PRINTCLIENT)
+            && GetFocus() != hwnd
+            && GetWindowTextLengthW(hwnd) == 0
+        {
+            let dc = if msg == WM_PAINT {
+                GetDC(hwnd)
+            } else {
+                w as HDC
+            };
+            let mut bounds = RECT::default();
+            GetClientRect(hwnd, &mut bounds);
+            let old = SelectObject(dc, SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT);
+            if !dc.is_null() {
+                fill(
+                    dc,
+                    &bounds,
+                    colours.map_or_else(theme::paper, |colours| colours().1),
+                );
+                line_text(dc, bounds, &crate::localization::tr(cue), theme::muted(), 0);
+                SelectObject(dc, old);
+                if msg == WM_PAINT {
+                    ReleaseDC(hwnd, dc);
+                }
+            }
+        }
         if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE) {
             RedrawWindow(
                 hwnd,

@@ -91,6 +91,14 @@ fn clear_error(hwnd: HWND) {
     unsafe { SetWindowTextW(child(hwnd, ERROR), ui::wide("").as_ptr()) };
 }
 
+fn search_colours() -> (u32, u32) {
+    (theme::surface(), theme::paper())
+}
+
+fn alias_colours() -> (u32, u32) {
+    (theme::selection(), theme::paper())
+}
+
 fn finish_alias(hwnd: HWND, shared: &Dialog) {
     if shared.model.borrow_mut().editing_alias.take().is_some() {
         unsafe {
@@ -646,13 +654,7 @@ pub(super) fn open(
                     (WIDTH - 329, 77, 309, 29),
                     WS_TABSTOP | ES_AUTOHSCROLL as u32,
                 );
-                ui::style_edit(filter, dpi);
-                SendMessageW(
-                    filter,
-                    EM_SETCUEBANNER,
-                    0,
-                    ui::ui("ui.browser_bookmarks_filter").as_ptr() as LPARAM,
-                );
+                ui::style_search(filter, dpi, "ui.browser_bookmarks_filter", search_colours);
                 let alias = control(
                     "EDIT",
                     "",
@@ -661,7 +663,7 @@ pub(super) fn open(
                     WS_CLIPSIBLINGS | ES_AUTOHSCROLL as u32,
                 );
                 ShowWindow(alias, SW_HIDE);
-                ui::style_edit(alias, dpi);
+                ui::style_edit_with_colours(alias, dpi, alias_colours);
                 SendMessageW(alias, EM_LIMITTEXT, 256, 0);
                 let data = &raw const *dialog as usize;
                 for edit in [filter, alias] {

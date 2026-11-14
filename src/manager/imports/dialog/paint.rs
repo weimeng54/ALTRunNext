@@ -67,7 +67,7 @@ fn draw_alias_cell(item: &DRAWITEMSTRUCT, dialog: &Dialog, status: BookmarkStatu
         };
         let dc = item.hDC;
         let colour = if status == BookmarkStatus::Ready {
-            ui::rounded(dc, bounds, px(8), theme::paper(), theme::border());
+            ui::rounded(dc, bounds, px(12), theme::paper(), theme::border());
             theme::text()
         } else {
             theme::muted()
@@ -76,7 +76,7 @@ fn draw_alias_cell(item: &DRAWITEMSTRUCT, dialog: &Dialog, status: BookmarkStatu
         ui::line_text(
             dc,
             RECT {
-                left: bounds.left + px(7),
+                left: bounds.left + px(9),
                 right: bounds.right - px(5),
                 ..bounds
             },

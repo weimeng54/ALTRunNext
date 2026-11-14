@@ -564,7 +564,7 @@ pub(super) unsafe extern "system" fn list_proc(
         return 0;
     }
     let old = STATE.with(|c| c.borrow().as_ref().unwrap().old_list);
-    let result = unsafe {
+    unsafe {
         CallWindowProcW(
             Some(std::mem::transmute::<
                 isize,
@@ -575,31 +575,5 @@ pub(super) unsafe extern "system" fn list_proc(
             w,
             l,
         )
-    };
-    if matches!(
-        msg,
-        WM_NCPAINT | WM_PAINT | WM_VSCROLL | WM_NCMOUSEMOVE | WM_NCLBUTTONDOWN
-    ) {
-        paint_scrollbar(hwnd);
-    }
-    result
-}
-
-fn paint_scrollbar(hwnd: HWND) {
-    let Some(bar) = crate::ui::vertical_scrollbar(hwnd) else {
-        return;
-    };
-    unsafe {
-        let mut window = RECT::default();
-        GetWindowRect(hwnd, &mut window);
-        let mut track = bar.rcScrollBar;
-        OffsetRect(&mut track, -window.left, -window.top);
-        let dc = GetWindowDC(hwnd);
-        if dc.is_null() {
-            return;
-        }
-        let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-        crate::ui::draw_scrollbar(dc, track, &bar, dpi);
-        ReleaseDC(hwnd, dc);
     }
 }

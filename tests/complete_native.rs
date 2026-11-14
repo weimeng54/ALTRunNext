@@ -383,11 +383,12 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             ..Default::default()
         };
         assert_ne!(GetScrollBarInfo(list, OBJID_VSCROLL, &mut bar), 0);
-        let list_bounds = bounds(list);
-        let x = (bar.rcScrollBar.left + bar.rcScrollBar.right) / 2 - list_bounds.left;
-        let y = bar.rcScrollBar.top + 2 - list_bounds.top;
+        let track = GetDlgItem(launcher, 1006);
+        assert!(!track.is_null());
         wait(|| {
-            let colour = pixel(list, x, y);
+            let track_bounds = bounds(track);
+            let x = (track_bounds.right - track_bounds.left) / 2;
+            let colour = pixel(track, x, 2);
             matches!(colour, 0x00241d17 | 0x00251e19)
         });
         SendMessageW(list, WM_VSCROLL, SB_LINEDOWN as usize, 0);
