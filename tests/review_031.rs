@@ -146,6 +146,50 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     wait(|| unsafe { IsWindow(settings) == 0 });
 }
 
+fn check_restore_and_restart(running: &mut Running, launcher: HWND, data: &Path) {
+    use review_native_support::wide;
+
+    let pid = running.0.id();
+    let original = std::fs::read(data).unwrap();
+    let mut changed = original.clone();
+    changed.extend_from_slice(b"extra\tExtra launch item\texplorer.exe\t0\n");
+    std::fs::write(data, changed).unwrap();
+    command(launcher, 18005);
+    let settings = ready_window(pid, "ALTRun.Native.Settings", 2366);
+    begin(settings, 2366);
+    choose_file(pid, &data.with_file_name("synthetic-dark-200.zip"));
+    let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    begin(preview, 1);
+    wait(|| running.0.try_wait().unwrap().is_some());
+    assert!(running.0.wait().unwrap().success());
+    assert_eq!(std::fs::read(data).unwrap(), original);
+
+    let class = wide("ALTRun.Native.PerformanceProbe");
+    let mut restarted = null_mut();
+    wait(|| unsafe {
+        restarted = FindWindowW(class.as_ptr(), null_mut());
+        !restarted.is_null() && !GetDlgItem(restarted, 1002).is_null()
+    });
+    let mut restarted_pid = 0;
+    unsafe {
+        GetWindowThreadProcessId(restarted, &mut restarted_pid);
+    }
+    assert_ne!(restarted_pid, pid);
+    command(restarted, 18002);
+    wait(|| unsafe { IsWindow(restarted) == 0 });
+    let previous = std::fs::read_dir(data.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .filter(|file| {
+            file.file_name()
+                .to_string_lossy()
+                .starts_with("ALTRunNext-before-restore-")
+        });
+    assert!(previous.into_iter().any(|file| {
+        altrun_probe::backup::Backup::load(&file.path()).is_ok_and(|backup| backup.count() == 6)
+    }));
+}
+
 fn check_legacy_import(manager: HWND, pid: u32, dir: &Path, list: HWND) {
     let invalid = dir.join("unreadable.txt");
     std::fs::write(&invalid, "This file does not contain launch items.").unwrap();
@@ -246,6 +290,10 @@ fn windows_031_management_and_import_previews() {
         ("light", "100"),
         ("dark", "125"),
         ("light", "150"),
+        ("light", "125"),
+        ("light", "200"),
+        ("dark", "100"),
+        ("dark", "150"),
         ("dark", "200"),
     ] {
         std::fs::write(&data, &original).unwrap();
@@ -293,7 +341,7 @@ fn windows_031_management_and_import_previews() {
         wait(|| count(list) == 3);
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
 
-        if scale == "100" {
+        if theme == "light" && scale == "100" {
             check_legacy_import(manager, pid, &dir, list);
         }
 
@@ -342,7 +390,11 @@ fn windows_031_management_and_import_previews() {
         command(manager, 2114);
         wait(|| unsafe { IsWindow(manager) == 0 });
         check_backup(launcher, pid, &data, theme, scale);
-        command(launcher, 18002);
-        wait(|| running.0.try_wait().unwrap().is_some());
+        if theme == "dark" && scale == "200" {
+            check_restore_and_restart(&mut running, launcher, &data);
+        } else {
+            command(launcher, 18002);
+            wait(|| running.0.try_wait().unwrap().is_some());
+        }
     }
 }
