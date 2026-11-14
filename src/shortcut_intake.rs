@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! Quick-add dialog for file-system targets received from Explorer.
 use crate::{
     native::{make_font, scaled, ui, wide},

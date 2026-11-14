@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! Native settings pages, created only while the settings window is open.
 use crate::{
     localization,

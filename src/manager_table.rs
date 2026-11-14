@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! Native report list for the shortcut editor. Windows owns selection, hit testing and scrolling.
 use crate::{
     native::{scaled, ui, wide},

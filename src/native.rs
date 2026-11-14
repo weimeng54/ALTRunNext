@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! Resident native launcher. Show/search only use cached data and controls.
 use crate::theme;
 use altrun_probe::{Entry, SearchIndex, advance, parse_entries};

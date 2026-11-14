@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! A serialized, coalescing writer. Disk access never happens on input/show.
 use std::{
     path::{Path, PathBuf},

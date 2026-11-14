@@ -1,3 +1,6 @@
+# Copyright (c) 2026 GPT-6.1 Sol
+# Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 """Bound synthetic Windows test runs and retain partial logs on a GUI deadlock."""
 import pathlib, subprocess, sys, threading
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')

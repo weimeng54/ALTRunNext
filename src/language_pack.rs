@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 use serde::{Deserialize, Deserializer, de};
 use std::{collections::BTreeMap, fmt};
 

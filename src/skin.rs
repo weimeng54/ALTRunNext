@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! Optional image decoding lives entirely off the resident UI thread.
 use std::{ffi::c_void, path::PathBuf, ptr::null_mut};
 use windows_sys::Win32::{Foundation::RECT, Graphics::Gdi::*};

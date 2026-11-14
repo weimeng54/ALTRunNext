@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 //! Resolve an explicitly selected command without implicitly invoking a shell.
 use std::path::{Path, PathBuf};
 

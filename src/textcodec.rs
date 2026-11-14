@@ -1,3 +1,6 @@
+// Copyright (c) 2026 GPT-6.1 Sol
+// Licensed under the MIT License. See LICENSE file in the project root for full license information.
+
 pub(crate) fn decode_gb18030(bytes: &[u8]) -> Result<String, String> {
     let invalid = || String::from("ui.the_shortcut_file_uses_an_unsupported_text");
     #[cfg(windows)]
