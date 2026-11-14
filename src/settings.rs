@@ -73,7 +73,6 @@ const SEGMENT: usize = 2330;
 const FONT_FAMILY: usize = 2341;
 const MORE_COLORS: usize = 2343;
 const IMAGE_THUMB: usize = 2344;
-const APPEARANCE_NOTE: usize = 2345;
 const STRENGTH_VALUE: usize = 2346;
 const STRENGTH_LABEL: usize = 2347;
 const CROP_LABEL: usize = 2348;
@@ -133,14 +132,12 @@ pub enum Change {
 
 struct Page {
     name: &'static str,
-    hint: &'static str,
     keys: &'static [&'static str],
 }
 
 const PAGES: &[Page] = &[
     Page {
         name: "ui.general",
-        hint: "ui.manage_startup_the_system_tray_file_explorer",
         keys: &[
             "ShowMeWhenStart",
             "ShowTrayIcon",
@@ -153,12 +150,10 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "ui.hotkeys",
-        hint: "ui.hover_over_a_shortcut_and_press_the",
         keys: &["HotKey1", "HotKey2", "LastItemHotKey"],
     },
     Page {
         name: "ui.search_and_launch",
-        hint: "ui.configure_keyword_matching_search_input_and_number",
         keys: &[
             "MatchAnywhere",
             "EnglishSearch",
@@ -168,7 +163,6 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "ui.appearance",
-        hint: "ui.customize_the_theme_launcher_and_background",
         keys: &[
             "Theme",
             "ShowSkin",
@@ -184,7 +178,6 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "ui.fonts_and_colors",
-        hint: "ui.set_the_title_search_and_result_text",
         keys: &[
             "TitleFont",
             "KeywordFont",
@@ -199,12 +192,10 @@ const PAGES: &[Page] = &[
     },
     Page {
         name: "ui.window_position",
-        hint: "ui.windows_open_in_the_center_of_the",
         keys: &["PositionMode", "HideDelay"],
     },
     Page {
         name: "about.title",
-        hint: "",
         keys: &[],
     },
 ];
@@ -223,7 +214,6 @@ struct Editor {
     hwnd: HWND,
     tabs: HWND,
     title: HWND,
-    hint: HWND,
     status: HWND,
     background: HBRUSH,
     paper: HBRUSH,

@@ -172,19 +172,9 @@ pub fn caption_close(item: &DRAWITEMSTRUCT, dpi: i32) {
     }
 }
 
-#[derive(Clone, Copy)]
-struct SwitchStyle {
-    dpi: i32,
-    description: Option<(&'static str, HFONT)>,
-}
-
-pub fn switch(hwnd: HWND, dpi: i32, description: Option<(&'static str, HFONT)>) {
-    let style = Box::new(SwitchStyle { dpi, description });
-    let data = Box::into_raw(style);
+pub fn switch(hwnd: HWND, dpi: i32) {
     unsafe {
-        if SetWindowSubclass(hwnd, Some(switch_proc), 1, data as usize) == 0 {
-            drop(Box::from_raw(data));
-        }
+        SetWindowSubclass(hwnd, Some(switch_proc), 1, dpi as usize);
     }
 }
 
@@ -206,16 +196,14 @@ unsafe extern "system" fn switch_proc(
     w: WPARAM,
     l: LPARAM,
     id: usize,
-    data: usize,
+    dpi: usize,
 ) -> LRESULT {
     unsafe {
-        let style = data as *mut SwitchStyle;
         if msg == WM_NCDESTROY {
             RemoveWindowSubclass(hwnd, Some(switch_proc), id);
-            drop(Box::from_raw(style));
             return DefSubclassProc(hwnd, msg, w, l);
         }
-        let SwitchStyle { dpi, description } = *style;
+        let dpi = dpi as i32;
         if matches!(
             msg,
             WM_NCHITTEST
@@ -325,9 +313,6 @@ unsafe extern "system" fn switch_proc(
             let old = SelectObject(dc, font);
             bounds.left += px(9);
             bounds.right = track.left - px(7);
-            if description.is_some() {
-                bounds.bottom = px(30);
-            }
             line_text(
                 dc,
                 bounds,
@@ -339,21 +324,6 @@ unsafe extern "system" fn switch_proc(
                 },
                 0,
             );
-            if let Some((caption, font)) = description {
-                SelectObject(dc, font);
-                let detail = RECT {
-                    top: px(27),
-                    bottom: px(48),
-                    ..bounds
-                };
-                line_text(
-                    dc,
-                    detail,
-                    &crate::localization::tr(caption),
-                    theme::muted(),
-                    0,
-                );
-            }
             SelectObject(dc, old);
             if msg == WM_PAINT {
                 EndPaint(hwnd, &paint);

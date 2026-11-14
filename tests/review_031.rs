@@ -124,6 +124,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     let original = std::fs::read(data).unwrap();
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2365);
+    check_settings_layout(settings, theme, scale);
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
@@ -145,6 +146,49 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     assert_eq!(std::fs::read(data).unwrap(), original);
     unsafe { assert_ne!(PostMessageW(settings, WM_CLOSE, 0, 0), 0) };
     wait(|| unsafe { IsWindow(settings) == 0 });
+}
+
+fn check_settings_layout(settings: HWND, theme: &str, scale: &str) {
+    let tabs = child(settings, 2301);
+    let select = |page| unsafe {
+        SendMessageW(tabs, LB_SETCURSEL, page, 0);
+        SendMessageW(
+            settings,
+            WM_COMMAND,
+            (LBN_SELCHANGE as usize) << 16 | 2301,
+            tabs as LPARAM,
+        );
+    };
+    let preview = child(settings, 2306);
+    for (page, section) in [(3, "appearance"), (4, "fonts")] {
+        select(page);
+        assert_eq!(text(preview), "cl");
+        assert!(!review_native_support::has_text(settings, "例如 db"));
+        native_snapshot::save(
+            settings,
+            &format!("settings-clean-{section}-{theme}-{scale}"),
+        );
+    }
+    select(3);
+    let row_limit = altrun_probe::preferences::SPECS
+        .iter()
+        .position(|spec| spec.key == "MaxRows")
+        .unwrap();
+    set(child(settings, 2400 + row_limit as i32), "9");
+    let save = child(settings, 2310);
+    command(settings, 2310);
+    let status = child(settings, 2303);
+    wait(|| text(status) == "已保存并应用。");
+    unsafe {
+        let mut action = RECT::default();
+        let mut message = RECT::default();
+        GetWindowRect(save, &mut action);
+        GetWindowRect(status, &mut message);
+        assert_eq!((message.top, message.bottom), (action.top, action.bottom));
+    }
+    select(0);
+    assert!(!review_native_support::has_text(settings, "管理启动方式"));
+    native_snapshot::save(settings, &format!("settings-clean-saved-{theme}-{scale}"));
 }
 
 fn check_restore_and_restart(running: &mut Running, launcher: HWND, data: &Path) {

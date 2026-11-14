@@ -283,16 +283,21 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             unsafe {
                 let old = SelectObject(item.hDC, s.small_font);
                 if id == STATUS {
+                    let words = wide(&value);
+                    let flags = DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS;
                     let mut rect = item.rcItem;
+                    let mut measured = rect;
                     SetBkMode(item.hDC, TRANSPARENT as i32);
                     SetTextColor(item.hDC, theme::muted());
-                    DrawTextW(
+                    let height = DrawTextW(
                         item.hDC,
-                        wide(&value).as_ptr(),
+                        words.as_ptr(),
                         -1,
-                        &mut rect,
-                        DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS,
+                        &mut measured,
+                        flags | DT_CALCRECT,
                     );
+                    rect.top += ((rect.bottom - rect.top - height) / 2).max(0);
+                    DrawTextW(item.hDC, words.as_ptr(), -1, &mut rect, flags);
                 } else {
                     ui::line_text(item.hDC, item.rcItem, &value, theme::muted(), 0);
                 }

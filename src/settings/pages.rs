@@ -8,7 +8,7 @@ pub(super) fn show_page(page: usize) {
         return;
     };
     cancel_capture();
-    let (window, tabs, title, hint, sections, extras, preview, more_colors) = EDITOR.with(|c| {
+    let (window, tabs, title, sections, extras, preview, more_colors) = EDITOR.with(|c| {
         let mut editor = c.borrow_mut();
         let editor = editor.as_mut().unwrap();
         editor.page = page;
@@ -16,7 +16,6 @@ pub(super) fn show_page(page: usize) {
             editor.hwnd,
             editor.tabs,
             editor.title,
-            editor.hint,
             editor.sections.clone(),
             editor.extra_controls.clone(),
             editor.preview_controls,
@@ -26,8 +25,6 @@ pub(super) fn show_page(page: usize) {
     unsafe {
         SendMessageW(tabs, LB_SETCURSEL, page, 0);
         SetWindowTextW(title, ui(design.name).as_ptr());
-        SetWindowTextW(hint, ui(design.hint).as_ptr());
-        show_without_redraw(hint, !design.hint.is_empty());
         SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visible = field.page == page

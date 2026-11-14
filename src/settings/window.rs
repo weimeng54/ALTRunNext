@@ -89,10 +89,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         w as HDC,
                         if control_id == EMAIL_LINK {
                             theme::accent()
-                        } else if l as HWND == s.hint
-                            || l as HWND == s.status
+                        } else if l as HWND == s.status
                             || filename
-                            || matches!(control_id, APPEARANCE_NOTE | ABOUT_SECONDARY)
+                            || control_id == ABOUT_SECONDARY
                             || IsWindowEnabled(l as HWND) == 0
                         {
                             theme::muted()
@@ -611,16 +610,14 @@ pub(crate) fn open(
                 }
                 let title = control("STATIC", "", 0, 214, 68, 859, 38, 0);
                 SendMessageW(title, WM_SETFONT, heading_font as usize, 0);
-                let hint = control("STATIC", "", 0, 214, 110, 859, 26, 0);
-                SendMessageW(hint, WM_SETFONT, small_font as usize, 0);
                 let status_label = control(
                     "STATIC",
                     "",
                     OWNER_STATIC,
                     449,
-                    layout::HEIGHT - layout::FOOTER + 9,
+                    layout::FOOTER_BUTTON_Y,
                     405,
-                    44,
+                    layout::FOOTER_BUTTON_HEIGHT,
                     STATUS,
                 );
                 SendMessageW(status_label, WM_SETFONT, small_font as usize, 0);
@@ -788,46 +785,8 @@ pub(crate) fn open(
                         (about_page, action),
                     ]);
                 }
-                for (page, caption, bounds) in [
-                    (
-                        0,
-                        "ui.save_and_reopen_settings_to_see_the",
-                        BoxRect::new(666, 513, 392, 42),
-                    ),
-                    (
-                        3,
-                        "ui.try_a_shortcut_such_as_db_2",
-                        BoxRect::new(866, 152, 207, 21),
-                    ),
-                    (
-                        3,
-                        "ui.save_to_apply_the_changes_to_the",
-                        BoxRect::new(524, 435, 549, 22),
-                    ),
-                    (
-                        4,
-                        "ui.try_a_shortcut_such_as_db_2",
-                        BoxRect::new(866, 152, 207, 21),
-                    ),
-                    (4, "ui.panel_font", BoxRect::new(228, 196, 72, 26)),
-                    (0, "backup.description", BoxRect::new(229, 637, 824, 23)),
-                ] {
-                    let style = if bounds.x == 866 { 2 } else { 0 };
-                    let control = control(
-                        "STATIC",
-                        caption,
-                        style,
-                        bounds.x,
-                        bounds.y,
-                        bounds.w,
-                        bounds.h,
-                        APPEARANCE_NOTE,
-                    );
-                    if bounds.x != 228 {
-                        SendMessageW(control, WM_SETFONT, small_font as usize, 0);
-                    }
-                    extra_controls.push((page, control));
-                }
+                let panel_font_label = control("STATIC", "ui.panel_font", 0, 228, 196, 72, 26, 0);
+                extra_controls.push((4, panel_font_label));
                 for (id, label, x, y, w, h, page) in [
                     (SEGMENT, "settings.follow_system", 230, 195, 84, 30, 3),
                     (SEGMENT + 1, "ui.light", 317, 195, 84, 30, 3),
@@ -836,8 +795,8 @@ pub(crate) fn open(
                     (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
                     (FONT_FAMILY, "", 310, 191, 180, 34, 4),
                     (MORE_COLORS, "ui.other_colors", 215, 517, 288, 40, 4),
-                    (CREATE_BACKUP, "backup.create", 229, 593, 175, 34, 0),
-                    (RESTORE_BACKUP, "backup.restore", 415, 593, 187, 34, 0),
+                    (CREATE_BACKUP, "backup.create", 229, 590, 175, 34, 0),
+                    (RESTORE_BACKUP, "backup.restore", 415, 590, 187, 34, 0),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
                     if (SEGMENT..SEGMENT + 5).contains(&id) {
@@ -944,12 +903,7 @@ pub(crate) fn open(
                                 (h - 1).max(1),
                                 FIELD + index,
                             );
-                            ui::switch(
-                                field.value,
-                                dpi,
-                                (!placement.description.is_empty())
-                                    .then_some((placement.description, small_font)),
-                            );
+                            ui::switch(field.value, dpi);
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
@@ -1120,7 +1074,6 @@ pub(crate) fn open(
                         fields[index] = field;
                     }
                 }
-                let footer_y = layout::HEIGHT - layout::FOOTER + 13;
                 for (label, id, x, width) in [
                     ("ui.reset_defaults", 2311, 17, 132),
                     ("ui.import_settings", 2312, 157, 136),
@@ -1128,7 +1081,16 @@ pub(crate) fn open(
                     ("ui.close", 2314, 862, 85),
                     ("ui.save_and_apply", 2310, 955, 130),
                 ] {
-                    let button = control("BUTTON", label, WS_TABSTOP, x, footer_y, width, 37, id);
+                    let button = control(
+                        "BUTTON",
+                        label,
+                        WS_TABSTOP,
+                        x,
+                        layout::FOOTER_BUTTON_Y,
+                        width,
+                        layout::FOOTER_BUTTON_HEIGHT,
+                        id,
+                    );
                     if id == 2310 {
                         SendMessageW(button, WM_SETFONT, section_font as usize, 0);
                     }
@@ -1150,7 +1112,6 @@ pub(crate) fn open(
                         hwnd,
                         tabs,
                         title,
-                        hint,
                         status: status_label,
                         background,
                         paper,

@@ -628,7 +628,7 @@ pub(super) fn run(
             0,
             ASK_PARAMETER,
         );
-        crate::ui::switch(ask_parameter, dpi, None);
+        crate::ui::switch(ask_parameter, dpi);
         control("STATIC", "ui.input_format", 0, 0, 0, 0, 0, 0);
         let kind = control(
             "COMBOBOX",
