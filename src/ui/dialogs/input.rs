@@ -110,15 +110,19 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
 pub fn ask(owner: HWND, title: &str) -> Option<String> {
-    open(owner, title, None, None)
+    open(owner, title, None, None, None)
 }
 
 pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
-    open(owner, title, Some(message), None).is_some()
+    open(owner, title, Some(message), None, None).is_some()
 }
 
 pub fn report(owner: HWND, title: &str, report: Report) -> bool {
-    open(owner, title, Some(""), Some(report)).is_some()
+    open(owner, title, Some(""), Some(report), None).is_some()
+}
+
+pub fn confirm_details(owner: HWND, title: &str, message: &str, action: &str) -> bool {
+    open(owner, title, Some(message), None, Some(action)).is_some()
 }
 
 fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
@@ -168,7 +172,13 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
     }
 }
 
-fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>) -> Option<String> {
+fn open(
+    owner: HWND,
+    title: &str,
+    message: Option<&str>,
+    report: Option<Report>,
+    action: Option<&str>,
+) -> Option<String> {
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide(if message.is_some() {
@@ -221,11 +231,17 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
             message.is_some_and(|message| message.chars().count() > 84 || message.contains('\n'));
         let report = (*state).report.as_ref();
         let has_rows = report.is_some_and(|r| !r.rows.is_empty());
-        let width = if report.is_some() { 600 } else { 420 };
+        let width = if report.is_some() || action.is_some() {
+            600
+        } else {
+            420
+        };
         let (height, content_height, action_y) = if has_rows {
             (408, 78, 360)
         } else if report.is_some() {
             (168, 96, 120)
+        } else if action.is_some() && long {
+            (298, 218, 249)
         } else if long {
             (278, 203, 230)
         } else if message.is_some() {
@@ -356,6 +372,8 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
             ]
         } else if report.is_some() {
             &[("ui.close", 1, 500, 84)]
+        } else if let Some(action) = action {
+            &[(action, 1, 404, 180), ("ui.cancel", 2, 310, 84)]
         } else if title == "ui.close_settings" {
             &[
                 ("ui.discard_and_close", 1, 156, 120),

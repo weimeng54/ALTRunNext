@@ -53,6 +53,7 @@ use appearance::{
 };
 mod apply;
 use apply::{apply, choose_file};
+mod backup;
 mod layout;
 mod paint;
 mod pickers;
@@ -93,6 +94,9 @@ const OPEN_RELEASES: usize = 2361;
 const OPEN_SOURCE: usize = 2362;
 const OPEN_ISSUES: usize = 2363;
 const ABOUT_SECONDARY: usize = 2364;
+const CREATE_BACKUP: usize = 2365;
+const RESTORE_BACKUP: usize = 2366;
+const BACKUP_RESULT: u32 = WM_APP + 20;
 const CONTACT_EMAIL: &str = "weimeng54@qq.com";
 const CONTACT_URI: &str = "mailto:weimeng54@qq.com";
 const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
@@ -120,6 +124,11 @@ pub enum Change {
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
     Commit(u64),
     Cancel(u64),
+    FlushHistory(mpsc::Sender<mpsc::Receiver<Result<(), String>>>),
+    BeginRestore(mpsc::Sender<Result<mpsc::Receiver<Result<(), String>>, String>>),
+    CancelRestore,
+    FinishRestore,
+    ExitForRecovery,
 }
 
 struct Page {

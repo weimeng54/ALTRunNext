@@ -20,8 +20,9 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 ### 添加和备份启动项
 
 - 在「设置 → 常规」开启并保存「添加 ALTRunNext 到发送到菜单」。在资源管理器中右键单击目标，选择「显示更多选项 → 发送到 → ALTRunNext」，确认后保存。文件可以使用系统默认应用，也可以为该启动项指定打开程序。在设置里关闭此选项即可移除菜单入口。
-- 在「管理启动项 → 工具」导入启动项，程序会自动识别当前 TSV 或原版 ALTRun 的 `ShortCutList.txt`。确认导入后点击「保存」应用。启动项导出为 TSV，设置的导入和导出使用 ALTRunNext 的 INI。
-- 便携版把设置、启动项和使用历史保存在数据目录。升级或迁移前，可备份整个解压目录。
+- 在管理窗口左侧搜索框按快捷项、名称或路径筛选。「工具 → 检查失效路径」可定位并修复找不到的本地目标。
+- 「工具 → 导入启动项」会识别 TSV 或原版 ALTRun 的 `ShortCutList.txt`，可追加或替换。「导入浏览器收藏夹」可从浏览器导出的 HTML 挑选网址。确认后点击「保存」应用。启动项导出为 TSV，设置的导入和导出使用 INI。
+- 「设置 → 常规 → 备份与恢复」可把已保存的启动项、设置、使用历史和自定义背景及声音打包为本地 ZIP。
 
 ### 界面语言
 
@@ -54,8 +55,9 @@ ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, t
 ### Adding and backing up launch items
 
 - In **Settings → General**, enable and save the Send To integration. In File Explorer, right-click a target and choose **Show more options → Send to → ALTRunNext**, then review and save the launch item. A file can open in the system default app or an app selected for that launch item. Turn off the setting to remove the menu entry.
-- Open **Manage launch items → Tools** to import a list of launch items. ALTRunNext detects its TSV format and the original ALTRun `ShortCutList.txt` automatically. Confirm the import and select **Save** to apply it. Launch items are exported as TSV, and settings use the ALTRunNext INI format.
-- The portable app stores settings, launch items, and usage history in its data directory. Back up the extracted folder before upgrading or moving it.
+- Use the search field in the manager to filter by alias, name, or path. **Tools → Check missing paths** lets you locate and repair missing local targets.
+- **Tools → Import launch items** detects TSV or the original ALTRun `ShortCutList.txt` and offers to append or replace. **Import browser bookmarks** lets you select URLs from a browser-exported HTML file. Confirm the import and select **Save** to apply it. Exports use TSV for launch items and INI for settings.
+- **Settings → General → Backup and restore** creates a local ZIP with saved launch items, settings, usage history, and custom background and sound files.
 
 ### Display language
 

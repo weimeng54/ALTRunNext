@@ -45,7 +45,9 @@ pub(super) fn supports_parameter(entry: &Entry) -> bool {
             Some(OpenTarget::Path) => {
                 altrun_probe::management::is_executable(std::path::Path::new(&entry.command))
             }
-            Some(OpenTarget::Document(_) | OpenTarget::LinkArguments(_)) => false,
+            Some(OpenTarget::Document(_) | OpenTarget::LinkArguments(_) | OpenTarget::WebUrl) => {
+                false
+            }
         }
 }
 
@@ -138,11 +140,12 @@ pub(super) fn sync_fields() {
 }
 
 pub(super) fn refresh_list_rows() {
-    let (list, rows, selected, dpi) = EDITOR.with(|c| {
+    let (list, rows, selected, dpi, filter_hint, show_filter_hint) = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         s.refreshing_list = true;
-        s.view = view_order(&s.draft, s.sort);
+        s.view = view_order(&s.draft, s.sort, &s.query);
+        let selected = s.view.iter().position(|&i| i == s.selected);
         (
             s.list,
             s.view
@@ -152,12 +155,24 @@ pub(super) fn refresh_list_rows() {
                     (entry.alias.clone(), entry.name.clone())
                 })
                 .collect::<Vec<_>>(),
-            s.view.iter().position(|&i| i == s.selected),
+            selected,
             s.dpi,
+            s.filter_hint,
+            !s.query.trim().is_empty() && s.draft.get(s.selected).is_some() && selected.is_none(),
         )
     });
     table::replace_rows(list, &rows, selected, scaled(ROW_HEIGHT, dpi));
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().refreshing_list = false);
+    unsafe {
+        ShowWindow(
+            filter_hint,
+            if show_filter_hint {
+                SW_SHOWNOACTIVATE
+            } else {
+                SW_HIDE
+            },
+        );
+    }
 }
 
 pub(super) fn refresh_list() {
@@ -165,17 +180,39 @@ pub(super) fn refresh_list() {
     sync_fields();
 }
 
+pub(super) fn show_selected_in_list() {
+    let filter = EDITOR.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        let query = s.query.trim().to_lowercase();
+        s.draft
+            .get(s.selected)
+            .is_some_and(|entry| !view::matches_filter(entry, &query))
+            .then_some(s.filter)
+    });
+    if let Some(filter) = filter {
+        unsafe {
+            SetWindowTextW(filter, wide("").as_ptr());
+        }
+    }
+    refresh_list();
+}
+
 pub(super) fn select_view_row(row: usize) -> bool {
-    EDITOR.with(|c| {
+    let filter_hint = EDITOR.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         if let Some(&index) = s.view.get(row) {
             s.selected = index;
-            true
+            Some(s.filter_hint)
         } else {
-            false
+            None
         }
-    })
+    });
+    if let Some(hint) = filter_hint {
+        unsafe { ShowWindow(hint, SW_HIDE) };
+    }
+    filter_hint.is_some()
 }
 
 pub(super) fn update_draft(changed: usize) {
@@ -222,7 +259,9 @@ pub(super) fn update_draft(changed: usize) {
         let s = state.as_mut().unwrap();
         let entry = s.draft.get_mut(s.selected)?;
         let previous = entry.clone();
-        let row_changed = entry.alias != alias || entry.name != name;
+        let row_changed = entry.alias != alias
+            || entry.name != name
+            || (!s.query.trim().is_empty() && entry.command != command_text);
         entry.name = name;
         if entry.kind == library::EntryKind::Command {
             entry.alias = alias;

@@ -31,7 +31,7 @@ fn missing_path_check_honors_the_configured_default_directory() {
     let mut report = std::ptr::null_mut();
     wait(|| {
         report = window("ALTRun.Native.Confirmation", process.0.id());
-        !report.is_null() && has_text(report, "正常 1")
+        !report.is_null() && has_text(report, "可用 1 项 · 失效 0 项")
     });
     command(report, 1);
 }

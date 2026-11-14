@@ -67,7 +67,11 @@ pub(super) fn apply_intake(hwnd: HWND) {
             status("ui.launch_item_no_longer_in_draft", true);
             return;
         }
-        refresh_list();
+        if action == VK_F2 {
+            show_selected_in_list();
+        } else {
+            refresh_list();
+        }
         unsafe {
             if action == VK_INSERT {
                 SendMessageW(hwnd, WM_COMMAND, ADD, 0);

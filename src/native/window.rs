@@ -9,6 +9,26 @@ pub(super) unsafe extern "system" fn window_proc(
     w: WPARAM,
     l: LPARAM,
 ) -> LRESULT {
+    if RESTORING_BACKUP.get() {
+        match msg {
+            WM_DROPFILES => {
+                unsafe {
+                    DragFinish(w as _);
+                }
+                return 0;
+            }
+            WM_COPYDATA
+            | WM_HOTKEY
+            | SHOW
+            | WM_COMMAND
+            | WM_CONTEXTMENU
+            | TRAY
+            | QUIT
+            | crate::manager::GEOMETRY_CHANGED
+            | WM_EXITSIZEMOVE => return 0,
+            _ => {}
+        }
+    }
     match msg {
         WM_COPYDATA => match crate::instance::decode(l) {
             Ok(paths) => {

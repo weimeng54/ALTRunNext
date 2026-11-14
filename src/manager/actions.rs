@@ -125,55 +125,7 @@ pub(super) fn tool(hwnd: HWND, id: usize) {
     };
     match id {
         VALIDATE => {
-            use crate::localization::tr;
-            use altrun_probe::management::Validation;
-            let mut missing = Vec::new();
-            let mut present = 0;
-            let mut skipped = 0;
-            for (i, entry) in rows.iter().enumerate() {
-                match altrun_probe::management::validate(entry, base) {
-                    Validation::Missing => missing.push(i),
-                    Validation::Present => present += 1,
-                    Validation::Unconfirmed(_) => skipped += 1,
-                    Validation::NonCommand => {}
-                }
-            }
-            let summary = format!(
-                "{} {}     {} {}     {} {}\n{}\n{}",
-                tr("ui.available"),
-                present,
-                tr("ui.missing"),
-                missing.len(),
-                tr("ui.not_checked"),
-                skipped,
-                tr("ui.urls_system_entries_and_commands_resolved_by"),
-                tr(if missing.is_empty() {
-                    "ui.no_missing_local_targets_were_found"
-                } else {
-                    "ui.review_the_missing_entries_below_save_after"
-                }),
-            );
-            let report = crate::ui::dialogs::input::Report {
-                summary,
-                rows: missing
-                    .iter()
-                    .map(|&i| (rows[i].alias.clone(), rows[i].name.clone()))
-                    .collect(),
-            };
-            if crate::ui::dialogs::input::report(hwnd, "ui.check_missing_paths_2", report)
-                && !missing.is_empty()
-            {
-                EDITOR.with(|c| {
-                    let mut s = c.borrow_mut();
-                    let s = s.as_mut().unwrap();
-                    for i in missing.into_iter().rev() {
-                        s.draft.remove(i);
-                    }
-                    s.selected = 0;
-                });
-                refresh_list();
-                status("ui.missing_entries_removed_from_the_draft_save", false);
-            }
+            repair::inspect(hwnd, &rows, base);
         }
         EXPORT => {
             if let Some(destination) = pick_path(hwnd, true, false) {
@@ -195,35 +147,8 @@ pub(super) fn tool(hwnd: HWND, id: usize) {
                 }
             }
         }
-        RESTORE => {
-            if let Some(source) = pick_path(hwnd, false, false) {
-                match library::import_shortcuts(&source) {
-                    Ok(snapshot) => {
-                        let mut message = crate::localization::tr(
-                            "ui.import_count_shortcuts_and_replace_the_current",
-                        )
-                        .replace("{count}", &snapshot.entries.len().to_string());
-                        if snapshot.ignored_lines > 0 {
-                            message.push('\n');
-                            message.push_str(
-                                &crate::localization::tr("ui.skipped_count_blank_lines_or_notes")
-                                    .replace("{count}", &snapshot.ignored_lines.to_string()),
-                            );
-                        }
-                        if confirm(hwnd, &message) {
-                            EDITOR.with(|c| {
-                                let mut s = c.borrow_mut();
-                                let s = s.as_mut().unwrap();
-                                s.draft = snapshot.entries;
-                                s.selected = 0;
-                            });
-                            refresh_list();
-                        }
-                    }
-                    Err(e) => status(&e, true),
-                }
-            }
-        }
+        RESTORE => super::imports::launch_items(hwnd),
+        IMPORT_BOOKMARKS => super::imports::bookmarks(hwnd),
         _ => {}
     }
 }

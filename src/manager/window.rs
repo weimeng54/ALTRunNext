@@ -23,6 +23,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         return 0;
     }
     if msg == FOCUS {
+        if unsafe { IsWindowEnabled(hwnd) } == 0 {
+            return 0;
+        }
         if crate::shortcut_intake::is_open() {
             if w != 0 {
                 unsafe {
@@ -39,6 +42,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         apply_intake(hwnd);
         return 0;
+    }
+    if msg == WM_ENABLE && w != 0 {
+        unsafe { PostMessageW(hwnd, FOCUS, 0, 0) };
     }
     if msg == WM_CLOSE {
         let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
@@ -211,6 +217,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     w as HDC,
                     if l as HWND == s.status && s.error {
                         theme::error()
+                    } else if l as HWND == s.filter_hint {
+                        theme::muted()
                     } else {
                         theme::text()
                     },
@@ -227,7 +235,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
 fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
     let id = w & 0xffff;
     let notification = (w >> 16) & 0xffff;
-    if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
+    if id == FILTER && notification == EN_CHANGE as usize {
+        let field = unsafe { GetDlgItem(hwnd, FILTER as i32) };
+        let value = text(field);
+        EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().query = value);
+        refresh_list_rows();
+    } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
         || id == KIND && notification == CBN_SELCHANGE as usize
         || id == ASK_PARAMETER && notification == BN_CLICKED as usize
     {
@@ -296,8 +309,8 @@ fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
             CLOSE => unsafe {
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
             },
-            ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | SORT_ORIGINAL | SORT_ALIAS
-            | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
+            ADD_FILE | ADD_FOLDER | VALIDATE | EXPORT | RESTORE | IMPORT_BOOKMARKS
+            | SORT_ORIGINAL | SORT_ALIAS | SORT_NAME | MOVE_UP | MOVE_DOWN => tool(hwnd, id),
             _ => {}
         }
     }
@@ -393,6 +406,13 @@ pub(super) fn run(
                 CAPTION_CLOSE => (WIDTH - 47, 1, 46, CAPTION - 1),
                 NEW_MENU => (RAIL - 180, 62, 78, 32),
                 TOOLS_MENU => (RAIL - 94, 62, 78, 32),
+                FILTER => (17, 103, RAIL - 34, 35),
+                FILTER_HINT => (
+                    FORM_LEFT,
+                    FORM_TOP + COMMAND_FORM_HEIGHT + 16,
+                    FIELD_WIDTH,
+                    34,
+                ),
                 LIST => (17, TABLE_TOP + 1, RAIL - 34, 0),
                 DELETE => (17, FOOTER_TOP + 13, 86, 37),
                 CLOSE => (WIDTH - 338, FOOTER_TOP + 13, 65, 37),
@@ -459,6 +479,33 @@ pub(super) fn run(
         );
         SetWindowTextW(title, ui("ui.edit_shortcut").as_ptr());
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
+        let filter = control(
+            "EDIT",
+            "",
+            WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            0,
+            0,
+            0,
+            0,
+            FILTER,
+        );
+        SendMessageW(
+            filter,
+            EM_SETCUEBANNER,
+            1,
+            ui("ui.filter_launch_items").as_ptr() as LPARAM,
+        );
+        let filter_hint = control(
+            "STATIC",
+            "ui.filtered_launch_item",
+            0,
+            0,
+            0,
+            0,
+            0,
+            FILTER_HINT,
+        );
+        ShowWindow(filter_hint, SW_HIDE);
         SetPropW(
             hwnd,
             wide(TABLE_ROW_HEIGHT_PROP).as_ptr(),
@@ -623,6 +670,9 @@ pub(super) fn run(
                 refreshing_list: false,
                 laid_out_kind: None,
                 list,
+                filter,
+                filter_hint,
+                query: String::new(),
                 alias,
                 name,
                 command,

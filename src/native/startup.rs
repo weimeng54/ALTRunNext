@@ -40,6 +40,7 @@ pub(crate) fn run() -> Result<(), String> {
     let Some(instance_lock) = crate::instance::acquire(&data_path, &intake)? else {
         return Ok(());
     };
+    altrun_probe::backup::recover(&data_path)?;
     let (settings_file, settings_text) =
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("settings.ini"))?;
     drop(settings_file);

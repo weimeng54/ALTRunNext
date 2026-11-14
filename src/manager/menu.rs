@@ -114,6 +114,13 @@ pub(super) fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 append(menu, 0, "", false, true);
                 append(menu, EXPORT, "ui.export_shortcuts", false, false);
                 append(menu, RESTORE, "ui.import_shortcuts", false, false);
+                append(
+                    menu,
+                    IMPORT_BOOKMARKS,
+                    "ui.browser_bookmarks_import",
+                    false,
+                    false,
+                );
             }
         }
         style.background(menu);

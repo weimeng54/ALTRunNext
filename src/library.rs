@@ -112,6 +112,7 @@ pub enum OpenTarget {
     Path,
     Document(Option<String>),
     LinkArguments(String),
+    WebUrl,
 }
 
 impl OpenTarget {
@@ -119,6 +120,7 @@ impl OpenTarget {
         match (kind, program) {
             ("", "") => Ok(None),
             ("path", "") => Ok(Some(Self::Path)),
+            ("web", "") => Ok(Some(Self::WebUrl)),
             ("document", "") => Ok(Some(Self::Document(None))),
             ("document", program) => Ok(Some(Self::Document(Some(program.into())))),
             ("link", arguments) if !arguments.is_empty() => {
@@ -131,6 +133,7 @@ impl OpenTarget {
     fn fields(&self) -> (&str, &str) {
         match self {
             Self::Path => ("path", ""),
+            Self::WebUrl => ("web", ""),
             Self::Document(program) => ("document", program.as_deref().unwrap_or("")),
             Self::LinkArguments(arguments) => ("link", arguments),
         }
@@ -147,6 +150,13 @@ pub(crate) fn validate(e: &Entry) -> Result<(), String> {
         }
     }
     if let Some(target) = &e.open_target {
+        if matches!(target, OpenTarget::WebUrl) {
+            return (e.kind == EntryKind::Command
+                && e.param_type == ParamType::None
+                && crate::browser_bookmarks::url_key(&e.command).is_some())
+            .then_some(())
+            .ok_or_else(|| "ui.browser_bookmarks_invalid_url".into());
+        }
         let executable = matches!(target, OpenTarget::Path)
             && crate::management::is_executable(Path::new(&e.command));
         if e.kind != EntryKind::Command

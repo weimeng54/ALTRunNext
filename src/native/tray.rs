@@ -183,7 +183,30 @@ pub(super) fn lifecycle(clean: bool) {
         });
         return;
     }
-    match std::env::current_exe()
+    match start_replacement(&path, enabled) {
+        Ok(()) => unsafe {
+            PostMessageW(hwnd, QUIT, 0, 0);
+        },
+        Err(e) => show_inline_error(&e),
+    }
+}
+
+pub(super) fn finish_restore() {
+    let (path, enabled, hwnd) = STATE.with(|cell| {
+        let state = cell.borrow();
+        let state = state.as_ref().unwrap();
+        (state.data_path.clone(), state.enabled, state.hwnd)
+    });
+    if start_replacement(&path, enabled).is_err() {
+        crate::ui::show_error("backup.restart_failed");
+    }
+    unsafe {
+        DestroyWindow(hwnd);
+    }
+}
+
+fn start_replacement(path: &std::path::Path, enabled: bool) -> Result<(), String> {
+    std::env::current_exe()
         .map_err(|e| e.to_string())
         .and_then(|exe| {
             use std::os::windows::process::CommandExt;
@@ -195,16 +218,13 @@ pub(super) fn lifecycle(clean: bool) {
                 .arg(std::process::id().to_string());
             if enabled {
                 command.arg("--enable-launch");
+            } else if std::env::args().any(|arg| arg == "--safe-mode") {
+                command.arg("--safe-mode");
             }
             command
                 .creation_flags(0x08000000)
                 .spawn()
                 .map(|_| ())
                 .map_err(|e| e.to_string())
-        }) {
-        Ok(()) => unsafe {
-            PostMessageW(hwnd, QUIT, 0, 0);
-        },
-        Err(e) => show_inline_error(&e),
-    }
+        })
 }

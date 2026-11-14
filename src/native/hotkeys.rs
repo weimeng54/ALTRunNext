@@ -106,6 +106,50 @@ pub(super) fn apply_settings_messages() {
             break;
         };
         match change {
+            crate::settings::Change::FlushHistory(reply) => {
+                let flushed = STATE.with(|s| s.borrow().as_ref().unwrap().usage_writer.flush());
+                let _ = reply.send(flushed);
+            }
+            crate::settings::Change::BeginRestore(reply) => {
+                let result = STATE.with(|cell| {
+                    let state = cell.borrow();
+                    let state = state.as_ref().unwrap();
+                    if crate::manager::is_open() {
+                        return Err("backup.close_manager".into());
+                    }
+                    if RESTORING_BACKUP.get()
+                        || state.launching.is_some()
+                        || state.pending_settings.is_some()
+                    {
+                        return Err("backup.busy".into());
+                    }
+                    RESTORING_BACKUP.set(true);
+                    Ok((state.hwnd, state.usage_writer.flush()))
+                });
+                match result {
+                    Ok((hwnd, flushed)) => {
+                        unsafe {
+                            ShowWindow(hwnd, SW_HIDE);
+                        }
+                        if reply.send(Ok(flushed)).is_err() {
+                            RESTORING_BACKUP.set(false);
+                        }
+                    }
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                    }
+                }
+            }
+            crate::settings::Change::CancelRestore => {
+                RESTORING_BACKUP.set(false);
+            }
+            crate::settings::Change::FinishRestore => super::tray::finish_restore(),
+            crate::settings::Change::ExitForRecovery => {
+                let hwnd = STATE.with(|s| s.borrow().as_ref().unwrap().hwnd);
+                unsafe {
+                    DestroyWindow(hwnd);
+                }
+            }
             crate::settings::Change::Prepare(token, prefs, reply) => {
                 let (hwnd, old, previous, pending) = STATE.with(|c| {
                     let s = c.borrow();

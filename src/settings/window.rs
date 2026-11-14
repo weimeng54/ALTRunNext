@@ -175,7 +175,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             0
         }
         WM_COMMAND => handle_command(hwnd, w, l),
+        BACKUP_RESULT => {
+            backup::complete(hwnd);
+            0
+        }
         WM_CLOSE => {
+            if backup::busy() {
+                return 0;
+            }
             stop_capture();
             let dirty = form_is_dirty();
             if dirty
@@ -206,6 +213,13 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
 fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
     let id = w & 65535;
     let code = (w >> 16) as u32;
+    if backup::busy() {
+        return 0;
+    }
+    if code == BN_CLICKED && matches!(id, CREATE_BACKUP | RESTORE_BACKUP) {
+        backup::open(hwnd, id == RESTORE_BACKUP);
+        return 0;
+    }
     if code == BN_CLICKED
         && let Some((_, _, _, url)) = PROJECT_LINKS.iter().find(|(action, _, _, _)| *action == id)
     {
@@ -821,6 +835,8 @@ pub(crate) fn open(
                     (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
                     (FONT_FAMILY, "", 310, 191, 180, 34, 4),
                     (MORE_COLORS, "ui.other_colors", 215, 517, 288, 40, 4),
+                    (CREATE_BACKUP, "backup.create", 229, 600, 175, 34, 0),
+                    (RESTORE_BACKUP, "backup.restore", 415, 600, 187, 34, 0),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
                     if (SEGMENT..SEGMENT + 5).contains(&id) {

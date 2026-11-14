@@ -11,7 +11,11 @@ use crate::{
     },
 };
 use altrun_probe::{Entry, SearchIndex, advance, parse_entries};
-use std::{cell::RefCell, mem::zeroed, ptr::null_mut};
+use std::{
+    cell::{Cell, RefCell},
+    mem::zeroed,
+    ptr::null_mut,
+};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::{Dwm::*, Gdi::*},
@@ -144,6 +148,7 @@ struct State {
 }
 
 thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
+thread_local! { static RESTORING_BACKUP: Cell<bool> = const { Cell::new(false) }; }
 
 thread_local! { static LAUNCH_SENDER: RefCell<Option<std::sync::mpsc::Sender<Result<(), String>>>> = const { RefCell::new(None) }; }
 

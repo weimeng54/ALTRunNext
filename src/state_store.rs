@@ -66,25 +66,45 @@ impl TextFile {
     }
 }
 pub struct Writer {
-    sender: Option<mpsc::Sender<String>>,
+    sender: Option<mpsc::Sender<WriteRequest>>,
     worker: Option<JoinHandle<()>>,
     pub errors: mpsc::Receiver<String>,
+}
+enum WriteRequest {
+    Text(String),
+    Flush(mpsc::Sender<Result<(), String>>),
 }
 impl Writer {
     pub fn start(file: TextFile) -> Self {
         Self::start_notified(file, || {})
     }
     pub fn start_notified(mut file: TextFile, notify: impl Fn() + Send + 'static) -> Self {
-        let (sender, receiver) = mpsc::channel::<String>();
+        let (sender, receiver) = mpsc::channel();
         let (errors_tx, errors) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            while let Ok(mut text) = receiver.recv() {
-                while let Ok(newer) = receiver.try_recv() {
-                    text = newer;
-                }
-                if let Err(e) = file.save(&text) {
-                    let _ = errors_tx.send(e);
-                    notify();
+            let mut queued = None;
+            let mut previous = Ok(());
+            while let Some(request) = queued.take().or_else(|| receiver.recv().ok()) {
+                match request {
+                    WriteRequest::Text(mut text) => {
+                        while let Ok(request) = receiver.try_recv() {
+                            match request {
+                                WriteRequest::Text(newer) => text = newer,
+                                flush => {
+                                    queued = Some(flush);
+                                    break;
+                                }
+                            }
+                        }
+                        previous = file.save(&text);
+                        if let Err(e) = &previous {
+                            let _ = errors_tx.send(e.clone());
+                            notify();
+                        }
+                    }
+                    WriteRequest::Flush(reply) => {
+                        let _ = reply.send(previous.clone());
+                    }
                 }
             }
         });
@@ -96,8 +116,15 @@ impl Writer {
     }
     pub fn publish(&self, text: String) {
         if let Some(sender) = &self.sender {
-            let _ = sender.send(text);
+            let _ = sender.send(WriteRequest::Text(text));
         }
+    }
+    pub fn flush(&self) -> mpsc::Receiver<Result<(), String>> {
+        let (reply, result) = mpsc::channel();
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(WriteRequest::Flush(reply));
+        }
+        result
     }
 }
 impl Drop for Writer {

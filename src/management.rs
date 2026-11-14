@@ -13,61 +13,167 @@ pub enum Validation {
     Unconfirmed(String),
     NonCommand,
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PathInspection {
+    Present,
+    Missing(MissingPath),
+    Unconfirmed(String),
+    NonCommand,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct MissingPath {
+    pub path: String,
+    pub target: RepairTarget,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepairTarget {
+    File,
+    Folder,
+    Program,
+    OpenWith,
+}
+
 pub fn validate(entry: &Entry, base: &Path) -> Validation {
+    match inspect_path(entry, base) {
+        PathInspection::Present => Validation::Present,
+        PathInspection::Missing(_) => Validation::Missing,
+        PathInspection::Unconfirmed(reason) => Validation::Unconfirmed(reason),
+        PathInspection::NonCommand => Validation::NonCommand,
+    }
+}
+
+pub fn inspect_path(entry: &Entry, base: &Path) -> PathInspection {
     if entry.kind != EntryKind::Command {
-        return Validation::NonCommand;
+        return PathInspection::NonCommand;
     }
     if let Some(target) = &entry.open_target {
+        if matches!(target, OpenTarget::WebUrl) {
+            return PathInspection::Unconfirmed("ui.network_or_system_location_not_checked".into());
+        }
         let program = match target {
-            OpenTarget::Document(Some(program)) => Some(program.as_str()),
+            OpenTarget::Document(Some(program)) => Some((program.as_str(), RepairTarget::OpenWith)),
             _ => None,
         };
-        for path in [Some(entry.command.as_str()), program]
+        let kind = match target {
+            OpenTarget::Path if !is_executable(Path::new(&entry.command)) => RepairTarget::Folder,
+            OpenTarget::Document(_) => RepairTarget::File,
+            _ => RepairTarget::Program,
+        };
+        for (path, target) in [Some((entry.command.as_str(), kind)), program]
             .into_iter()
             .flatten()
         {
-            if launch::is_network_path(path) {
-                return Validation::Unconfirmed("ui.network_location_not_checked".into());
-            }
-            match Path::new(path).try_exists() {
-                Ok(true) => {}
-                Ok(false) => return Validation::Missing,
-                Err(_) => return Validation::Unconfirmed("ui.could_not_read_target_path".into()),
+            let result = inspect_local_path(Path::new(path), target);
+            if result != PathInspection::Present {
+                return result;
             }
         }
-        return Validation::Present;
-    }
-    if entry.command.contains('%') || entry.command.starts_with(['@']) {
-        return Validation::Unconfirmed("ui.contains_placeholders_or_a_window_mode".into());
+        return PathInspection::Present;
     }
     let Ok(directory) = launch::effective_directory(&entry.working_directory, base) else {
-        return Validation::Unconfirmed("ui.invalid_working_directory".into());
+        return PathInspection::Unconfirmed("ui.invalid_working_directory".into());
     };
     if launch::is_network_path(&directory.to_string_lossy()) {
-        return Validation::Unconfirmed("ui.network_working_directory_not_checked".into());
+        return PathInspection::Unconfirmed("ui.network_working_directory_not_checked".into());
     }
-    let Ok(request) =
-        launch::resolve_typed_in(&entry.command, None, ParamType::None, Some(&directory))
+    let Some(file) = launch::resolve_target(&entry.command, &directory)
+        .ok()
+        .or_else(|| unquoted_local_path(&entry.command).map(str::to_owned))
     else {
-        return Validation::Unconfirmed("ui.command_requires_manual_review".into());
+        return PathInspection::Unconfirmed("ui.command_requires_manual_review".into());
     };
-    if launch::is_network_path(&request.file)
-        || request.file.contains("://")
-        || request.file.starts_with("shell:")
-        || request.file.starts_with("::")
+    let lower = file.to_ascii_lowercase();
+    if launch::is_network_path(&file)
+        || file.contains("://")
+        || lower.starts_with("shell:")
+        || lower.starts_with("mailto:")
+        || file.starts_with("::")
     {
-        return Validation::Unconfirmed("ui.network_or_system_location_not_checked".into());
+        return PathInspection::Unconfirmed("ui.network_or_system_location_not_checked".into());
     }
-    let path = Path::new(&request.file);
-    if !path.is_absolute() && !request.file.contains(['\\', '/']) {
-        return Validation::Unconfirmed("ui.resolved_by_windows".into());
+    let path = Path::new(&file);
+    if !path.is_absolute() && !file.contains(['\\', '/']) {
+        return PathInspection::Unconfirmed("ui.resolved_by_windows".into());
     }
-    match directory.join(path).try_exists() {
-        Ok(true) => Validation::Present,
-        Ok(false) => Validation::Missing,
-        Err(_) => Validation::Unconfirmed("ui.could_not_read_target_path".into()),
+    let kind = if file.ends_with(['\\', '/']) || path.extension().is_none() {
+        RepairTarget::Folder
+    } else if is_program(path) {
+        RepairTarget::Program
+    } else {
+        RepairTarget::File
+    };
+    inspect_local_path(&directory.join(path), kind)
+}
+
+fn unquoted_local_path(command: &str) -> Option<&str> {
+    let path = command.trim();
+    (valid_absolute_path(path)
+        && path.contains(char::is_whitespace)
+        && !path.contains(['%', '<', '>', '*', '?', '|'])
+        && !path
+            .split_whitespace()
+            .skip(1)
+            .any(|part| part.starts_with(['-', '/']) || Path::new(part).is_absolute()))
+    .then_some(path)
+}
+
+fn inspect_local_path(path: &Path, target: RepairTarget) -> PathInspection {
+    if launch::is_network_path(&path.to_string_lossy()) {
+        return PathInspection::Unconfirmed("ui.network_location_not_checked".into());
+    }
+    match path.try_exists() {
+        Ok(true) => PathInspection::Present,
+        Ok(false) => PathInspection::Missing(MissingPath {
+            path: path.to_string_lossy().into_owned(),
+            target,
+        }),
+        Err(_) => PathInspection::Unconfirmed("ui.could_not_read_target_path".into()),
     }
 }
+
+pub fn replace_missing_path(
+    entry: &Entry,
+    target: RepairTarget,
+    path: &Path,
+) -> Result<Entry, String> {
+    let path = absolute_path(path)?;
+    let mut updated = entry.clone();
+    if target == RepairTarget::OpenWith {
+        let Some(OpenTarget::Document(current)) = updated.open_target.as_mut() else {
+            return Err("ui.command_requires_manual_review".into());
+        };
+        *current = Some(path);
+    } else {
+        if target == RepairTarget::Program && !is_program(Path::new(&path)) {
+            return Err("ui.choose_a_program_for_repair".into());
+        }
+        updated.command = if updated.open_target.is_some() {
+            path
+        } else {
+            match launch::replace_command_target(&updated.command, &path) {
+                Some(replaced) => replaced,
+                None if unquoted_local_path(&updated.command).is_some() => path,
+                None => return Err("ui.command_requires_manual_review".into()),
+            }
+        };
+    }
+    crate::library::validate(&updated)?;
+    Ok(updated)
+}
+
+fn is_program(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            ["exe", "com", "bat", "cmd", "lnk"]
+                .iter()
+                .any(|kind| ext.eq_ignore_ascii_case(kind))
+        })
+}
+
 pub fn convert_path(entry: &mut Entry, base: &Path, relative: bool) -> Result<bool, String> {
     if entry.kind != EntryKind::Command
         || entry.open_target.is_some()

@@ -37,6 +37,8 @@ pub fn windows_system_directory() -> Result<std::path::PathBuf, String> {
         return Ok(std::path::PathBuf::from(directory));
     }
 }
+pub mod backup;
+pub mod browser_bookmarks;
 #[cfg(windows)]
 pub mod integration;
 mod language_pack;

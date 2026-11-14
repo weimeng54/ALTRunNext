@@ -22,8 +22,36 @@ const TITLES: [&str; 2] = ["ui.alias", "ui.name"];
 
 pub unsafe fn configure(list: HWND, dpi: i32) {
     unsafe {
+        let mut client = RECT::default();
+        GetClientRect(list, &mut client);
+        let width = client.right - GetSystemMetricsForDpi(SM_CXVSCROLL, GetDpiForWindow(list));
+        let first = width * 42 / 100;
+        configure_pixels(
+            list,
+            dpi,
+            &[(TITLES[0], first), (TITLES[1], width - first)],
+            0,
+        );
+    }
+}
+
+pub(super) unsafe fn configure_report(
+    list: HWND,
+    dpi: i32,
+    columns: &[(&str, i32)],
+    extended_styles: u32,
+) {
+    let columns = columns
+        .iter()
+        .map(|&(title, width)| (title, scaled(width, dpi)))
+        .collect::<Vec<_>>();
+    unsafe { configure_pixels(list, dpi, &columns, extended_styles) };
+}
+
+unsafe fn configure_pixels(list: HWND, dpi: i32, columns: &[(&str, i32)], extended_styles: u32) {
+    unsafe {
         SendMessageW(list, LVM_SETUNICODEFORMAT, 1, 0);
-        let style = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER;
+        let style = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | extended_styles;
         SendMessageW(
             list,
             LVM_SETEXTENDEDLISTVIEWSTYLE,
@@ -33,9 +61,7 @@ pub unsafe fn configure(list: HWND, dpi: i32) {
         set_background(list);
         let mut client = RECT::default();
         GetClientRect(list, &mut client);
-        let width = client.right - GetSystemMetricsForDpi(SM_CXVSCROLL, GetDpiForWindow(list));
-        let first = width * 42 / 100;
-        for (column, (title, cx)) in TITLES.into_iter().zip([first, width - first]).enumerate() {
+        for (column, &(title, cx)) in columns.iter().enumerate() {
             let mut title = ui(title);
             let data = LVCOLUMNW {
                 mask: LVCF_TEXT | LVCF_WIDTH,
@@ -114,6 +140,8 @@ unsafe extern "system" fn header_proc(
 pub fn set_background(list: HWND) {
     unsafe {
         SendMessageW(list, LVM_SETBKCOLOR, 0, theme::paper() as LPARAM);
+        SendMessageW(list, LVM_SETTEXTBKCOLOR, 0, theme::paper() as LPARAM);
+        SendMessageW(list, LVM_SETTEXTCOLOR, 0, theme::text() as LPARAM);
     }
 }
 
@@ -135,40 +163,73 @@ pub fn replace_rows(
     selected: Option<usize>,
     row_height: i32,
 ) {
+    replace_cells(
+        list,
+        rows.iter()
+            .map(|(alias, name)| [alias.as_str(), name.as_str()]),
+        selected,
+        row_height,
+    );
+}
+
+pub(super) fn replace_report_rows(
+    list: HWND,
+    rows: &[Vec<String>],
+    selected: Option<usize>,
+    row_height: i32,
+) {
+    replace_cells(
+        list,
+        rows.iter().map(|row| row.iter().map(String::as_str)),
+        selected,
+        row_height,
+    );
+}
+
+fn replace_cells<'a, Row: IntoIterator<Item = &'a str>>(
+    list: HWND,
+    rows: impl ExactSizeIterator<Item = Row>,
+    selected: Option<usize>,
+    row_height: i32,
+) {
     unsafe {
+        let count = rows.len();
         let top = SendMessageW(list, LVM_GETTOPINDEX, 0, 0);
         let left = GetScrollPos(list, SB_HORZ);
         SendMessageW(list, WM_SETREDRAW, 0, 0);
         SendMessageW(list, LVM_DELETEALLITEMS, 0, 0);
-        for (row, (alias, name)) in rows.iter().enumerate() {
-            let mut alias = wide(alias);
+        for (row, contents) in rows.enumerate() {
+            let mut cells = contents.into_iter();
+            let mut first = wide(cells.next().unwrap_or_default());
             let item = LVITEMW {
                 mask: LVIF_TEXT,
                 iItem: row as i32,
-                pszText: alias.as_mut_ptr(),
+                pszText: first.as_mut_ptr(),
                 ..Default::default()
             };
             let inserted = SendMessageW(list, LVM_INSERTITEMW, 0, &item as *const _ as LPARAM);
             if inserted >= 0 {
-                let mut name = wide(name);
-                let item = LVITEMW {
-                    iSubItem: 1,
-                    pszText: name.as_mut_ptr(),
-                    ..Default::default()
-                };
-                SendMessageW(
-                    list,
-                    LVM_SETITEMTEXTW,
-                    inserted as usize,
-                    &item as *const _ as LPARAM,
-                );
+                for (column, text) in cells.enumerate() {
+                    let mut text = wide(text);
+                    let item = LVITEMW {
+                        iSubItem: column as i32 + 1,
+                        pszText: text.as_mut_ptr(),
+                        ..Default::default()
+                    };
+                    SendMessageW(
+                        list,
+                        LVM_SETITEMTEXTW,
+                        inserted as usize,
+                        &item as *const _ as LPARAM,
+                    );
+                }
             }
         }
         if let Some(row) = selected {
             select(list, row);
         }
         SendMessageW(list, WM_SETREDRAW, 1, 0);
-        let top = top.clamp(0, rows.len().saturating_sub(1) as isize);
+        let top = top.clamp(0, count.saturating_sub(1) as isize);
         let current_top = SendMessageW(list, LVM_GETTOPINDEX, 0, 0);
         SendMessageW(
             list,
@@ -206,6 +267,10 @@ pub unsafe fn row_bounds(list: HWND, row: usize) -> RECT {
 }
 
 pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi: i32) {
+    draw_columns(item, &[alias, name], font, dpi);
+}
+
+pub(super) fn draw_columns(item: &DRAWITEMSTRUCT, cells: &[&str], font: HFONT, dpi: i32) {
     unsafe {
         let list = item.hwndItem;
         let dc = item.hDC;
@@ -229,20 +294,8 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
             theme::paper()
         };
         ui::fill(dc, &rect, background);
-        let left = -GetScrollPos(list, SB_HORZ);
-        let first = SendMessageW(list, LVM_GETCOLUMNWIDTH, 0, 0) as i32;
-        let second = SendMessageW(list, LVM_GETCOLUMNWIDTH, 1, 0) as i32;
-        let split = left + first;
+        let mut left = -GetScrollPos(list, SB_HORZ);
         let padding = scaled(8, dpi);
-        ui::fill(
-            dc,
-            &RECT {
-                left: split - 1,
-                right: split,
-                ..rect
-            },
-            theme::divider(),
-        );
         if selected {
             ui::fill(
                 dc,
@@ -257,32 +310,36 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
         }
         let old_font = SelectObject(dc, font);
         let old_mode = SetBkMode(dc, TRANSPARENT as i32);
-        ui::line_text(
-            dc,
-            RECT {
-                left: left + padding,
-                right: split - padding,
-                ..rect
-            },
-            alias,
-            theme::text(),
-            0,
-        );
-        ui::line_text(
-            dc,
-            RECT {
-                left: split + padding,
-                right: split + second - padding,
-                ..rect
-            },
-            name,
-            if selected && theme::high_contrast() {
-                theme::text()
-            } else {
-                theme::muted()
-            },
-            0,
-        );
+        for (column, value) in cells.iter().enumerate() {
+            let right = left + SendMessageW(list, LVM_GETCOLUMNWIDTH, column, 0) as i32;
+            if column + 1 < cells.len() {
+                ui::fill(
+                    dc,
+                    &RECT {
+                        left: right - 1,
+                        right,
+                        ..rect
+                    },
+                    theme::divider(),
+                );
+            }
+            ui::line_text(
+                dc,
+                RECT {
+                    left: left + padding,
+                    right: right - padding,
+                    ..rect
+                },
+                value,
+                if column == 0 || selected && theme::high_contrast() {
+                    theme::text()
+                } else {
+                    theme::muted()
+                },
+                0,
+            );
+            left = right;
+        }
         SetBkMode(dc, old_mode);
         SelectObject(dc, old_font);
         if item.itemState & ODS_FOCUS != 0
@@ -319,7 +376,7 @@ unsafe extern "system" fn table_proc(
                     }
                     HDN_DIVIDERDBLCLICKW | HDN_DIVIDERDBLCLICKA => {
                         let column = (*(l as *const NMHEADERW)).iItem as usize;
-                        if column < TITLES.len() {
+                        if column < SendMessageW(header, HDM_GETITEMCOUNT, 0, 0) as usize {
                             fit_column(list, column, dpi as i32);
                             return 0;
                         }
@@ -340,7 +397,7 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
         let font = SendMessageW(header, WM_GETFONT, 0, 0) as HFONT;
         let old_font = SelectObject(dc, font);
         let old_mode = SetBkMode(dc, TRANSPARENT as i32);
-        for (column, title) in TITLES.into_iter().enumerate() {
+        for column in 0..SendMessageW(header, HDM_GETITEMCOUNT, 0, 0).max(0) as usize {
             let mut rect = RECT::default();
             if SendMessageW(
                 header,
@@ -359,7 +416,7 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
                 );
                 rect.left += scaled(8, dpi);
                 rect.right -= scaled(8, dpi);
-                ui::line_text(dc, rect, &crate::localization::tr(title), theme::muted(), 0);
+                ui::line_text(dc, rect, &header_text(header, column), theme::muted(), 0);
             }
         }
         ui::fill(
@@ -377,7 +434,8 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
 
 unsafe fn fit_column(list: HWND, column: usize, dpi: i32) {
     unsafe {
-        let title = ui(TITLES[column]);
+        let header = SendMessageW(list, LVM_GETHEADER, 0, 0) as HWND;
+        let title = wide(&header_text(header, column));
         let text_width = |text: &[u16]| {
             SendMessageW(list, LVM_GETSTRINGWIDTHW, 0, text.as_ptr() as LPARAM) as i32
         };
@@ -408,4 +466,22 @@ unsafe fn fit_column(list: HWND, column: usize, dpi: i32) {
         let width = (width + scaled(20, dpi)).clamp(scaled(54, dpi), 32767);
         SendMessageW(list, LVM_SETCOLUMNWIDTH, column, width as LPARAM);
     }
+}
+
+unsafe fn header_text(header: HWND, column: usize) -> String {
+    let mut text = [0_u16; 512];
+    let mut item = HDITEMW {
+        mask: HDI_TEXT,
+        pszText: text.as_mut_ptr(),
+        cchTextMax: text.len() as i32,
+        ..Default::default()
+    };
+    unsafe {
+        SendMessageW(header, HDM_GETITEMW, column, &mut item as *mut _ as LPARAM);
+    }
+    let end = text
+        .iter()
+        .position(|&unit| unit == 0)
+        .unwrap_or(text.len());
+    String::from_utf16_lossy(&text[..end])
 }

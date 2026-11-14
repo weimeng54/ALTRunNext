@@ -32,16 +32,19 @@ use window::{run, sync_kind_layout};
 mod editor;
 use editor::{
     can_test, confirm, pending_status, publish_selection, refresh_list, refresh_list_rows, save,
-    select_view_row, status, supports_parameter, sync_fields, text, update_draft,
+    select_view_row, show_selected_in_list, status, supports_parameter, sync_fields, text,
+    update_draft,
 };
 mod actions;
 use actions::{change_open_with, choose_command_target, test_selected, tool};
+mod imports;
 mod intake;
 use intake::{add_paths, apply_intake};
 mod menu;
 use menu::popup;
 mod menu_style;
 mod paint;
+mod repair;
 mod table;
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
 const WIDTH: i32 = crate::ui::geometry::WIDTH;
@@ -57,8 +60,8 @@ const FORM_LEFT: i32 = RAIL + 25;
 const FORM_TOP: i32 = 112;
 const FORM_WIDTH: i32 = WIDTH - RAIL - 51;
 const COMMAND_FORM_HEIGHT: i32 = 355;
-const TABLE_TOP: i32 = 106;
-const LIST_TOP: i32 = 137;
+const TABLE_TOP: i32 = 148;
+const LIST_TOP: i32 = 179;
 const ROW_HEIGHT: i32 = 31;
 const TABLE_ROW_HEIGHT_PROP: &str = "ALTRun.TableRowHeight";
 
@@ -88,6 +91,8 @@ const ALIAS: usize = 2102;
 const NAME: usize = 2103;
 const COMMAND: usize = 2104;
 const KIND: usize = 2105;
+const FILTER: usize = 2106;
+const FILTER_HINT: usize = 2107;
 const PARAMETER_CHOICES: [(ParamType, &str); 3] = [
     (ParamType::Raw, "ui.pass_as_entered"),
     (ParamType::Utf8Url, "ui.utf_8_url_encoding"),
@@ -113,6 +118,7 @@ const SORT_NAME: usize = 2133;
 const MOVE_UP: usize = 2135;
 const MOVE_DOWN: usize = 2136;
 const TEST: usize = 2137;
+const IMPORT_BOOKMARKS: usize = 2138;
 const NOTE_LABEL: usize = 2161;
 const EMPTY_HELP: usize = 2163;
 const CAPTION_CLOSE: usize = 2142;
@@ -147,6 +153,9 @@ struct Editor {
     refreshing_list: bool,
     laid_out_kind: Option<(Option<library::EntryKind>, bool, bool, bool)>,
     list: HWND,
+    filter: HWND,
+    filter_hint: HWND,
+    query: String,
     alias: HWND,
     name: HWND,
     command: HWND,

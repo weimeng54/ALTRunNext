@@ -58,6 +58,55 @@ fn validation_does_not_classify_network_system_or_search_targets_as_missing() {
         ));
     }
 }
+
+#[cfg(windows)]
+#[test]
+fn missing_path_details_distinguish_target_and_open_with() {
+    use altrun_probe::management::{PathInspection, RepairTarget};
+    use std::path::Path;
+
+    let base = std::env::current_dir().unwrap();
+    let document = base.join("Cargo.toml");
+    let missing = base.join("target/missing path/unknown-031.exe");
+    let command = format!("tool\tTool\t\"{}\" --flag {{%p}}\t0\n", missing.display());
+    let entries = parse_entries(&command).unwrap();
+    let PathInspection::Missing(path) = management::inspect_path(&entries[0], &base) else {
+        panic!("missing local command should be repairable");
+    };
+    assert_eq!(path.target, RepairTarget::Program);
+    assert_eq!(Path::new(&path.path), missing);
+
+    let mut entry = management::from_path(&document).unwrap();
+    entry.open_target = Some(altrun_probe::library::OpenTarget::Document(Some(
+        missing.to_string_lossy().into_owned(),
+    )));
+    let PathInspection::Missing(path) = management::inspect_path(&entry, &base) else {
+        panic!("missing program associated with a document should be repairable");
+    };
+    assert_eq!(path.target, RepairTarget::OpenWith);
+    assert_eq!(Path::new(&path.path), missing);
+
+    let original = &entries[0];
+    let repaired =
+        management::replace_missing_path(original, RepairTarget::Program, &missing).unwrap();
+    assert_eq!(repaired.id, original.id);
+    assert!(repaired.command.ends_with(" --flag {%p}"));
+    let repaired =
+        management::replace_missing_path(&entry, RepairTarget::OpenWith, &missing).unwrap();
+    assert_eq!(repaired.id, entry.id);
+    assert_eq!(repaired.command, entry.command);
+
+    let missing_document = base.join("target/missing path/unknown-031.txt");
+    let entries =
+        parse_entries(&format!("note\tNotes\t{}\t0", missing_document.display())).unwrap();
+    let PathInspection::Missing(path) = management::inspect_path(&entries[0], &base) else {
+        panic!("an unquoted document path with spaces should be repairable");
+    };
+    assert_eq!(path.target, RepairTarget::File);
+    assert_eq!(Path::new(&path.path), missing_document);
+    let repaired = management::replace_missing_path(&entries[0], path.target, &document).unwrap();
+    assert_eq!(Path::new(&repaired.command), document);
+}
 #[test]
 fn legacy_path_conversion_preserves_parameters_and_id() {
     let root = std::env::current_dir().unwrap();

@@ -75,6 +75,16 @@ pub fn resolve_entry(
         );
     };
     crate::library::validate(entry)?;
+    if matches!(target, OpenTarget::WebUrl) {
+        return Ok((
+            LaunchRequest {
+                file: entry.command.clone(),
+                parameters: String::new(),
+            },
+            ShowMode::Normal,
+            None,
+        ));
+    }
     let (file, parameters) = match target {
         OpenTarget::Path => {
             let parameters = if entry.param_type == crate::library::ParamType::None {
@@ -85,6 +95,7 @@ pub fn resolve_entry(
             (entry.command.clone(), parameters)
         }
         OpenTarget::Document(None) => (entry.command.clone(), String::new()),
+        OpenTarget::WebUrl => unreachable!(),
         OpenTarget::LinkArguments(arguments) => (entry.command.clone(), arguments.clone()),
         OpenTarget::Document(Some(program)) => {
             if !Path::new(program).is_file() {
