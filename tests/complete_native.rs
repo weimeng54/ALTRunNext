@@ -158,6 +158,19 @@ fn click_tab_and_wait_for_pixels(hwnd: HWND, page: usize, field: &str, screensho
             SendMessageW(tabs, LB_GETITEMRECT, page, &mut row as *mut RECT as isize),
             -1
         );
+        let footer = [2311, 2312, 2313, 2314, 2310].map(|id| GetDlgItem(hwnd, id));
+        let marker = 0x00fe01f7;
+        for button in footer {
+            RedrawWindow(
+                button,
+                null_mut(),
+                null_mut(),
+                RDW_INVALIDATE | RDW_UPDATENOW,
+            );
+            let dc = GetWindowDC(button);
+            assert_eq!(SetPixel(dc, 12, 10, marker), marker);
+            ReleaseDC(button, dc);
+        }
         let point = ((row.top + row.bottom) / 2) << 16 | 20;
         assert_ne!(PostMessageW(tabs, WM_LBUTTONDOWN, 1, point as isize), 0);
         assert_ne!(PostMessageW(tabs, WM_LBUTTONUP, 0, point as isize), 0);
@@ -175,6 +188,20 @@ fn click_tab_and_wait_for_pixels(hwnd: HWND, page: usize, field: &str, screensho
                     (rect.bottom - rect.top) / 2,
                 ) == dark_accent
         });
+        for button in footer {
+            assert_eq!(
+                pixel(button, 12, 10),
+                marker,
+                "page {page} repainted footer button {}",
+                GetDlgCtrlID(button)
+            );
+            RedrawWindow(
+                button,
+                null_mut(),
+                null_mut(),
+                RDW_INVALIDATE | RDW_UPDATENOW,
+            );
+        }
         native_snapshot::save_painted(hwnd, screenshot);
     }
 }
