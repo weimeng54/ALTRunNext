@@ -439,7 +439,11 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
                         continue;
                     }
                     VK_RETURN => {
-                        ui::dialogs::accept_key(hwnd, REPAIR, &[REMOVE, CLOSE, CAPTION_CLOSE]);
+                        crate::ui::dialogs::accept_key(
+                            hwnd,
+                            REPAIR,
+                            &[REMOVE, CLOSE, CAPTION_CLOSE],
+                        );
                         continue;
                     }
                     _ => {}
