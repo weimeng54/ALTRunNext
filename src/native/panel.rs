@@ -128,6 +128,16 @@ pub(super) struct PanelLayout {
     show_command: bool,
 }
 
+pub(super) fn result_label(entry: &Entry) -> Vec<u16> {
+    entry
+        .alias
+        .encode_utf16()
+        .chain(" · ".encode_utf16())
+        .chain(entry.name.encode_utf16())
+        .chain(Some(0))
+        .collect()
+}
+
 pub(super) fn render_hits() {
     let (hwnd, dpi, count) = STATE.with(|c| {
         let s = c.borrow();
@@ -167,51 +177,62 @@ pub(super) fn render_hits() {
         dpi,
         show_command,
     };
-    let (list, empty, show_empty, labels, resize) = STATE.with(|c| {
+    let (list, empty, show_empty, dirty, virtual_results, labels, resize) = STATE.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
-        let labels = std::mem::take(&mut s.list_dirty).then(|| {
+        let dirty = std::mem::take(&mut s.list_dirty);
+        let labels = if dirty && !s.virtual_results {
             s.hits
                 .iter()
-                .map(|&i| {
-                    let entry = &s.entries[i];
-                    entry
-                        .alias
-                        .encode_utf16()
-                        .chain(" · ".encode_utf16())
-                        .chain(entry.name.encode_utf16())
-                        .chain(Some(0))
-                        .collect::<Vec<_>>()
-                })
+                .map(|&i| result_label(&s.entries[i]))
                 .collect::<Vec<_>>()
-        });
+        } else {
+            Vec::new()
+        };
         let resize = s.layout != Some(layout);
         s.layout = Some(layout);
         (
             s.list,
             s.empty,
             count == 0 && !s.current_query.is_empty(),
+            dirty,
+            s.virtual_results,
             labels,
             resize,
         )
     });
     unsafe {
-        if let Some(labels) = labels {
+        if dirty {
             SendMessageW(list, WM_SETREDRAW, 0, 0);
-            SendMessageW(list, LB_RESETCONTENT, 0, 0);
-            if !labels.is_empty() {
+            if virtual_results {
+                if SendMessageW(list, LB_GETCOUNT, 0, 0) != count as isize {
+                    SendMessageW(list, LB_SETCOUNT, count, 0);
+                }
+            } else {
+                SendMessageW(list, LB_RESETCONTENT, 0, 0);
                 let bytes = labels
                     .iter()
                     .map(|label| label.len() * size_of::<u16>())
                     .sum::<usize>();
                 SendMessageW(list, LB_INITSTORAGE, labels.len(), bytes as LPARAM);
-            }
-            for label in &labels {
-                SendMessageW(list, LB_ADDSTRING, 0, label.as_ptr() as LPARAM);
+                for label in &labels {
+                    SendMessageW(list, LB_ADDSTRING, 0, label.as_ptr() as LPARAM);
+                }
             }
             SendMessageW(list, LB_SETCURSEL, 0, 0);
+            if count != 0 && SendMessageW(list, LB_GETTOPINDEX, 0, 0) != 0 {
+                SendMessageW(list, LB_SETTOPINDEX, 0, 0);
+            }
             SendMessageW(list, WM_SETREDRAW, 1, 0);
             InvalidateRect(list, std::ptr::null(), 0);
+            if virtual_results {
+                windows_sys::Win32::UI::Accessibility::NotifyWinEvent(
+                    EVENT_OBJECT_REORDER,
+                    list,
+                    OBJID_CLIENT,
+                    0,
+                );
+            }
         } else if count != 0 {
             // A new query starts at the first result even if its rows are identical.
             if SendMessageW(list, LB_GETCURSEL, 0, 0) != 0 {

@@ -35,6 +35,7 @@ use search::{
 mod input;
 use input::{cancel_parameter, edit_proc, edit_text, search_hint, update_search_ime};
 mod panel;
+mod result_names;
 use panel::{
     apply_appearance, layout_inline_error, list_proc, paint_panel, paint_title, render_hits,
     show_inline_error,
@@ -115,6 +116,7 @@ struct State {
     index: SearchIndex,
     hits: Vec<usize>,
     list_dirty: bool,
+    virtual_results: bool,
     layout: Option<panel::PanelLayout>,
     selected: usize,
     hwnd: HWND,

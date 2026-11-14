@@ -633,12 +633,20 @@ fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
             let key = std::mem::take(&mut s.last_key);
+            let number = s.preferences.flag("NumberKey");
             (
-                s.hits.clone(),
+                if s.parameter_entry.is_none()
+                    && !s.composing
+                    && (key == VK_SPACE || (number && matches!(key, 0x30..=0x39 | 0x60..=0x69)))
+                {
+                    s.hits.clone()
+                } else {
+                    Vec::new()
+                },
                 s.selected,
                 key,
                 s.edit,
-                s.preferences.flag("NumberKey"),
+                number,
                 s.composing,
             )
         });

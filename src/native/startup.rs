@@ -175,20 +175,30 @@ pub(crate) fn run() -> Result<(), String> {
         };
         let title = control("STATIC", STATIC_OWNER_DRAW, 12, 6, 396, 20, TITLE);
         let edit = control("EDIT", ES_AUTOHSCROLL as u32, 18, 35, 384, 22, ID_EDIT);
-        let list = control(
-            "LISTBOX",
-            LBS_NOTIFY as u32
-                | LBS_OWNERDRAWFIXED as u32
-                | LBS_HASSTRINGS as u32
-                | LBS_NOINTEGRALHEIGHT as u32
-                | WS_CLIPSIBLINGS
-                | WS_VSCROLL,
-            8,
-            theme::LIST_Y,
-            404,
-            120,
-            ID_LIST,
-        );
+        let list_style = LBS_NOTIFY as u32
+            | LBS_OWNERDRAWFIXED as u32
+            | LBS_NOINTEGRALHEIGHT as u32
+            | WS_CLIPSIBLINGS
+            | WS_VSCROLL;
+        let create_list = |style| {
+            control(
+                "LISTBOX",
+                list_style | style,
+                8,
+                theme::LIST_Y,
+                404,
+                120,
+                ID_LIST,
+            )
+        };
+        let mut list = create_list(LBS_NODATA as u32);
+        let result_names = super::result_names::ResultNames::register(list);
+        if result_names.is_none() {
+            if !list.is_null() {
+                DestroyWindow(list);
+            }
+            list = create_list(LBS_HASSTRINGS as u32);
+        }
         let command = control(
             "EDIT",
             ES_AUTOHSCROLL as u32 | ES_READONLY as u32,
@@ -284,6 +294,7 @@ pub(crate) fn run() -> Result<(), String> {
                 index,
                 hits: Vec::new(),
                 list_dirty: true,
+                virtual_results: result_names.is_some(),
                 layout: None,
                 selected: 0,
                 hwnd,
