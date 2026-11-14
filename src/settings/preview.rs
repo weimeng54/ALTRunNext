@@ -3,7 +3,7 @@
 
 use crate::{
     native::{make_font, scaled},
-    settings_layout::{BoxRect, PREVIEW},
+    settings::layout::{BoxRect, PREVIEW},
     skin, theme, theme_ui,
 };
 use altrun_probe::preferences::{Font, Preferences};

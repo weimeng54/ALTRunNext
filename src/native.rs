@@ -2248,7 +2248,7 @@ pub fn run() -> Result<(), String> {
         if let Some(binding) = failed_primary
             && crate::startup_warning::show(hwnd, &binding, prefs.flag("ShowTrayIcon"))
         {
-            open_settings_page(Some(crate::settings_layout::HOTKEYS_PAGE));
+            open_settings_page(Some(crate::settings::HOTKEYS_PAGE));
         }
         if !startup_warnings.is_empty() && IsWindowVisible(hwnd) != 0 {
             show_inline_error(&startup_warnings.join("\n"));
@@ -2466,7 +2466,7 @@ fn recent() {
     render_hits();
 }
 fn about() {
-    open_settings_page(Some(crate::settings_layout::ABOUT_PAGE));
+    open_settings_page(Some(crate::settings::ABOUT_PAGE));
 }
 fn open_settings() {
     open_settings_page(None);

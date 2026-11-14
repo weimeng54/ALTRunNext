@@ -18,12 +18,6 @@ mod search_ime;
 #[cfg(windows)]
 mod settings;
 #[cfg(windows)]
-mod settings_layout;
-#[cfg(windows)]
-mod settings_pickers;
-#[cfg(windows)]
-mod settings_preview;
-#[cfg(windows)]
 mod shortcut_intake;
 #[cfg(windows)]
 mod skin;

@@ -327,7 +327,7 @@ pub fn draw_app_icon(dc: HDC, bounds: RECT) {
 pub fn panel_caption(dc: HDC, dpi: i32, font: HFONT, title: &str) {
     draw_app_icon(
         dc,
-        crate::settings_layout::BoxRect::new(16, 12, 18, 18).pixels(dpi),
+        crate::settings::layout::BoxRect::new(16, 12, 18, 18).pixels(dpi),
     );
     unsafe {
         let old = SelectObject(dc, font);
@@ -337,7 +337,7 @@ pub fn panel_caption(dc: HDC, dpi: i32, font: HFONT, title: &str) {
                 left: scaled(44, dpi),
                 top: 0,
                 right: scaled(334, dpi),
-                bottom: scaled(crate::settings_layout::CAPTION, dpi),
+                bottom: scaled(crate::settings::layout::CAPTION, dpi),
             },
             &crate::localization::tr(title),
             theme::text(),
