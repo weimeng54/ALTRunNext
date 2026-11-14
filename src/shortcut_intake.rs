@@ -68,7 +68,9 @@ pub fn pick_program(owner: HWND) -> Result<Option<String>, String> {
     let mut filter = ui("ui.executable_programs");
     filter.extend(wide("*.exe"));
     filter.push(0);
-    let Some(path) = crate::manager::pick_path_filtered(owner, false, false, Some(&filter)) else {
+    let Some(path) =
+        crate::windows::file_picker::pick_path_filtered(owner, false, false, Some(&filter))
+    else {
         return Ok(None);
     };
     if !path.is_file() || !altrun_probe::management::is_executable(&path) {

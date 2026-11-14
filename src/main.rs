@@ -12,10 +12,6 @@ use altrun_probe::localization;
 #[cfg(windows)]
 mod manager;
 #[cfg(windows)]
-mod manager_menu;
-#[cfg(windows)]
-mod manager_table;
-#[cfg(windows)]
 mod native;
 #[cfg(windows)]
 mod search_ime;
@@ -39,6 +35,8 @@ mod theme;
 mod theme_ui;
 #[cfg(windows)]
 mod window_geometry;
+#[cfg(windows)]
+mod windows;
 
 fn main() {
     #[cfg(windows)]

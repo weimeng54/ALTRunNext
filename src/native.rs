@@ -1238,7 +1238,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             Err(_) => 0,
         },
         WM_DROPFILES => {
-            let paths = crate::manager::drop_paths(w as _);
+            let paths = crate::windows::file_picker::drop_paths(w as _);
             crate::manager::enqueue(paths, None);
             open_manager_window(false);
             0

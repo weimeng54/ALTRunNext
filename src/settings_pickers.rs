@@ -77,7 +77,7 @@ pub fn choose(owner: HWND, key: &str, current: &str) -> Option<String> {
                 (color >> 16) & 255
             ));
         }
-        crate::manager::pick_path(owner, false, key == "WorkingDirectory")
+        crate::windows::file_picker::pick_path(owner, false, key == "WorkingDirectory")
             .map(|p| p.to_string_lossy().into_owned())
     }
 }
