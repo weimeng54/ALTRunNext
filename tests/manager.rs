@@ -14,8 +14,8 @@ use windows_sys::Win32::{
         Controls::*,
         HiDpi::GetDpiForWindow,
         Input::KeyboardAndMouse::{
-            IsWindowEnabled, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, VK_ESCAPE, VK_RETURN,
-            mouse_event,
+            IsWindowEnabled, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, VK_DELETE, VK_ESCAPE,
+            VK_RETURN, mouse_event,
         },
         WindowsAndMessaging::*,
     },
@@ -174,6 +174,10 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, key:
     unsafe {
         assert_ne!(PostMessageW(owner, message, command, 0), 0);
     }
+    close_confirmation(owner, pid, key);
+}
+
+fn close_confirmation(owner: HWND, pid: u32, key: u16) {
     let mut dialog = std::ptr::null_mut();
     wait(|| {
         dialog = window("ALTRun.Native.Confirmation", pid);
@@ -184,6 +188,71 @@ fn answer_confirmation(owner: HWND, pid: u32, message: u32, command: usize, key:
         assert_ne!(PostMessageW(dialog, WM_KEYDOWN, key as usize, 0), 0);
     }
     wait(|| unsafe { IsWindow(dialog) == 0 });
+}
+
+#[test]
+fn consecutive_delete_keys_keep_focus_in_the_manager_list() {
+    let _desktop = DESKTOP.lock().unwrap_or_else(|error| error.into_inner());
+    let directory = std::env::current_dir().unwrap().join("target/delete-focus");
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("shortcuts.tsv");
+    let original = concat!(
+        "one\tOne\tnotepad.exe\t0\n",
+        "two\tTwo\tnotepad.exe\t0\n",
+        "three\tThree\tnotepad.exe\t0\n",
+    );
+    std::fs::write(&path, original).unwrap();
+    std::fs::write(
+        path.with_extension("settings.ini"),
+        "[Config]\nHotKey1=\nLastItemHotKey=\nShowTrayIcon=0\n",
+    )
+    .unwrap();
+    let exe = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
+    let process = Running(
+        Command::new(exe)
+            .args(["--safe-mode", "--show", "--data"])
+            .arg(&path)
+            .spawn()
+            .unwrap(),
+    );
+    let pid = process.0.id();
+    let mut launcher = std::ptr::null_mut();
+    wait(|| {
+        launcher = window("ALTRun.Native.PerformanceProbe", pid);
+        !launcher.is_null() && unsafe { !GetDlgItem(launcher, 1001).is_null() }
+    });
+    unsafe {
+        assert_ne!(PostMessageW(launcher, WM_COMMAND, 18003, 0), 0);
+        let mut manager = std::ptr::null_mut();
+        wait(|| {
+            manager = window("ALTRun.Native.ShortcutManager", pid);
+            !manager.is_null() && IsWindowVisible(manager) != 0
+        });
+        let list = GetDlgItem(manager, 2101);
+        assert!(!list.is_null());
+        let thread = GetWindowThreadProcessId(manager, std::ptr::null_mut());
+        let focused = || {
+            let mut info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            assert_ne!(GetGUIThreadInfo(thread, &mut info), 0);
+            info.hwndFocus
+        };
+        wait(|| focused() == list && SendMessageW(list, LVM_GETITEMCOUNT, 0, 0) == 3);
+        for (key, remaining) in [(VK_ESCAPE, 3), (VK_RETURN, 2), (VK_RETURN, 1)] {
+            assert_ne!(PostMessageW(list, WM_KEYDOWN, VK_DELETE as usize, 0), 0);
+            close_confirmation(manager, pid, key);
+            wait(|| {
+                IsWindowEnabled(manager) != 0
+                    && SendMessageW(list, LVM_GETITEMCOUNT, 0, 0) == remaining
+            });
+            wait(|| focused() == list);
+            assert_eq!(selected(list), 0);
+        }
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
 }
 
 #[test]

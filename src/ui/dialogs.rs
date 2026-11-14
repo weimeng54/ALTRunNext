@@ -9,6 +9,48 @@ use windows_sys::Win32::{
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
+pub(crate) struct ModalOwner {
+    window: HWND,
+    focus: HWND,
+    was_enabled: bool,
+}
+
+impl ModalOwner {
+    pub(crate) fn disable(window: HWND) -> Self {
+        unsafe {
+            let focus = GetFocus();
+            let was_enabled = IsWindowEnabled(window) != 0;
+            if was_enabled {
+                EnableWindow(window, 0);
+            }
+            Self {
+                window,
+                focus,
+                was_enabled,
+            }
+        }
+    }
+
+    pub(crate) fn restore(self, activate: bool) {
+        unsafe {
+            if !self.was_enabled || IsWindow(self.window) == 0 {
+                return;
+            }
+            EnableWindow(self.window, 1);
+            if !activate || IsWindowVisible(self.window) == 0 {
+                return;
+            }
+            SetForegroundWindow(self.window);
+            if IsChild(self.window, self.focus) != 0
+                && IsWindowVisible(self.focus) != 0
+                && IsWindowEnabled(self.focus) != 0
+            {
+                SetFocus(self.focus);
+            }
+        }
+    }
+}
+
 pub(crate) fn accept_key(dialog: HWND, primary: usize, actions: &[usize]) {
     unsafe {
         let focus = GetFocus();

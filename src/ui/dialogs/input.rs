@@ -641,7 +641,7 @@ fn open(
                 focus = button;
             }
         }
-        EnableWindow(owner, 0);
+        let modal_owner = super::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetFocus(focus);
         loop {
@@ -679,8 +679,7 @@ fn open(
         if IsWindow(hwnd) != 0 {
             DestroyWindow(hwnd);
         }
-        EnableWindow(owner, 1);
-        SetForegroundWindow(owner);
+        modal_owner.restore(true);
         DeleteObject(font);
         if !(*state).caption.is_null() {
             DeleteObject((*state).caption);
