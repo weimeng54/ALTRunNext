@@ -199,6 +199,9 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             SendMessageW(edit, WM_KEYDOWN, 0x26, 0);
             assert_eq!(SendMessageW(list, LB_GETCURSEL, 0, 0), 10);
             assert!(SendMessageW(list, LB_GETTOPINDEX, 0, 0) > 0);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("Z").as_ptr() as isize);
+            assert_eq!(SendMessageW(list, LB_GETCURSEL, 0, 0), 0);
+            assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 0);
             SendMessageW(edit, WM_SETTEXT, 0, [0_u16].as_ptr() as isize);
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
             let row_height = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) as u32;

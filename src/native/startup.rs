@@ -283,6 +283,8 @@ pub(crate) fn run() -> Result<(), String> {
                 entries,
                 index,
                 hits: Vec::new(),
+                list_dirty: true,
+                layout: None,
                 selected: 0,
                 hwnd,
                 edit,

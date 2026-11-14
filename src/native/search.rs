@@ -55,33 +55,35 @@ pub(super) fn refresh() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.generation = s.generation.wrapping_add(1);
-        s.current_query = query.clone();
+        s.current_query = query;
+        let query = &s.current_query;
         s.default_list_ready = query.is_empty();
-        s.hits = s
+        let mut hits = s
             .index
-            .query_options(&query, s.preferences.flag("MatchAnywhere"));
+            .query_options(query, s.preferences.flag("MatchAnywhere"));
         if !s.default_list_ready {
-            promote_preference(s);
+            promote_preference(s, &mut hits);
         }
+        s.list_dirty |= hits != s.hits;
+        s.hits = hits;
         s.selected = 0;
     });
     render_hits();
 }
 
-fn promote_preference(s: &mut State) {
+fn promote_preference(s: &State, hits: &mut [usize]) {
     if s.preferences.flag("RememberFavouratMatch")
         && let Some(id) = s.usage.favourites.get(&s.current_query)
-        && let Some(pos) = s.hits.iter().position(|i| &s.entries[*i].id == id)
+        && let Some(pos) = hits.iter().position(|i| &s.entries[*i].id == id)
         && pos != 0
         && s.index.same_match_priority(
             &s.current_query,
             s.preferences.flag("MatchAnywhere"),
-            s.hits[0],
-            s.hits[pos],
+            hits[0],
+            hits[pos],
         )
     {
-        let hit = s.hits.remove(pos);
-        s.hits.insert(0, hit);
+        hits[..=pos].rotate_right(1);
     }
 }
 
@@ -146,6 +148,7 @@ pub(super) fn reset_search() {
 
 pub(super) fn rebuild_index(s: &mut State) {
     s.default_list_ready = false;
+    s.list_dirty = true;
     let mut rows = s.entries.clone();
     for entry in &mut rows {
         entry.frequency = entry.frequency.saturating_add(
@@ -186,7 +189,7 @@ pub(super) fn recent() {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
         s.default_list_ready = false;
-        s.hits = s
+        let hits = s
             .usage
             .recent
             .iter()
@@ -196,6 +199,8 @@ pub(super) fn recent() {
                 })
             })
             .collect();
+        s.list_dirty |= hits != s.hits;
+        s.hits = hits;
         s.selected = 0;
     });
     render_hits();

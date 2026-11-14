@@ -119,13 +119,22 @@ pub(super) fn layout_inline_error() {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct PanelLayout {
+    width: i32,
+    row: i32,
+    height: i32,
+    dpi: i32,
+    show_command: bool,
+}
+
 pub(super) fn render_hits() {
-    let (hwnd, list, command, dpi, count) = STATE.with(|c| {
+    let (hwnd, dpi, count) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
-        (s.hwnd, s.list, s.command, s.dpi, s.hits.len())
+        (s.hwnd, s.dpi, s.hits.len())
     });
-    let (mut width, row, mut max_rows, show_command, edit, title) = STATE.with(|c| {
+    let (mut width, row, mut max_rows, show_command) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
@@ -133,8 +142,6 @@ pub(super) fn render_hits() {
             s.preferences.number("RowHeight"),
             s.preferences.number("MaxRows"),
             s.preferences.flag("ShowCommandLine"),
-            s.edit,
-            s.title,
         )
     });
     let row_pixels = scaled(row, dpi).max(1);
@@ -153,24 +160,98 @@ pub(super) fn render_hits() {
             max_rows = max_rows.min((available / row_pixels).max(1));
         }
     }
-    let labels = STATE.with(|c| {
-        let s = c.borrow();
-        let s = s.as_ref().unwrap();
-        s.hits
-            .iter()
-            .take(count)
-            .map(|i| format!("{} · {}", s.entries[*i].alias, s.entries[*i].name))
-            .collect::<Vec<_>>()
+    let layout = PanelLayout {
+        width,
+        row,
+        height: (count.max(1) as i32).min(max_rows) * row_pixels,
+        dpi,
+        show_command,
+    };
+    let (list, empty, show_empty, labels, resize) = STATE.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        let labels = std::mem::take(&mut s.list_dirty).then(|| {
+            s.hits
+                .iter()
+                .map(|&i| {
+                    let entry = &s.entries[i];
+                    entry
+                        .alias
+                        .encode_utf16()
+                        .chain(" · ".encode_utf16())
+                        .chain(entry.name.encode_utf16())
+                        .chain(Some(0))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        });
+        let resize = s.layout != Some(layout);
+        s.layout = Some(layout);
+        (
+            s.list,
+            s.empty,
+            count == 0 && !s.current_query.is_empty(),
+            labels,
+            resize,
+        )
     });
     unsafe {
-        SendMessageW(list, WM_SETREDRAW, 0, 0);
-        SendMessageW(list, LB_RESETCONTENT, 0, 0);
-        for label in labels {
-            SendMessageW(list, LB_ADDSTRING, 0, wide(&label).as_ptr() as isize);
+        if let Some(labels) = labels {
+            SendMessageW(list, WM_SETREDRAW, 0, 0);
+            SendMessageW(list, LB_RESETCONTENT, 0, 0);
+            if !labels.is_empty() {
+                let bytes = labels
+                    .iter()
+                    .map(|label| label.len() * size_of::<u16>())
+                    .sum::<usize>();
+                SendMessageW(list, LB_INITSTORAGE, labels.len(), bytes as LPARAM);
+            }
+            for label in &labels {
+                SendMessageW(list, LB_ADDSTRING, 0, label.as_ptr() as LPARAM);
+            }
+            SendMessageW(list, LB_SETCURSEL, 0, 0);
+            SendMessageW(list, WM_SETREDRAW, 1, 0);
+            InvalidateRect(list, std::ptr::null(), 0);
+        } else if count != 0 {
+            // A new query starts at the first result even if its rows are identical.
+            if SendMessageW(list, LB_GETCURSEL, 0, 0) != 0 {
+                SendMessageW(list, LB_SETCURSEL, 0, 0);
+            }
+            if SendMessageW(list, LB_GETTOPINDEX, 0, 0) != 0 {
+                SendMessageW(list, LB_SETTOPINDEX, 0, 0);
+            }
         }
-        SendMessageW(list, LB_SETCURSEL, 0, 0);
-        let height = (count.max(1) as i32).min(max_rows) * row_pixels;
-        let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
+        if resize {
+            layout_results(hwnd, layout);
+        }
+        if (GetWindowLongW(empty, GWL_STYLE) as u32 & WS_VISIBLE != 0) != show_empty {
+            ShowWindow(
+                empty,
+                if show_empty {
+                    SW_SHOWNOACTIVATE
+                } else {
+                    SW_HIDE
+                },
+            );
+        }
+    }
+    update_selection();
+}
+
+fn layout_results(hwnd: HWND, layout: PanelLayout) {
+    let PanelLayout {
+        width,
+        row,
+        height,
+        dpi,
+        show_command,
+    } = layout;
+    let (list, edit, title, command, empty, buttons) = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (s.list, s.edit, s.title, s.command, s.empty, s.buttons)
+    });
+    unsafe {
         SetWindowPos(
             empty,
             null_mut(),
@@ -189,7 +270,6 @@ pub(super) fn render_hits() {
             scaled(22, dpi),
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        let buttons = STATE.with(|c| c.borrow().as_ref().unwrap().buttons);
         let mut offset = 10;
         for button in buttons.into_iter().rev() {
             offset += 24;
@@ -239,38 +319,20 @@ pub(super) fn render_hits() {
             scaled(if show_command { theme::BASE_HEIGHT } else { 70 }, dpi) + height,
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
-        let mut rect: RECT = zeroed();
-        GetWindowRect(hwnd, &mut rect);
         let diameter = scaled(16, dpi);
         let region = CreateRoundRectRgn(
             0,
             0,
-            rect.right - rect.left + 1,
-            rect.bottom - rect.top + 1,
+            scaled(width, dpi) + 1,
+            scaled(if show_command { theme::BASE_HEIGHT } else { 70 }, dpi) + height + 1,
             diameter,
             diameter,
         );
         if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
             DeleteObject(region);
         }
-        SendMessageW(list, WM_SETREDRAW, 1, 0);
-        InvalidateRect(list, std::ptr::null(), 0);
-        let (empty, has_query) = STATE.with(|c| {
-            let state = c.borrow();
-            let s = state.as_ref().unwrap();
-            (s.empty, !s.current_query.is_empty())
-        });
-        ShowWindow(
-            empty,
-            if count == 0 && has_query {
-                SW_SHOWNOACTIVATE
-            } else {
-                SW_HIDE
-            },
-        );
         InvalidateRect(hwnd, std::ptr::null(), 0);
     }
-    update_selection();
 }
 
 pub(super) fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {

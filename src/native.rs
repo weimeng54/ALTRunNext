@@ -113,6 +113,8 @@ struct State {
     entries: Vec<Entry>,
     index: SearchIndex,
     hits: Vec<usize>,
+    list_dirty: bool,
+    layout: Option<panel::PanelLayout>,
     selected: usize,
     hwnd: HWND,
     edit: HWND,
