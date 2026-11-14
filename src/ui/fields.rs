@@ -3,6 +3,7 @@
 
 use super::{painting::*, scaled};
 use crate::theme;
+use std::ptr::null_mut;
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -316,8 +317,8 @@ unsafe extern "system" fn edit_proc(
             };
             let mut bounds = RECT::default();
             GetClientRect(hwnd, &mut bounds);
-            let old = SelectObject(dc, SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT);
             if !dc.is_null() {
+                let old = SelectObject(dc, SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT);
                 fill(
                     dc,
                     &bounds,

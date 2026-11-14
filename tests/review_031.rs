@@ -234,7 +234,8 @@ fn check_launcher_scrollbar(data: &Path, theme: &str, scale: &str) {
         .map(|i| format!("test{i}\tSynthetic {i}\tnotepad.exe\t0\n"))
         .collect::<String>();
     std::fs::write(data, rows).unwrap();
-    let (mut process, launcher) = start(data, theme, scale);
+    let (mut process, _) = start(data, theme, scale);
+    let launcher = ready_window(process.0.id(), "ALTRun.Native.PerformanceProbe", 1006);
     let list = child(launcher, 1002);
     let track = child(launcher, 1006);
     wait(|| unsafe { IsWindowVisible(track) != 0 });
