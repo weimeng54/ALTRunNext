@@ -92,51 +92,28 @@ fn work(hwnd: HWND, job: impl FnOnce() -> Complete + Send + 'static) {
 }
 
 fn selection(hwnd: HWND, save: bool) -> Option<PathBuf> {
-    use std::os::windows::ffi::OsStringExt;
+    use crate::windows::file_picker::{pick_path_filtered, save_file};
+
     let descriptor = wide(&format!(
         "{}\0*.zip\0",
         localization::tr("backup.zip_filter")
     ));
-    let mut name = vec![0u16; 32768];
     if save {
-        let default_name = wide("ALTRunNext-backup.zip");
-        name[..default_name.len()].copy_from_slice(&default_name);
+        save_file(hwnd, &descriptor, "ALTRunNext-backup.zip", "zip")
+    } else {
+        pick_path_filtered(hwnd, false, false, Some(&descriptor))
     }
-    let extension = wide("zip");
-    let dialog = &mut OPENFILENAMEW {
-        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
-        hwndOwner: hwnd,
-        lpstrFile: name.as_mut_ptr(),
-        nMaxFile: name.len() as u32,
-        lpstrFilter: descriptor.as_ptr(),
-        lpstrDefExt: extension.as_ptr(),
-        Flags: OFN_NOCHANGEDIR
-            | OFN_EXPLORER
-            | if save {
-                OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST
-            } else {
-                OFN_FILEMUSTEXIST
-            },
-        ..unsafe { std::mem::zeroed() }
-    };
-    let ok = unsafe {
-        if save {
-            GetSaveFileNameW(dialog)
-        } else {
-            GetOpenFileNameW(dialog)
-        }
-    };
-    (ok != 0).then(|| {
-        let end = name.iter().position(|&ch| ch == 0).unwrap_or(name.len());
-        PathBuf::from(std::ffi::OsString::from_wide(&name[..end]))
-    })
 }
 
 pub(super) fn open(hwnd: HWND, restore: bool) {
+    begin(hwnd, restore);
+}
+
+fn begin(hwnd: HWND, restore: bool) -> bool {
     let (data, settings, launcher) = context();
     let source = if restore {
         let Some(path) = selection(hwnd, false) else {
-            return;
+            return false;
         };
         Some(path)
     } else {
@@ -156,6 +133,7 @@ pub(super) fn open(hwnd: HWND, restore: bool) {
             },
         }
     });
+    true
 }
 
 fn media(value: Media, filename: Option<&str>, default: &str) -> String {
@@ -350,17 +328,17 @@ fn failed(hwnd: HWND, error: &str, restore: bool, pending: bool) {
             DestroyWindow(hwnd);
         }
         queue(&settings, launcher, Change::ExitForRecovery);
-    } else if confirm_details(
-        hwnd,
-        if restore {
+    } else {
+        let title = if restore {
             "backup.preview_restore"
         } else {
             "backup.preview_create"
-        },
-        &message,
-        "backup.retry",
-    ) {
-        open(hwnd, restore);
+        };
+        while confirm_details(hwnd, title, &message, "backup.retry") {
+            if begin(hwnd, restore) {
+                break;
+            }
+        }
     }
 }
 

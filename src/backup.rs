@@ -62,12 +62,22 @@ pub struct Backup {
 
 impl Backup {
     pub fn capture(data: &Path) -> Result<Self, String> {
-        let shortcuts = required(data, SHORTCUTS)?;
+        Self::from_profile(
+            data,
+            [
+                file(data, SHORTCUTS)?,
+                file(&data.with_extension("settings.ini"), SETTINGS)?,
+                file(&data.with_extension("state.tsv"), HISTORY)?,
+            ],
+        )
+    }
+
+    fn from_profile(data: &Path, profile: [Option<Vec<u8>>; 3]) -> Result<Self, String> {
+        let [shortcuts, settings, history] = profile;
+        let shortcuts = shortcuts.ok_or_else(|| io_error(data.display()))?;
         let count = crate::parse_entries(&library::decode(&shortcuts)?)?.len();
-        let settings = Preferences::parse(&library::decode(
-            &file(&data.with_extension("settings.ini"), SETTINGS)?.unwrap_or_default(),
-        )?)?;
-        let history = file(&data.with_extension("state.tsv"), HISTORY)?.unwrap_or_default();
+        let settings = Preferences::parse(&library::decode(&settings.unwrap_or_default())?)?;
+        let history = history.unwrap_or_default();
         Usage::parse(&library::decode(&history)?)?;
         let base = data.parent().unwrap_or_else(|| Path::new("."));
         let background_name = settings.get("BGFileName");
@@ -265,7 +275,10 @@ mod tests {
         assert_eq!(archive.count(), 1);
         assert_eq!(archive.background(), Media::Included);
         assert_eq!(archive.sound(), Media::Included);
-        apply(&target, archive, (false, true)).unwrap();
+        let previous = apply(&target, archive, (false, true)).unwrap();
+        let previous = Backup::load(&previous).unwrap();
+        assert_eq!(previous.shortcuts, b"calc\tCalculator\tcalc.exe\t0\n");
+        assert_eq!(previous.background(), Media::Default);
         let restored = Backup::capture(&target).unwrap();
         assert!(!restored.settings.flag("AutoRun"));
         assert!(restored.settings.flag("AddToSendTo"));

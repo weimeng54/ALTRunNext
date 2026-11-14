@@ -91,12 +91,17 @@ fn choose_file(pid: u32, file: &Path) {
         "Selecting synthetic file {}",
         file.file_name().unwrap().display()
     );
-    let value = review_native_support::wide(&file.to_string_lossy());
+    let path = file.to_string_lossy().replace('/', "\\");
+    let value = review_native_support::wide(&path);
     unsafe {
         SendMessageW(input, EM_SETSEL, 0, -1);
         SendMessageW(input, EM_REPLACESEL, 1, value.as_ptr() as LPARAM);
+        assert_eq!(text(input), path);
         let submit = child(picker, IDOK);
-        assert_ne!(PostMessageW(submit, BM_CLICK, 0, 0), 0);
+        assert_ne!(
+            PostMessageW(picker, WM_COMMAND, IDOK as usize, submit as LPARAM),
+            0
+        );
     }
     wait(|| unsafe { IsWindow(picker) == 0 });
 }
@@ -165,7 +170,10 @@ fn check_launcher(launcher: HWND, theme: &str, scale: &str) {
 
 #[test]
 fn windows_031_management_and_import_previews() {
-    let dir = std::env::current_dir().unwrap().join("target/review-031");
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join("review-031");
     std::fs::create_dir_all(&dir).unwrap();
     let data = dir.join("shortcuts.tsv");
     let available = dir.join("existing file.txt");

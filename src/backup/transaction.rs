@@ -124,17 +124,19 @@ fn clean(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn checkpoint(dir: &Path, data: &Path) -> Result<(), String> {
+fn checkpoint(dir: &Path, data: &Path) -> Result<[Option<Vec<u8>>; 3], String> {
+    let mut originals = [None, None, None];
     for (i, file) in FILES.iter().enumerate() {
         let live = target(data, i);
         if regular(&live, false)? {
             let old = super::required(&live, file)?;
             write_file(&dir.join(format!("old-{i}")), |f| f.write_all(&old))?;
+            originals[i] = Some(old);
         } else {
             write_file(&dir.join(format!("absent-{i}")), |_| Ok(()))?;
         }
     }
-    Ok(())
+    Ok(originals)
 }
 
 pub fn recover(data: &Path) -> Result<(), String> {
@@ -214,16 +216,16 @@ pub fn apply(data: &Path, backup: Backup, integrations: (bool, bool)) -> Result<
     let dir = journal(data);
     // Handle an interrupted restore before creating another journal.
     recover(data)?;
-    let current = Backup::capture(data)?;
     let current_zip = data.with_file_name(format!(
         "ALTRunNext-before-restore-{}.zip",
         crate::library::new_id()
     ));
-    current.write(&current_zip)?;
     fs::create_dir(&dir).map_err(io_error)?;
     let media_name = format!("altrun-media-{}", crate::library::new_id());
     let result = (|| {
-        checkpoint(&dir, data)?;
+        let originals = checkpoint(&dir, data)?;
+        // The automatic backup and the journal refer to the very same saved bytes.
+        Backup::from_profile(data, originals)?.write(&current_zip)?;
         write_file(&dir.join("media"), |file| {
             file.write_all(media_name.as_bytes())
         })?;
