@@ -146,6 +146,34 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     wait(|| unsafe { IsWindow(settings) == 0 });
 }
 
+fn check_legacy_import(manager: HWND, pid: u32, dir: &Path, list: HWND) {
+    let invalid = dir.join("unreadable.txt");
+    std::fs::write(&invalid, "This file does not contain launch items.").unwrap();
+    begin(manager, 2129);
+    choose_file(pid, &invalid);
+    let error = ready_window(pid, "ALTRun.Native.ImportPreview", 2913);
+    assert!(!text(child(error, 2913)).is_empty());
+    begin(error, 2902);
+    wait(|| unsafe { IsWindow(error) == 0 });
+
+    let legacy = dir.join("ShortCutList.txt");
+    let legacy_text = "F7|记事本|笔记|notepad.exe\r\n";
+    let bytes = [0xfeff_u16]
+        .into_iter()
+        .chain(legacy_text.encode_utf16())
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    std::fs::write(&legacy, bytes).unwrap();
+    choose_file(pid, &legacy);
+    let preview = ready_window(pid, "ALTRun.Native.ImportPreview", 2906);
+    assert_eq!(count(child(preview, 2901)), 1);
+    command(preview, 2906);
+    assert!(text(child(preview, 2912)).contains('3'));
+    begin(preview, 2903);
+    wait(|| unsafe { IsWindow(preview) == 0 });
+    assert_eq!(count(list), 3);
+}
+
 fn child(hwnd: HWND, id: i32) -> HWND {
     let control = unsafe { GetDlgItem(hwnd, id) };
     assert!(!control.is_null(), "missing control {id}");
@@ -264,6 +292,10 @@ fn windows_031_management_and_import_previews() {
         begin(preview, 2902);
         wait(|| count(list) == 3);
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
+
+        if scale == "100" {
+            check_legacy_import(manager, pid, &dir, list);
+        }
 
         begin(manager, 2138);
         choose_file(pid, &bookmarks);

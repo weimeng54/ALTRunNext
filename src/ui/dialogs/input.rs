@@ -427,7 +427,7 @@ fn open(
         let y = |coordinate| scaled(start_y + coordinate, dpi);
         if preview.is_some() {
             (*state).caption = make_font(14, 600, "Microsoft YaHei UI", dpi);
-            ui::round_panel(hwnd, width, height + start_y, dpi);
+            ui::round_panel(hwnd, scaled(width, dpi), scaled(height + start_y, dpi), dpi);
             let close = CreateWindowExW(
                 0,
                 wide("BUTTON").as_ptr(),
