@@ -144,17 +144,24 @@ fn search_treats_punctuation_as_literal_text() {
 #[test]
 fn literal_search_ranks_exact_prefix_contiguous_then_fuzzy() {
     let rows = altrun_probe::parse_entries(concat!(
-        "doubao\t豆包\tn.exe\t5000\n",
-        "mydb\tMiddle\tn.exe\t4000\n",
-        "db-tools\tPrefix\tn.exe\t1000\n",
-        "db\tExact\tn.exe\t0\n",
-        "bad\tWrong order\tn.exe\t9999\n",
+        "calc\t计算器\tcalc.exe\t5000\n",
+        "mycl\tMiddle\tn.exe\t4000\n",
+        "cl-tools\tPrefix\tn.exe\t1000\n",
+        "cl\tExact\tn.exe\t0\n",
+        "lc\tWrong order\tn.exe\t9999\n",
     ))
     .unwrap();
     let index = altrun_probe::SearchIndex::new(&rows);
-    assert_eq!(index.query_options("DB", true), vec![3, 2, 1, 0]);
-    assert_eq!(index.query_options("db", false), vec![3, 2]);
-    assert!(!index.same_match_priority("db", true, 3, 2));
+    assert_eq!(index.query_options("CL", true), vec![3, 2, 1, 0]);
+    assert_eq!(index.query_options("cl", false), vec![3, 2]);
+    assert!(!index.same_match_priority("cl", true, 3, 2));
+    assert!(index.query("计算器").is_empty());
+    assert!(altrun_probe::preferences::Preferences::default().flag("EnglishSearch"));
+    assert!(
+        !altrun_probe::preferences::Preferences::parse("[Config]\nEnglishSearch=0")
+            .unwrap()
+            .flag("EnglishSearch")
+    );
 }
 
 #[test]

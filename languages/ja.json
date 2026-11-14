@@ -135,7 +135,6 @@
     "ui.discard_unsaved_changes_and_close": "変更が保存されていません。破棄して閉じますか？",
     "ui.discard_unsaved_settings": "保存していない設定を破棄しますか？",
     "ui.documents": "ドキュメント",
-    "ui.doubao": "Doubao",
     "ui.downloads": "ダウンロード",
     "ui.downloads_2": "ダウンロード",
     "ui.dynamic_input_cannot_replace_the_program_path": "動的な値でプログラムのパスを置き換えるには、設定で明示的に許可してください。",

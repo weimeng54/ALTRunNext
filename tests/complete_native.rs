@@ -500,7 +500,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         select_page(dialog, 3);
         let preview = GetDlgItem(dialog, 2306);
         assert_ne!(IsWindowVisible(preview), 0);
-        set(preview, "db");
+        set(preview, "cl");
         let theme = setting(dialog, "Theme");
         SendMessageW(theme, CB_SETCURSEL, 1, 0);
         SendMessageW(

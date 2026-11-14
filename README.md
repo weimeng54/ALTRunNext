@@ -9,7 +9,7 @@
 
 ## 简体中文
 
-ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 **Alt+R** 呼出，输入快捷项，按 **Enter** 打开程序、文件、文件夹或网址。例如，可以用 `db` 找到快捷项为 `doubao` 的启动项。
+ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 **Alt+R** 呼出，输入快捷项，按 **Enter** 打开程序、文件、文件夹或网址。例如，输入 `cl` 可以找到快捷项为 `calc` 的 Windows 计算器。
 
 ### 快速开始
 
@@ -43,7 +43,7 @@ cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
 
 ## English
 
-ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, type an alias, and press **Enter** to open an app, file, folder, or website. Fuzzy matching lets you find an alias like `doubao` by typing `db`.
+ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, type an alias, and press **Enter** to open an app, file, folder, or website. Type `cl` to find Windows Calculator, whose alias is `calc`.
 
 ### Getting started
 

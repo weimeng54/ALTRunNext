@@ -662,7 +662,7 @@ pub(crate) fn open(
                     0,
                     ui("ui.type_a_shortcut").as_ptr() as isize,
                 );
-                SetWindowTextW(preview_controls[2], wide("d").as_ptr());
+                SetWindowTextW(preview_controls[2], wide("cl").as_ptr());
                 let mut sections = Vec::new();
                 for card in layout::CARDS {
                     let group = control(

@@ -115,11 +115,11 @@ impl Preview {
     pub fn matches(&self, query: &str) -> Vec<(&'static str, &'static str, &'static str)> {
         let query = query.to_ascii_lowercase();
         let mut results: Vec<_> = [
-            ("Doubao", "ui.doubao", r"D:\Program Files\Doubao\Doubao.exe"),
+            ("calc", "ui.calculator", "calc.exe"),
             ("download", "ui.downloads", r"%USERPROFILE%\Downloads"),
             ("desktop", "ui.desktop", r"%USERPROFILE%\Desktop"),
             ("notepad", "ui.notepad", "notepad.exe"),
-            ("calc", "ui.calculator", "calc.exe"),
+            ("paint", "ui.paint", "mspaint.exe"),
         ]
         .into_iter()
         .filter_map(|entry| {

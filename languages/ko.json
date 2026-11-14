@@ -135,7 +135,6 @@
     "ui.discard_unsaved_changes_and_close": "저장하지 않은 변경 사항이 있습니다. 변경 사항을 버리고 닫으시겠습니까?",
     "ui.discard_unsaved_settings": "저장하지 않은 설정을 버리시겠습니까?",
     "ui.documents": "문서",
-    "ui.doubao": "Doubao",
     "ui.downloads": "다운로드",
     "ui.downloads_2": "다운로드",
     "ui.dynamic_input_cannot_replace_the_program_path": "동적 값으로 프로그램 경로를 바꾸려면 설정에서 허용하세요.",
