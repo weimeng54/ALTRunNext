@@ -74,7 +74,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/ALTRunNext.exe dist/ALTRunNext.exe
           Copy-Item assets/Popup.wav dist/
-          Copy-Item LICENSE dist/
+          Copy-Item -LiteralPath @('LICENSE', 'CHANGELOG.md') -Destination dist/
           New-Item -ItemType Directory -Force dist/languages | Out-Null
           Copy-Item languages/*.json dist/languages/
           $metadata = cargo metadata --format-version 1 --locked --offline | ConvertFrom-Json
@@ -91,7 +91,7 @@ jobs:
               Get-Content -Raw -LiteralPath $license.FullName | Add-Content -Encoding utf8 $notices
             }
           }
-          Compress-Archive -LiteralPath @('dist/ALTRunNext.exe', 'dist/languages', 'dist/Popup.wav', 'dist/LICENSE', $notices) -DestinationPath target/ALTRunNext-Win11-x64.zip
+          Compress-Archive -LiteralPath @('dist/ALTRunNext.exe', 'dist/languages', 'dist/Popup.wav', 'dist/LICENSE', 'dist/CHANGELOG.md', $notices) -DestinationPath target/ALTRunNext-Win11-x64.zip
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
           @(Get-ChildItem dist -Recurse -File | ForEach-Object { @{Name=[IO.Path]::GetRelativePath((Join-Path $PWD dist),$_.FullName);Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

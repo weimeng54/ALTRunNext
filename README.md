@@ -5,7 +5,7 @@
 [![MIT License](https://img.shields.io/github/license/weimeng54/ALTRunNext)](LICENSE)
 [![Rust](https://img.shields.io/badge/language-Rust-dea584?logo=rust)](src/)
 
-[简体中文](#简体中文) · [English](#english)
+[简体中文](#简体中文) · [English](#english) · [更新日志 / Changelog](CHANGELOG.md)
 
 ## 简体中文
 
