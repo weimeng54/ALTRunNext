@@ -34,6 +34,8 @@ cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
 
 作者 [weimeng54](https://github.com/weimeng54) · [联系邮箱](mailto:weimeng54@qq.com) · [反馈问题](https://github.com/weimeng54/ALTRunNext/issues)
 
+项目代码使用 MIT 许可证。第三方资源和依赖的许可随便携包附带。[MIT 许可证](LICENSE)
+
 ## English
 
 ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, type an alias, and press **Enter** to open an app, file, folder, or website. Fuzzy matching lets you find an alias like `doubao` by typing `db`.
@@ -65,3 +67,5 @@ cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
 After editing the icon, run `python tools/build-app-icon.py` with Pillow installed to regenerate `assets/app.ico`.
 
 Maintained by [weimeng54](https://github.com/weimeng54) · [Email](mailto:weimeng54@qq.com) · [Report an issue](https://github.com/weimeng54/ALTRunNext/issues)
+
+The project code is licensed under MIT. The portable ZIP includes the notices for third-party resources and dependencies. [MIT License](LICENSE)
