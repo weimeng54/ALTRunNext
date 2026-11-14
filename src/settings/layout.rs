@@ -2,46 +2,17 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 //! Settings geometry in device-independent pixels, measured from the design.
-use crate::native::scaled;
-use windows_sys::Win32::Foundation::RECT;
+pub(super) use crate::ui::geometry::{BoxRect, CAPTION, FOOTER, HEIGHT, WIDTH};
 
-pub const WIDTH: i32 = 1102;
-pub const HEIGHT: i32 = 721;
 pub const RAIL: i32 = 186;
 pub const CONTENT: i32 = 214;
 pub const RIGHT: i32 = 524;
-pub const CAPTION: i32 = 42;
-pub const FOOTER: i32 = 62;
 pub const PREVIEW: BoxRect = BoxRect::new(RIGHT, 180, 549, 246);
 pub const EXTRA_COLORS: BoxRect = BoxRect::new(RIGHT, 478, 549, 161);
 pub const ABOUT_PAGE: usize = 6;
 pub const HOTKEYS_PAGE: usize = 1;
 pub const ABOUT_PROFILE: BoxRect = BoxRect::new(CONTENT, 132, 859, 190);
 pub const ABOUT_LINKS: BoxRect = BoxRect::new(CONTENT, 382, 859, 204);
-
-#[derive(Clone, Copy)]
-pub struct BoxRect {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
-
-impl BoxRect {
-    pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
-        Self { x, y, w, h }
-    }
-
-    pub fn pixels(self, dpi: i32) -> RECT {
-        let px = |v| scaled(v, dpi);
-        RECT {
-            left: px(self.x),
-            top: px(self.y),
-            right: px(self.x + self.w),
-            bottom: px(self.y + self.h),
-        }
-    }
-}
 
 pub struct Card {
     pub page: usize,

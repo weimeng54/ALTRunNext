@@ -2,9 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use crate::{
-    native::{make_font, scaled},
-    settings::layout::{BoxRect, PREVIEW},
-    skin, theme, theme_ui,
+    settings::layout::PREVIEW,
+    skin, theme, ui,
+    ui::geometry::BoxRect,
+    ui::{make_font, scaled},
 };
 use altrun_probe::preferences::{Font, Preferences};
 use std::{path::Path, sync::mpsc};
@@ -92,8 +93,8 @@ impl Preview {
 
     pub fn paint_thumb(&self, item: &DRAWITEMSTRUCT, dpi: i32) {
         let rect = item.rcItem;
-        theme_ui::fill(item.hDC, &rect, theme::control_surface());
-        theme_ui::rounded(
+        ui::fill(item.hDC, &rect, theme::control_surface());
+        ui::rounded(
             item.hDC,
             rect,
             scaled(8, dpi),
@@ -191,15 +192,15 @@ impl Preview {
         let dc = item.hDC;
         let px = |n| scaled(n, dpi);
         let rect = item.rcItem;
-        theme_ui::fill(dc, &rect, theme::surface());
-        theme_ui::rounded(dc, rect, px(16), theme::chrome(), theme::divider());
+        ui::fill(dc, &rect, theme::surface());
+        ui::rounded(dc, rect, px(16), theme::chrome(), theme::divider());
         let matches = self.matches(query);
         let (bounds, input_height, row_height) = self.geometry(matches.len());
         let area = |x, y, w, h| BoxRect::new(bounds.x + x, bounds.y + y, w, h).pixels(dpi);
         let panel = bounds.pixels(dpi);
         let shadow = area(-2, 3, bounds.w + 4, bounds.h + 3);
-        theme_ui::rounded(dc, shadow, px(16), theme::chrome(), theme::chrome());
-        theme_ui::rounded(dc, panel, px(16), theme::surface(), theme::border());
+        ui::rounded(dc, shadow, px(16), theme::chrome(), theme::chrome());
+        ui::rounded(dc, panel, px(16), theme::surface(), theme::border());
         if let Some(bitmap) = &self.bitmap {
             unsafe {
                 let saved = SaveDC(dc);
@@ -238,7 +239,7 @@ impl Preview {
         let command_font = make_font(12, 400, "Consolas", dpi);
         unsafe {
             let old = SelectObject(dc, title_font);
-            theme_ui::line_text(
+            ui::line_text(
                 dc,
                 area(12, 1, bounds.w - 24, 33),
                 &crate::localization::tr(title),
@@ -249,7 +250,7 @@ impl Preview {
             let mut y = 39 + input_height;
             for (i, (alias, name, _)) in matches.iter().enumerate() {
                 let active = selected.is_some_and(|row| row.0 == *alias);
-                theme_ui::fill(
+                ui::fill(
                     dc,
                     &area(9, y, bounds.w - 18, row_height),
                     if active {
@@ -259,9 +260,9 @@ impl Preview {
                     },
                 );
                 if active {
-                    theme_ui::fill(dc, &area(9, y + 4, 3, row_height - 8), theme::accent());
+                    ui::fill(dc, &area(9, y + 4, 3, row_height - 8), theme::accent());
                 }
-                theme_ui::line_text(
+                ui::line_text(
                     dc,
                     area(16, y, 19, row_height),
                     &(i + 1).to_string(),
@@ -269,7 +270,7 @@ impl Preview {
                     0,
                 );
                 SelectObject(dc, alias_font);
-                theme_ui::line_text(
+                ui::line_text(
                     dc,
                     area(43, y, (bounds.w - 68) * 3 / 7, row_height),
                     alias,
@@ -277,7 +278,7 @@ impl Preview {
                     0,
                 );
                 SelectObject(dc, row_font);
-                theme_ui::line_text(
+                ui::line_text(
                     dc,
                     area(
                         43 + (bounds.w - 68) * 3 / 7,
@@ -292,8 +293,8 @@ impl Preview {
                 y += row_height;
             }
             if matches.is_empty() {
-                theme_ui::fill(dc, &area(9, y, bounds.w - 18, 30), theme::control_surface());
-                theme_ui::line_text(
+                ui::fill(dc, &area(9, y, bounds.w - 18, 30), theme::control_surface());
+                ui::line_text(
                     dc,
                     area(16, y, bounds.w - 32, 30),
                     &crate::localization::tr("ui.no_matches"),
@@ -305,13 +306,13 @@ impl Preview {
             if self.prefs.flag("ShowCommandLine") {
                 let path = selected.map_or("—", |row| row.2);
                 SelectObject(dc, command_font);
-                theme_ui::fill(dc, &area(9, y, bounds.w - 18, 1), theme::divider());
-                theme_ui::fill(
+                ui::fill(dc, &area(9, y, bounds.w - 18, 1), theme::divider());
+                ui::fill(
                     dc,
                     &area(9, y + 1, bounds.w - 18, 24),
                     theme::control_surface(),
                 );
-                theme_ui::line_text(
+                ui::line_text(
                     dc,
                     area(16, y + 1, bounds.w - 32, 24),
                     &format!("{}  {path}", crate::localization::tr("ui.command_label")),

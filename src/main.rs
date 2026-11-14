@@ -4,8 +4,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(windows)]
-mod input_dialog;
-#[cfg(windows)]
 mod instance;
 #[cfg(windows)]
 use altrun_probe::localization;
@@ -22,13 +20,9 @@ mod shortcut_intake;
 #[cfg(windows)]
 mod skin;
 #[cfg(windows)]
-mod startup_warning;
-#[cfg(windows)]
 mod theme;
 #[cfg(windows)]
-mod theme_ui;
-#[cfg(windows)]
-mod window_geometry;
+mod ui;
 #[cfg(windows)]
 mod windows;
 
@@ -66,7 +60,7 @@ fn main() {
     }
     #[cfg(windows)]
     if let Err(message) = native::run() {
-        native::show_error(&localization::message(
+        ui::show_error(&localization::message(
             "launcher.startup_error",
             &[("detail", &localization::tr(&message))],
         ));

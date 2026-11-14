@@ -49,7 +49,7 @@ pub(super) fn supports_parameter(entry: &Entry) -> bool {
         }
 }
 
-pub(super) fn parameter_choice(entry: &Entry) -> usize {
+fn parameter_choice(entry: &Entry) -> usize {
     let command = entry
         .command
         .trim_start()
@@ -72,7 +72,7 @@ pub(super) fn parameter_choice(entry: &Entry) -> usize {
         .expect("every visible parameter type is in the dropdown")
 }
 
-pub(super) fn sync_parameter_controls(entry: Option<&Entry>, toggle: HWND, kind: HWND) {
+fn sync_parameter_controls(entry: Option<&Entry>, toggle: HWND, kind: HWND) {
     unsafe {
         let checked =
             entry.is_some_and(|e| supports_parameter(e) && e.param_type.needs_input(&e.command));
@@ -142,16 +142,7 @@ pub(super) fn refresh_list_rows() {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
         s.refreshing_list = true;
-        s.view = (0..s.draft.len()).collect();
-        match s.sort {
-            SORT_ALIAS => s
-                .view
-                .sort_by_cached_key(|&i| s.draft[i].alias.to_lowercase()),
-            SORT_NAME => s
-                .view
-                .sort_by_cached_key(|&i| s.draft[i].name.to_lowercase()),
-            _ => {}
-        }
+        s.view = view_order(&s.draft, s.sort);
         (
             s.list,
             s.view
@@ -165,7 +156,7 @@ pub(super) fn refresh_list_rows() {
             s.dpi,
         )
     });
-    manager_table::replace_rows(list, &rows, selected, scaled(ROW_HEIGHT, dpi));
+    table::replace_rows(list, &rows, selected, scaled(ROW_HEIGHT, dpi));
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().refreshing_list = false);
 }
 
@@ -341,7 +332,7 @@ pub(super) fn save() {
 }
 
 pub(super) fn confirm(hwnd: HWND, message: &str) -> bool {
-    crate::input_dialog::confirm(hwnd, "ui.manage_shortcuts", message)
+    crate::ui::dialogs::input::confirm(hwnd, "ui.manage_shortcuts", message)
 }
 
 pub(super) fn publish_selection() {

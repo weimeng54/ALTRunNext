@@ -2,7 +2,14 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 //! Resident native launcher. Show/search only use cached data and controls.
-use crate::theme;
+use crate::{
+    theme,
+    ui::{make_font, scaled, ui, wide},
+    windows::{
+        clipboard::{clipboard_text, copy_text},
+        shell_execute::{execute_request, execute_request_with},
+    },
+};
 use altrun_probe::{Entry, SearchIndex, advance, parse_entries};
 use std::{cell::RefCell, mem::zeroed, ptr::null_mut};
 use windows_sys::Win32::{
@@ -110,27 +117,6 @@ struct State {
 }
 
 thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
-
-pub(crate) fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(Some(0)).collect()
-}
-pub(crate) fn ui(text: &str) -> Vec<u16> {
-    wide(&crate::localization::tr(text))
-}
-pub(crate) fn scaled(value: i32, dpi: i32) -> i32 {
-    (value * dpi + 48 * value.signum()) / 96
-}
-
-pub fn show_error(message: &str) {
-    unsafe {
-        MessageBoxW(
-            null_mut(),
-            ui(message).as_ptr(),
-            wide("ALTRunNext").as_ptr(),
-            MB_OK | MB_ICONERROR,
-        );
-    }
-}
 
 fn selected_text() -> (HWND, HWND, Vec<u16>, Vec<u16>) {
     STATE.with(|cell| {
@@ -745,85 +731,8 @@ fn launch_selected() {
         }
     });
 }
-fn execute_request(request: &altrun_probe::launch::LaunchRequest) -> Result<(), String> {
-    execute_request_with(request, altrun_probe::launch::ShowMode::Normal, None)
-}
-pub(crate) fn execute_request_with(
-    request: &altrun_probe::launch::LaunchRequest,
-    mode: altrun_probe::launch::ShowMode,
-    directory: Option<&str>,
-) -> Result<(), String> {
-    use windows_sys::Win32::System::Com::*;
-    let file = wide(&request.file);
-    let parameters = wide(&request.parameters);
-    let directory = match directory {
-        Some(directory) => wide(directory),
-        None => {
-            let profile = std::env::var_os("USERPROFILE")
-                .map(std::path::PathBuf::from)
-                .filter(|path| path.is_absolute() && path.is_dir());
-            let directory = profile.map_or_else(altrun_probe::windows_system_directory, Ok)?;
-            wide(&directory.to_string_lossy())
-        }
-    };
-    unsafe {
-        let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
-        if hr < 0 {
-            return Err(crate::localization::message(
-                "ui.could_not_initialize_the_launch_service_0x",
-                &[("code", &format!("{:08X}", hr as u32))],
-            ));
-        }
-        let mut info: SHELLEXECUTEINFOW = zeroed();
-        info.cbSize = std::mem::size_of_val(&info) as u32;
-        info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        // lpVerb must outlive ShellExecuteExW, just like file and parameters.
-        let verb = wide("open");
-        info.lpVerb = verb.as_ptr();
-        info.lpFile = file.as_ptr();
-        info.lpParameters = parameters.as_ptr();
-        info.lpDirectory = directory.as_ptr();
-        info.nShow = match mode {
-            altrun_probe::launch::ShowMode::Normal => SW_SHOWNORMAL,
-            altrun_probe::launch::ShowMode::Maximized => SW_SHOWMAXIMIZED,
-            altrun_probe::launch::ShowMode::Minimized => SW_SHOWMINNOACTIVE,
-            altrun_probe::launch::ShowMode::Hidden => SW_HIDE,
-        };
-        let ok = ShellExecuteExW(&mut info);
-        let error = GetLastError();
-        CoUninitialize();
-        if ok == 0 {
-            Err(crate::localization::message(
-                "ui.could_not_launch_error_error_check_the",
-                &[("error", &error.to_string())],
-            ))
-        } else {
-            Ok(())
-        }
-    }
-}
-pub(crate) fn make_font(size: i32, weight: i32, family: &str, dpi: i32) -> HFONT {
-    unsafe {
-        CreateFontW(
-            -scaled(size, dpi),
-            0,
-            0,
-            0,
-            weight,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET as u32,
-            OUT_DEFAULT_PRECIS as u32,
-            CLIP_DEFAULT_PRECIS as u32,
-            CLEARTYPE_QUALITY as u32,
-            0,
-            wide(family).as_ptr(),
-        )
-    }
-}
 fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {
-    let name = crate::theme_ui::window_text(item.hwndItem);
+    let name = crate::ui::window_text(item.hwndItem);
     STATE.with(|state| {
         let state = state.borrow();
         let Some(s) = state.as_ref() else {
@@ -852,7 +761,7 @@ fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {
                 }
             }
             let font = SelectObject(dc, s.title_font);
-            crate::theme_ui::line_text(dc, item.rcItem, &name, s.font_colours[0], 0);
+            crate::ui::line_text(dc, item.rcItem, &name, s.font_colours[0], 0);
             SelectObject(dc, font);
         }
     });
@@ -996,8 +905,7 @@ fn tray_icon(hwnd: HWND, operation: u32) {
         icon.uID = 1;
         icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         icon.uCallbackMessage = TRAY;
-        icon.hIcon =
-            crate::theme_ui::app_icon(GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()));
+        icon.hIcon = crate::ui::app_icon(GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()));
         let binding = STATE.with(|c| {
             let state = c.borrow();
             let state = state.as_ref()?;
@@ -1715,7 +1623,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
             if d.CtlType == ODT_BUTTON {
                 let dpi = STATE.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
-                crate::theme_ui::button_on(d, false, theme::surface(), dpi);
+                crate::ui::button_on(d, false, theme::surface(), dpi);
                 return 1;
             }
             if d.itemID == u32::MAX {
@@ -1903,7 +1811,7 @@ pub fn run() -> Result<(), String> {
             Some("200") => 192,
             _ => return Err("--ui-scale accepts 100, 125, 150 or 200".into()),
         };
-        crate::window_geometry::set_test_dpi(dpi);
+        crate::ui::geometry::set_test_dpi(dpi);
     }
     let data_path = if let Some(i) = args.iter().position(|a| a == "--data") {
         std::path::absolute(args.get(i + 1).ok_or("--data needs a path")?)
@@ -1996,7 +1904,7 @@ pub fn run() -> Result<(), String> {
         wc.lpszClassName = class.as_ptr();
         wc.hbrBackground = null_mut();
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
-        wc.hIcon = crate::theme_ui::app_icon(GetSystemMetrics(SM_CXICON));
+        wc.hIcon = crate::ui::app_icon(GetSystemMetrics(SM_CXICON));
         if RegisterClassW(&wc) == 0 {
             return Err("Cannot register native window".into());
         }
@@ -2019,7 +1927,7 @@ pub fn run() -> Result<(), String> {
         }
         crate::instance::publish(hwnd, instance_lock.identity);
         DragAcceptFiles(hwnd, 1);
-        let dpi = crate::window_geometry::window_dpi(hwnd);
+        let dpi = crate::ui::geometry::window_dpi(hwnd);
         let rounded = 2_i32;
         DwmSetWindowAttribute(hwnd, 33, &rounded as *const _ as *const _, 4);
         let no_transitions = 1i32;
@@ -2246,7 +2154,7 @@ pub fn run() -> Result<(), String> {
             SendMessageW(hwnd, SHOW, 0, 0);
         }
         if let Some(binding) = failed_primary
-            && crate::startup_warning::show(hwnd, &binding, prefs.flag("ShowTrayIcon"))
+            && crate::ui::dialogs::warning::show(hwnd, &binding, prefs.flag("ShowTrayIcon"))
         {
             open_settings_page(Some(crate::settings::HOTKEYS_PAGE));
         }
@@ -2362,65 +2270,6 @@ fn rebuild_index(s: &mut State) {
         );
     }
     s.index = SearchIndex::new(&rows);
-}
-pub(crate) fn clipboard_text() -> Option<String> {
-    use windows_sys::Win32::System::{DataExchange::*, Memory::*};
-    unsafe {
-        if OpenClipboard(null_mut()) == 0 {
-            return None;
-        }
-        let handle = GetClipboardData(13);
-        let result = if handle.is_null() {
-            None
-        } else {
-            let pointer = GlobalLock(handle) as *const u16;
-            if pointer.is_null() {
-                None
-            } else {
-                let length = GlobalSize(handle) / 2;
-                let result = if length > 1024 * 1024 {
-                    None
-                } else {
-                    let slice = std::slice::from_raw_parts(pointer, length);
-                    String::from_utf16(slice.split(|v| *v == 0).next().unwrap_or_default()).ok()
-                };
-                GlobalUnlock(handle);
-                result
-            }
-        };
-        CloseClipboard();
-        result
-    }
-}
-fn copy_text(value: &str) -> Result<(), String> {
-    use windows_sys::Win32::System::{DataExchange::*, Memory::*};
-    let bytes = wide(value);
-    let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
-    unsafe {
-        let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len() * 2);
-        if handle.is_null() {
-            return Err("ui.could_not_allocate_clipboard_memory".into());
-        }
-        let pointer = GlobalLock(handle) as *mut u16;
-        if pointer.is_null() {
-            GlobalFree(handle);
-            return Err("ui.could_not_access_clipboard_memory".into());
-        }
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len());
-        GlobalUnlock(handle);
-        if OpenClipboard(owner) == 0 {
-            GlobalFree(handle);
-            return Err("ui.another_app_is_using_the_clipboard".into());
-        }
-        EmptyClipboard();
-        let success = !SetClipboardData(13, handle).is_null();
-        CloseClipboard();
-        if !success {
-            GlobalFree(handle);
-            return Err("ui.could_not_write_to_the_clipboard".into());
-        }
-    }
-    Ok(())
 }
 fn capture_context() {
     unsafe {
@@ -2889,7 +2738,8 @@ fn selected_action(copy: bool) {
     });
     if let Some((entry, context)) = entry {
         if copy {
-            if let Err(e) = copy_text(&entry.command) {
+            let owner = STATE.with(|c| c.borrow().as_ref().unwrap().hwnd);
+            if let Err(e) = copy_text(owner, &entry.command) {
                 show_inline_error(&e);
             }
         } else {
@@ -2917,7 +2767,7 @@ fn selected_action(copy: bool) {
                             parameters: String::new(),
                         });
                     }
-                    Err(e) => crate::native::show_error(&e),
+                    Err(e) => crate::ui::show_error(&e),
                 }
             });
         }
@@ -2949,7 +2799,7 @@ fn load_skin() {
     }
 }
 fn position_panel() {
-    use crate::window_geometry::{cursor_monitor, work_area};
+    use crate::ui::geometry::{cursor_monitor, work_area};
 
     let (hwnd, remembered) = STATE.with(|c| {
         let s = c.borrow();
@@ -3035,7 +2885,7 @@ unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
 }
 
 fn paint_scrollbar(hwnd: HWND) {
-    let Some(bar) = crate::theme_ui::vertical_scrollbar(hwnd) else {
+    let Some(bar) = crate::ui::vertical_scrollbar(hwnd) else {
         return;
     };
     unsafe {
@@ -3048,7 +2898,7 @@ fn paint_scrollbar(hwnd: HWND) {
             return;
         }
         let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-        crate::theme_ui::draw_scrollbar(dc, track, &bar, dpi);
+        crate::ui::draw_scrollbar(dc, track, &bar, dpi);
         ReleaseDC(hwnd, dc);
     }
 }

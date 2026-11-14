@@ -3,9 +3,8 @@
 
 //! Native settings pages, created only while the settings window is open.
 use crate::{
-    localization,
-    native::{make_font, scaled, ui, wide},
-    theme, theme_ui,
+    localization, theme,
+    ui::{self, make_font, scaled, ui, wide},
 };
 use altrun_probe::{
     preferences::{Kind, Preferences, SPECS},
@@ -54,7 +53,7 @@ use appearance::{
 };
 mod apply;
 use apply::{apply, choose_file};
-pub(crate) mod layout;
+mod layout;
 mod pickers;
 mod preview;
 use layout::BoxRect;
@@ -264,15 +263,7 @@ thread_local! {
     static CAPTURE: Cell<Option<Capture>> = const { Cell::new(None) };
 }
 
-pub(crate) fn switch_description(hwnd: HWND) -> Option<(&'static str, HFONT)> {
-    let id = unsafe { GetDlgCtrlID(hwnd) } as usize;
-    let spec = SPECS.get(id.checked_sub(FIELD)?)?;
-    let description = layout::field(spec.key).description;
-    let font = EDITOR.with(|c| c.borrow().as_ref().map(|e| e.small_font))?;
-    Some((description, font))
-}
-
-pub(crate) fn preview_edit_colours() -> (u32, u32) {
+fn preview_edit_colours() -> (u32, u32) {
     EDITOR.with(|c| {
         c.borrow().as_ref().map_or_else(
             || (theme::surface(), theme::paper()),

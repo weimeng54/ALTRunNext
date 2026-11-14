@@ -3,8 +3,8 @@
 
 //! Quick-add dialog for file-system targets received from Explorer.
 use crate::{
-    native::{make_font, scaled, ui, wide},
-    theme, theme_ui,
+    theme,
+    ui::{self, make_font, scaled, ui, wide},
 };
 use altrun_probe::{Entry, library::OpenTarget};
 use std::{cell::Cell, path::Path, ptr::null_mut};
@@ -155,7 +155,7 @@ fn draw_row(item: &DRAWITEMSTRUCT, state: &Dialog) {
     } else {
         theme::paper()
     };
-    theme_ui::fill(item.hDC, &rect, colour);
+    ui::fill(item.hDC, &rect, colour);
     let Some(entry) = state.entries.get(item.itemID as usize) else {
         return;
     };
@@ -237,7 +237,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
                 let px = |v| scaled(v, (*state).dpi);
-                theme_ui::fill(dc, &rect, theme::surface());
+                ui::fill(dc, &rect, theme::surface());
                 for bar in [
                     RECT {
                         bottom: px(42),
@@ -248,9 +248,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                         ..rect
                     },
                 ] {
-                    theme_ui::fill(dc, &bar, theme::chrome());
+                    ui::fill(dc, &bar, theme::chrome());
                 }
-                theme_ui::panel_caption(dc, (*state).dpi, (*state).caption, "ui.add_shortcut");
+                ui::panel_caption(dc, (*state).dpi, (*state).caption, "ui.add_shortcut");
                 EndPaint(hwnd, &paint);
                 return 0;
             }
@@ -278,19 +278,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 if item.CtlID as usize == ROWS {
                     draw_row(item, &*state);
                 } else if item.CtlID as usize == CLOSE {
-                    theme_ui::caption_close(item, (*state).dpi);
+                    ui::caption_close(item, (*state).dpi);
                 } else {
                     let background = if matches!(item.CtlID as usize, PROGRAM | DEFAULT) {
                         theme::surface()
                     } else {
                         theme::chrome()
                     };
-                    theme_ui::button_on(
-                        item,
-                        item.CtlID as usize == SAVE,
-                        background,
-                        (*state).dpi,
-                    );
+                    ui::button_on(item, item.CtlID as usize == SAVE, background, (*state).dpi);
                 }
                 return 1;
             }
@@ -342,7 +337,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                                 &Default::default(),
                             )
                             .and_then(|(request, mode, directory)| {
-                                crate::native::execute_request_with(
+                                crate::windows::shell_execute::execute_request_with(
                                     &request,
                                     mode,
                                     directory.as_deref(),
@@ -451,16 +446,16 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         if hwnd.is_null() {
             UnregisterClassW(class.as_ptr(), instance);
             OPEN.with(|open| open.set(false));
-            crate::native::show_error("ui.could_not_open_the_add_shortcut_window");
+            crate::ui::show_error("ui.could_not_open_the_add_shortcut_window");
             return;
         }
-        state.dpi = crate::window_geometry::fit(hwnd, width, height);
+        state.dpi = crate::ui::geometry::fit(hwnd, width, height);
         let dpi = state.dpi;
         let px = |value| scaled(value, dpi);
         state.caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
         theme::frame(hwnd);
-        theme_ui::round_panel(hwnd, px(width), px(height), dpi);
+        ui::round_panel(hwnd, px(width), px(height), dpi);
         let control = |class: &str, text: &str, id, (x, y, w, h), style| {
             let child = CreateWindowExW(
                 0,
@@ -482,7 +477,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         let button = |text, id, bounds| {
             control("BUTTON", text, id, bounds, WS_TABSTOP | BS_OWNERDRAW as u32)
         };
-        theme_ui::style_caption_close(button("ui.close", CLOSE, (width - 47, 1, 46, 41)));
+        ui::style_caption_close(button("ui.close", CLOSE, (width - 47, 1, 46, 41)));
         if batch {
             for (caption, x, w) in [
                 ("ui.alias", 34, 166),
@@ -509,9 +504,9 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
                 SendMessageW(list, LB_ADDSTRING, 0, wide(&accessible).as_ptr() as LPARAM);
             }
             SendMessageW(list, LB_SETCURSEL, 0, 0);
-            theme_ui::style_vertical_scrollbar(list, 12, dpi);
+            ui::style_vertical_scrollbar(list, 12, dpi);
         }
-        let label_style = theme_ui::STATIC_CENTER_IMAGE;
+        let label_style = ui::STATIC_CENTER_IMAGE;
         for (caption, id, dy) in [
             ("ui.alias", ALIAS, 0),
             ("ui.name", NAME, 48),
@@ -521,7 +516,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             let style = WS_TABSTOP
                 | ES_AUTOHSCROLL as u32
                 | if id == PATH { ES_READONLY as u32 } else { 0 };
-            theme_ui::style_edit(
+            ui::style_edit(
                 control("EDIT", "", id, (140, form + dy, width - 162, 36), style),
                 dpi,
                 false,

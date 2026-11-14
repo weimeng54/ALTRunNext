@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use crate::{
-    native::{make_font, scaled, ui, wide},
-    theme, theme_ui,
+    theme,
+    ui::{self, make_font, scaled, ui, wide},
 };
 use std::ptr::null_mut;
 use windows_sys::Win32::{
@@ -85,7 +85,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 if item.CtlType == ODT_LISTBOX {
                     draw_report_row(item, state);
                 } else {
-                    theme_ui::button_on(item, item.CtlID == 1, theme::surface(), state.dpi);
+                    ui::button_on(item, item.CtlID == 1, theme::surface(), state.dpi);
                 }
                 return 1;
             }
@@ -124,7 +124,7 @@ pub fn report(owner: HWND, title: &str, report: Report) -> bool {
 fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
     let rect = item.rcItem;
     let selected = item.itemState & ODS_SELECTED != 0;
-    theme_ui::fill(
+    ui::fill(
         item.hDC,
         &rect,
         if selected {
@@ -149,7 +149,7 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
             (alias, rect.left + inset, rect.left + split - inset),
             (name, rect.left + split + inset, rect.right - inset),
         ] {
-            theme_ui::line_text(
+            ui::line_text(
                 item.hDC,
                 RECT {
                     left,
@@ -233,7 +233,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
         } else {
             (110, 28, 66)
         };
-        let dpi = crate::window_geometry::fit(hwnd, width, height);
+        let dpi = crate::ui::geometry::fit(hwnd, width, height);
         (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
         let content_style = if long {
@@ -297,7 +297,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
                 (EC_LEFTMARGIN | EC_RIGHTMARGIN) as usize,
                 inset | (inset << 16),
             );
-            theme_ui::style_vertical_scrollbar(content, 12, dpi);
+            ui::style_vertical_scrollbar(content, 12, dpi);
         }
         if let Some(report) = report.filter(|r| !r.rows.is_empty()) {
             for (label, x, w) in [("ui.alias", 26, 170), ("ui.name", 216, 350)] {
@@ -346,7 +346,7 @@ fn open(owner: HWND, title: &str, message: Option<&str>, report: Option<Report>)
                     wide(&format!("{alias} · {name}")).as_ptr() as LPARAM,
                 );
             }
-            theme_ui::style_vertical_scrollbar(table, 12, dpi);
+            ui::style_vertical_scrollbar(table, 12, dpi);
         }
         let mut focus = content;
         let actions: &[(&str, usize, i32, i32)] = if has_rows {

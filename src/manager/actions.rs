@@ -153,14 +153,14 @@ pub(super) fn tool(hwnd: HWND, id: usize) {
                     "ui.review_the_missing_entries_below_save_after"
                 }),
             );
-            let report = crate::input_dialog::Report {
+            let report = crate::ui::dialogs::input::Report {
                 summary,
                 rows: missing
                     .iter()
                     .map(|&i| (rows[i].alias.clone(), rows[i].name.clone()))
                     .collect(),
             };
-            if crate::input_dialog::report(hwnd, "ui.check_missing_paths_2", report)
+            if crate::ui::dialogs::input::report(hwnd, "ui.check_missing_paths_2", report)
                 && !missing.is_empty()
             {
                 EDITOR.with(|c| {
@@ -261,7 +261,7 @@ pub(super) fn test_selected(hwnd: HWND) {
             || altrun_probe::launch::has_parameter(&entry.command)
             || !altrun_probe::launch::has_context(&entry.command));
     let parameter = if needs_input {
-        let Some(value) = crate::input_dialog::ask(
+        let Some(value) = crate::ui::dialogs::input::ask(
             hwnd,
             &crate::localization::message(
                 "ui.name_enter_a_test_parameter",
@@ -282,14 +282,18 @@ pub(super) fn test_selected(hwnd: HWND) {
             && altrun_probe::launch::has_context(&entry.command)
             && entry.command.contains("%c")
         {
-            context.clipboard = crate::native::clipboard_text();
+            context.clipboard = crate::windows::clipboard::clipboard_text();
         }
         let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
             .and_then(|(request, mode, directory)| {
-                crate::native::execute_request_with(&request, mode, directory.as_deref())
+                crate::windows::shell_execute::execute_request_with(
+                    &request,
+                    mode,
+                    directory.as_deref(),
+                )
             });
         if let Err(error) = result {
-            crate::native::show_error(&error);
+            crate::ui::show_error(&error);
         }
     });
 }

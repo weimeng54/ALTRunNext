@@ -55,7 +55,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     .and_then(|index| SPECS.get(index))
                 && spec.key == "BGStrength"
             {
-                return theme_ui::slider(unsafe { &*(l as *const NMCUSTOMDRAW) });
+                return ui::slider(unsafe { &*(l as *const NMCUSTOMDRAW) });
             }
             0
         }
@@ -217,7 +217,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
                 return 0;
             }
-            if code == theme_ui::NUMBER_STEP {
+            if code == ui::NUMBER_STEP {
                 adjust_number(hwnd, id, l as i32);
                 return 0;
             }
@@ -371,7 +371,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
                 2311 => {
                     stop_capture();
-                    if crate::input_dialog::confirm(
+                    if crate::ui::dialogs::input::confirm(
                         hwnd,
                         "ui.reset_defaults",
                         "ui.load_default_settings_save_to_apply_them",
@@ -443,7 +443,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             stop_capture();
             let dirty = form_is_dirty();
             if dirty
-                && !crate::input_dialog::confirm(
+                && !crate::ui::dialogs::input::confirm(
                     hwnd,
                     "ui.close_settings",
                     "ui.discard_unsaved_settings",
@@ -515,7 +515,7 @@ pub(crate) fn open(
                 wc.hInstance = instance;
                 wc.lpszClassName = class.as_ptr();
                 wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
-                wc.hIcon = theme_ui::app_icon(GetSystemMetrics(SM_CXICON));
+                wc.hIcon = ui::app_icon(GetSystemMetrics(SM_CXICON));
                 wc.hbrBackground = null_mut();
                 RegisterClassW(&wc);
                 let hwnd = CreateWindowExW(
@@ -536,8 +536,8 @@ pub(crate) fn open(
                     return Err("ui.could_not_create_the_settings_window".into());
                 }
                 theme::frame(hwnd);
-                let dpi = crate::window_geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
-                theme_ui::round_panel(
+                let dpi = crate::ui::geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
+                ui::round_panel(
                     hwnd,
                     scaled(layout::WIDTH, dpi),
                     scaled(layout::HEIGHT, dpi),
@@ -630,7 +630,7 @@ pub(crate) fn open(
                     41,
                     TITLE_CLOSE,
                 );
-                theme_ui::style_caption_close(close);
+                ui::style_caption_close(close);
                 let preview = layout::PREVIEW;
                 let preview_controls = [
                     control(
@@ -664,7 +664,7 @@ pub(crate) fn open(
                         PREVIEW_QUERY,
                     ),
                 ];
-                theme_ui::style_edit(preview_controls[2], dpi, false);
+                ui::style_preview_edit(preview_controls[2], dpi, preview_edit_colours);
                 SendMessageW(preview_controls[0], WM_SETFONT, section_font as usize, 0);
                 SendMessageW(
                     preview_controls[2],
@@ -695,7 +695,7 @@ pub(crate) fn open(
                     env!("CARGO_PKG_VERSION")
                 );
                 let about_page = layout::ABOUT_PAGE;
-                let centered_text = theme_ui::STATIC_CENTER_IMAGE;
+                let centered_text = ui::STATIC_CENTER_IMAGE;
                 for (label, x, y, width, height, style, face, id) in [
                     (
                         "ALTRunNext",
@@ -850,7 +850,7 @@ pub(crate) fn open(
                     30,
                     STRENGTH_VALUE,
                 );
-                theme_ui::style_number(strength, dpi);
+                ui::style_number(strength, dpi);
                 extra_controls.push((3, strength));
                 extra_controls.push((
                     3,
@@ -937,7 +937,12 @@ pub(crate) fn open(
                                 (h - 1).max(1),
                                 FIELD + index,
                             );
-                            theme_ui::switch(field.value, dpi, !placement.description.is_empty());
+                            ui::switch(
+                                field.value,
+                                dpi,
+                                (!placement.description.is_empty())
+                                    .then_some((placement.description, small_font)),
+                            );
                         } else {
                             let name = matches!(*key, "PopupFileName" | "BGFileName");
                             let hotkey = matches!(spec.kind, Kind::Hotkey);
@@ -1001,7 +1006,7 @@ pub(crate) fn open(
                                     FIELD + index,
                                 );
                                 SendMessageW(handle, TBM_SETRANGEMAX, 1, 100);
-                                theme_ui::style_slider(handle, dpi);
+                                ui::style_slider(handle, dpi);
                                 handle
                             } else if *key == "Lang" || !options.is_empty() {
                                 let handle = control(
@@ -1023,7 +1028,7 @@ pub(crate) fn open(
                                     scaled(if *key == "BGCrop" { 24 } else { 28 }, dpi) as isize,
                                 );
                                 SendMessageW(handle, CB_SETITEMHEIGHT, 0, scaled(34, dpi) as isize);
-                                theme_ui::style_combo(handle, dpi);
+                                ui::style_combo(handle, dpi);
                                 for (_, title) in options {
                                     SendMessageW(
                                         handle,
@@ -1068,9 +1073,9 @@ pub(crate) fn open(
                                     FIELD + index,
                                 );
                                 if numeric {
-                                    theme_ui::style_number(handle, dpi);
+                                    ui::style_number(handle, dpi);
                                 } else {
-                                    theme_ui::style_edit(handle, dpi, true);
+                                    ui::style_edit(handle, dpi);
                                 }
                                 handle
                             };
@@ -1238,7 +1243,7 @@ pub(crate) fn open(
             Ok(())
         })();
         if let Err(e) = result {
-            crate::native::show_error(&e);
+            crate::ui::show_error(&e);
         }
         WINDOW.store(0, Ordering::Release);
     });

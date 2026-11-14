@@ -1,7 +1,7 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use crate::native::scaled;
+use super::scaled;
 use std::{
     ptr::null_mut,
     sync::atomic::{AtomicI32, Ordering},
@@ -98,5 +98,34 @@ pub fn fit(hwnd: HWND, width: i32, height: i32) -> i32 {
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
         dpi
+    }
+}
+
+pub const WIDTH: i32 = 1102;
+pub const HEIGHT: i32 = 721;
+pub const CAPTION: i32 = 42;
+pub const FOOTER: i32 = 62;
+
+#[derive(Clone, Copy)]
+pub struct BoxRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl BoxRect {
+    pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
+        Self { x, y, w, h }
+    }
+
+    pub fn pixels(self, dpi: i32) -> RECT {
+        let px = |v| scaled(v, dpi);
+        RECT {
+            left: px(self.x),
+            top: px(self.y),
+            right: px(self.x + self.w),
+            bottom: px(self.y + self.h),
+        }
     }
 }

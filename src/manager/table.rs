@@ -3,8 +3,8 @@
 
 //! Native report list for the shortcut editor. Windows owns selection, hit testing and scrolling.
 use crate::{
-    native::{scaled, ui, wide},
-    theme, theme_ui,
+    theme,
+    ui::{self, scaled, ui, wide},
 };
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::{
@@ -70,8 +70,8 @@ pub unsafe fn configure(list: HWND, dpi: i32) {
         if !region.is_null() && SetWindowRgn(list, region, 0) == 0 {
             DeleteObject(region);
         }
-        theme_ui::style_vertical_scrollbar(list, 2164, dpi);
-        theme_ui::style_horizontal_scrollbar(list, 2165, dpi);
+        ui::style_vertical_scrollbar(list, 2164, dpi);
+        ui::style_horizontal_scrollbar(list, 2165, dpi);
     }
 }
 
@@ -228,13 +228,13 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
         } else {
             theme::paper()
         };
-        theme_ui::fill(dc, &rect, background);
+        ui::fill(dc, &rect, background);
         let left = -GetScrollPos(list, SB_HORZ);
         let first = SendMessageW(list, LVM_GETCOLUMNWIDTH, 0, 0) as i32;
         let second = SendMessageW(list, LVM_GETCOLUMNWIDTH, 1, 0) as i32;
         let split = left + first;
         let padding = scaled(8, dpi);
-        theme_ui::fill(
+        ui::fill(
             dc,
             &RECT {
                 left: split - 1,
@@ -244,7 +244,7 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
             theme::divider(),
         );
         if selected {
-            theme_ui::fill(
+            ui::fill(
                 dc,
                 &RECT {
                     left: left + scaled(3, dpi),
@@ -257,7 +257,7 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
         }
         let old_font = SelectObject(dc, font);
         let old_mode = SetBkMode(dc, TRANSPARENT as i32);
-        theme_ui::line_text(
+        ui::line_text(
             dc,
             RECT {
                 left: left + padding,
@@ -268,7 +268,7 @@ pub fn draw_row(item: &DRAWITEMSTRUCT, alias: &str, name: &str, font: HFONT, dpi
             theme::text(),
             0,
         );
-        theme_ui::line_text(
+        ui::line_text(
             dc,
             RECT {
                 left: split + padding,
@@ -336,7 +336,7 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
     unsafe {
         let mut client = RECT::default();
         GetClientRect(header, &mut client);
-        theme_ui::fill(dc, &client, theme::control_surface());
+        ui::fill(dc, &client, theme::control_surface());
         let font = SendMessageW(header, WM_GETFONT, 0, 0) as HFONT;
         let old_font = SelectObject(dc, font);
         let old_mode = SetBkMode(dc, TRANSPARENT as i32);
@@ -349,7 +349,7 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
                 &mut rect as *mut _ as LPARAM,
             ) != 0
             {
-                theme_ui::fill(
+                ui::fill(
                     dc,
                     &RECT {
                         left: rect.right - 1,
@@ -359,10 +359,10 @@ unsafe fn draw_header(header: HWND, dc: HDC, dpi: i32) {
                 );
                 rect.left += scaled(8, dpi);
                 rect.right -= scaled(8, dpi);
-                theme_ui::line_text(dc, rect, &crate::localization::tr(title), theme::muted(), 0);
+                ui::line_text(dc, rect, &crate::localization::tr(title), theme::muted(), 0);
             }
         }
-        theme_ui::fill(
+        ui::fill(
             dc,
             &RECT {
                 top: client.bottom - 1,

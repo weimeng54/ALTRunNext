@@ -3,18 +3,13 @@
 
 use super::*;
 
-pub(super) fn list_height(dpi: i32) -> i32 {
+fn list_height(dpi: i32) -> i32 {
     let row = scaled(ROW_HEIGHT, dpi);
     scaled(LIST_TOP, dpi) - scaled(TABLE_TOP, dpi)
         + scaled(FOOTER_TOP - LIST_TOP - 33, dpi) / row * row
 }
 
-pub(super) unsafe extern "system" fn procedure(
-    hwnd: HWND,
-    msg: u32,
-    w: WPARAM,
-    l: LPARAM,
-) -> LRESULT {
+unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     if msg == WM_NCDESTROY {
         unsafe {
             RemovePropW(hwnd, wide(TABLE_ROW_HEIGHT_PROP).as_ptr());
@@ -143,7 +138,7 @@ pub(super) unsafe extern "system" fn procedure(
                 } < 0
             {
                 unsafe {
-                    manager_table::select(list, row);
+                    table::select(list, row);
                 }
             }
             0
@@ -229,7 +224,7 @@ pub(super) unsafe extern "system" fn procedure(
         }
         WM_MEASUREITEM if l != 0 => {
             let item = unsafe { &mut *(l as *mut MEASUREITEMSTRUCT) };
-            if manager_menu::measure(item) {
+            if menu_style::measure(item) {
                 1
             } else {
                 unsafe { DefWindowProcW(hwnd, msg, w, l) }
@@ -237,18 +232,15 @@ pub(super) unsafe extern "system" fn procedure(
         }
         WM_DRAWITEM if l != 0 => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-            if manager_menu::draw(d) {
+            if menu_style::draw(d) {
                 return 1;
             }
             if d.CtlType == ODT_BUTTON {
                 if matches!(d.CtlID as usize, NEW_MENU | TOOLS_MENU) {
                     let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-                    crate::theme_ui::menu_button(d, dpi);
+                    crate::ui::menu_button(d, dpi);
                 } else if d.CtlID as usize == CAPTION_CLOSE {
-                    crate::theme_ui::caption_close(
-                        d,
-                        EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi),
-                    );
+                    crate::ui::caption_close(d, EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi));
                 } else {
                     let background = if [DELETE, CLOSE, TEST, SAVE].contains(&(d.CtlID as usize)) {
                         theme::chrome()
@@ -256,13 +248,13 @@ pub(super) unsafe extern "system" fn procedure(
                         theme::surface()
                     };
                     let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-                    crate::theme_ui::button_on(d, d.CtlID as usize == SAVE, background, dpi);
+                    crate::ui::button_on(d, d.CtlID as usize == SAVE, background, dpi);
                 }
                 return 1;
             }
             if d.CtlType == ODT_COMBOBOX {
                 let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-                crate::theme_ui::combo(d, dpi);
+                crate::ui::combo(d, dpi);
                 return 1;
             }
             if d.CtlID as usize == LIST {
@@ -273,7 +265,7 @@ pub(super) unsafe extern "system" fn procedure(
                     else {
                         return;
                     };
-                    manager_table::draw_row(d, &entry.alias, &entry.name, s.font, s.dpi);
+                    table::draw_row(d, &entry.alias, &entry.name, s.font, s.dpi);
                 });
             }
             1
@@ -364,8 +356,8 @@ pub(super) fn run(
         }
         theme::frame(hwnd);
         let remembered = window_state();
-        let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT);
-        crate::theme_ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
+        let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
+        crate::ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
         let common = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_LISTVIEW_CLASSES,
@@ -450,14 +442,14 @@ pub(super) fn run(
                     scaled(28, dpi) as isize,
                 );
                 SendMessageW(child, CB_SETITEMHEIGHT, 0, scaled(34, dpi) as isize);
-                crate::theme_ui::style_combo(child, dpi);
+                crate::ui::style_combo(child, dpi);
             } else if class == "EDIT" {
-                crate::theme_ui::style_edit(child, dpi, true);
+                crate::ui::style_edit(child, dpi);
             }
             child
         };
         let close_caption = control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
-        crate::theme_ui::style_caption_close(close_caption);
+        crate::ui::style_caption_close(close_caption);
         let title = control("STATIC", "ui.manage_shortcuts", 0, 280, 12, 300, 25, 0);
         control("BUTTON", "ui.add", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
         control(
@@ -494,7 +486,7 @@ pub(super) fn run(
             UnregisterClassW(class_name.as_ptr(), instance);
             return Err("ui.could_not_create_the_shortcut_manager_window".into());
         }
-        manager_table::configure(list, dpi);
+        table::configure(list, dpi);
         control("STATIC", "ui.alias", 0, 280, 52, 210, 20, 0);
         control("STATIC", "ui.name", 0, 512, 52, 232, 20, 0);
         let alias = control(
@@ -548,7 +540,7 @@ pub(super) fn run(
             0,
             ASK_PARAMETER,
         );
-        crate::theme_ui::switch(ask_parameter, dpi, false);
+        crate::ui::switch(ask_parameter, dpi, None);
         control("STATIC", "ui.input_format", 0, 0, 0, 0, 0, 0);
         let kind = control(
             "COMBOBOX",
@@ -594,7 +586,7 @@ pub(super) fn run(
         let status = control(
             "STATIC",
             "ui.save_to_apply_your_changes",
-            crate::theme_ui::STATIC_CENTER_IMAGE,
+            crate::ui::STATIC_CENTER_IMAGE,
             0,
             0,
             0,
@@ -682,7 +674,7 @@ pub(super) fn run(
                             continue;
                         }
                         VK_F1 => {
-                            crate::native::show_error("ui.select_a_shortcut_to_edit_tools_can");
+                            crate::ui::show_error("ui.select_a_shortcut_to_edit_tools_can");
                             continue;
                         }
                         VK_UP | VK_DOWN if control => {
@@ -721,7 +713,7 @@ pub(super) fn run(
     Ok(())
 }
 
-pub(super) fn paint_manager(hwnd: HWND) {
+fn paint_manager(hwnd: HWND) {
     unsafe {
         let mut ps: PAINTSTRUCT = zeroed();
         let dc = BeginPaint(hwnd, &mut ps);
@@ -738,21 +730,21 @@ pub(super) fn paint_manager(hwnd: HWND) {
             right: scaled(x + w, dpi),
             bottom: scaled(y + h, dpi),
         };
-        crate::theme_ui::fill(dc, &bounds, theme::surface());
-        crate::theme_ui::fill(dc, &rect(0, 0, WIDTH, CAPTION), theme::chrome());
-        crate::theme_ui::fill(
+        crate::ui::fill(dc, &bounds, theme::surface());
+        crate::ui::fill(dc, &rect(0, 0, WIDTH, CAPTION), theme::chrome());
+        crate::ui::fill(
             dc,
             &rect(0, CAPTION, RAIL, FOOTER_TOP - CAPTION),
             theme::chrome(),
         );
-        crate::theme_ui::fill(
+        crate::ui::fill(
             dc,
             &rect(0, FOOTER_TOP, WIDTH, HEIGHT - FOOTER_TOP),
             theme::chrome(),
         );
         let mut list_card = rect(16, TABLE_TOP, RAIL - 32, 0);
         list_card.bottom = scaled(TABLE_TOP + 1, dpi) + list_height(dpi) + scaled(2, dpi);
-        crate::theme_ui::rounded(
+        crate::ui::rounded(
             dc,
             list_card,
             scaled(16, dpi),
@@ -765,7 +757,7 @@ pub(super) fn paint_manager(hwnd: HWND) {
             s.draft.get(s.selected).map(|e| e.kind)
         });
         if let Some(kind) = kind {
-            crate::theme_ui::rounded(
+            crate::ui::rounded(
                 dc,
                 rect(
                     FORM_LEFT,
@@ -787,9 +779,9 @@ pub(super) fn paint_manager(hwnd: HWND) {
             rect(RAIL, CAPTION, 1, FOOTER_TOP - CAPTION),
             rect(0, FOOTER_TOP - 1, WIDTH, 1),
         ] {
-            crate::theme_ui::fill(dc, &line, theme::divider());
+            crate::ui::fill(dc, &line, theme::divider());
         }
-        crate::theme_ui::panel_caption(dc, dpi, caption, "ui.altrunnext_manage_shortcuts_2");
+        crate::ui::panel_caption(dc, dpi, caption, "ui.altrunnext_manage_shortcuts_2");
         SetBkMode(dc, TRANSPARENT as i32);
         SetTextColor(dc, theme::text());
         SelectObject(dc, font);

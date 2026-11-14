@@ -370,9 +370,9 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             } else {
                 theme::paper()
             };
-            theme_ui::fill(item.hDC, &item.rcItem, theme::paper());
+            ui::fill(item.hDC, &item.rcItem, theme::paper());
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |e| e.dpi));
-            theme_ui::rounded(
+            ui::rounded(
                 item.hDC,
                 item.rcItem,
                 scaled(8, dpi),
@@ -410,9 +410,9 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             let value = preset_index.map_or_else(|| current.clone(), preset);
             let color = swatch_colour(key, &value);
             let rect = item.rcItem;
-            theme_ui::fill(item.hDC, &rect, theme::control_surface());
+            ui::fill(item.hDC, &rect, theme::control_surface());
             let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
-            theme_ui::rounded(
+            ui::rounded(
                 item.hDC,
                 rect,
                 scaled(10, dpi),
@@ -439,7 +439,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                     DT_CENTER,
                 );
             }
-            theme_ui::rounded(item.hDC, swatch, scaled(4, dpi), color, color);
+            ui::rounded(item.hDC, swatch, scaled(4, dpi), color, color);
         } else if let Some(index) = id.checked_sub(FIELD).filter(|index| {
             SPECS
                 .get(*index)
@@ -448,8 +448,8 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
             let rect = item.rcItem;
             let active = CAPTURE.get().is_some_and(|capture| capture.index == index);
-            theme_ui::fill(item.hDC, &rect, theme::control_surface());
-            theme_ui::rounded(
+            ui::fill(item.hDC, &rect, theme::control_surface());
+            ui::rounded(
                 item.hDC,
                 rect,
                 scaled(12, dpi),
@@ -473,14 +473,14 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             unsafe {
                 let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
                 let old = SelectObject(item.hDC, font);
-                theme_ui::line_text(item.hDC, rect, &label, theme::text(), DT_CENTER);
+                ui::line_text(item.hDC, rect, &label, theme::text(), DT_CENTER);
                 SelectObject(item.hDC, old);
             }
         } else if id == FONT_FAMILY {
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |e| e.dpi));
             let rect = item.rcItem;
-            theme_ui::fill(item.hDC, &rect, theme::control_surface());
-            theme_ui::rounded(
+            ui::fill(item.hDC, &rect, theme::control_surface());
+            ui::rounded(
                 item.hDC,
                 rect,
                 scaled(12, dpi),
@@ -506,7 +506,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                 0,
             );
         } else if id == TITLE_CLOSE {
-            theme_ui::caption_close(item, EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi));
+            ui::caption_close(item, EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi));
         } else if id == MORE_COLORS {
             let (dpi, expanded) = EDITOR.with(|c| {
                 let state = c.borrow();
@@ -516,8 +516,8 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             let rect = item.rcItem;
             let pressed = item.itemState & ODS_SELECTED != 0;
             let focused = item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0;
-            theme_ui::fill(item.hDC, &rect, theme::surface());
-            theme_ui::rounded(
+            ui::fill(item.hDC, &rect, theme::surface());
+            ui::rounded(
                 item.hDC,
                 rect,
                 scaled(10, dpi),
@@ -535,16 +535,16 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             let mut label = rect;
             label.left += scaled(31, dpi);
             draw_button_text(item, label, theme::text(), 0);
-            theme_ui::chevron(
+            ui::chevron(
                 item.hDC,
                 POINT {
                     x: rect.left + scaled(19, dpi),
                     y: (rect.top + rect.bottom) / 2,
                 },
                 if expanded {
-                    theme_ui::Chevron::Down
+                    ui::Chevron::Down
                 } else {
-                    theme_ui::Chevron::Right
+                    ui::Chevron::Right
                 },
                 dpi,
                 theme::muted(),
@@ -556,13 +556,13 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                 theme::control_surface()
             };
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
-            theme_ui::button_on(item, matches!(id, 2310 | OPEN_RELEASES), background, dpi);
+            ui::button_on(item, matches!(id, 2310 | OPEN_RELEASES), background, dpi);
         }
         return;
     }
     if item.CtlType == ODT_COMBOBOX {
         let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
-        theme_ui::combo(item, dpi);
+        ui::combo(item, dpi);
         return;
     }
     let query = if item.CtlID as usize == PREVIEW {
@@ -613,7 +613,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             } else {
                 theme::control_surface()
             };
-            theme_ui::fill(item.hDC, &item.rcItem, face);
+            ui::fill(item.hDC, &item.rcItem, face);
             let value = text(item.hwndItem);
             let value = if id == FIELD + spec_index("BGFileName") {
                 if value.is_empty() {
@@ -640,7 +640,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                         DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS,
                     );
                 } else {
-                    theme_ui::line_text(item.hDC, item.rcItem, &value, theme::muted(), 0);
+                    ui::line_text(item.hDC, item.rcItem, &value, theme::muted(), 0);
                 }
                 SelectObject(item.hDC, old);
             }
@@ -651,10 +651,10 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
         {
             let selected = item.itemState & ODS_SELECTED != 0;
             let mut bounds = item.rcItem;
-            theme_ui::fill(item.hDC, &bounds, theme::chrome());
+            ui::fill(item.hDC, &bounds, theme::chrome());
             bounds.bottom -= scaled(5, s.dpi);
             if selected {
-                theme_ui::rounded(
+                ui::rounded(
                     item.hDC,
                     bounds,
                     scaled(12, s.dpi),
@@ -667,7 +667,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                     top: bounds.top + scaled(10, s.dpi),
                     bottom: bounds.bottom - scaled(10, s.dpi),
                 };
-                theme_ui::rounded(
+                ui::rounded(
                     item.hDC,
                     rail,
                     scaled(4, s.dpi),
@@ -678,7 +678,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             bounds.left += scaled(15, s.dpi);
             unsafe {
                 let old = SelectObject(item.hDC, s.font);
-                theme_ui::line_text(
+                ui::line_text(
                     item.hDC,
                     bounds,
                     &crate::localization::tr(page.name),
@@ -695,7 +695,7 @@ fn draw_button_text(item: &DRAWITEMSTRUCT, rect: RECT, color: u32, flags: u32) {
     unsafe {
         let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
         let old = SelectObject(item.hDC, font);
-        theme_ui::line_text(item.hDC, rect, &text(item.hwndItem), color, flags);
+        ui::line_text(item.hDC, rect, &text(item.hwndItem), color, flags);
         SelectObject(item.hDC, old);
     }
 }
@@ -718,7 +718,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
         GetClientRect(hwnd, &mut rect);
     }
     let Some((background, dpi, height, page, more_colors, caption)) = state else {
-        theme_ui::fill(dc, &rect, theme::surface());
+        ui::fill(dc, &rect, theme::surface());
         return;
     };
     let px = |v| scaled(v, dpi);
@@ -728,7 +728,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
     unsafe {
         FillRect(dc, &rect, background);
     }
-    theme_ui::fill(
+    ui::fill(
         dc,
         &RECT {
             bottom: px(layout::CAPTION),
@@ -736,7 +736,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
         },
         theme::chrome(),
     );
-    theme_ui::fill(
+    ui::fill(
         dc,
         &RECT {
             top: px(layout::CAPTION),
@@ -746,7 +746,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
         },
         theme::chrome(),
     );
-    theme_ui::fill(dc, &RECT { top: foot, ..rect }, theme::chrome());
+    ui::fill(dc, &RECT { top: foot, ..rect }, theme::chrome());
     for line in [
         RECT {
             top: px(layout::CAPTION),
@@ -765,19 +765,19 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
             bottom: foot,
         },
     ] {
-        theme_ui::fill(dc, &line, divider);
+        ui::fill(dc, &line, divider);
     }
-    theme_ui::panel_caption(dc, dpi, caption, "ui.altrunnext_settings");
+    ui::panel_caption(dc, dpi, caption, "ui.altrunnext_settings");
     if page == layout::ABOUT_PAGE {
         for (bounds, rules) in [
             (layout::ABOUT_PROFILE, &[80, 133][..]),
             (layout::ABOUT_LINKS, &[68, 136][..]),
         ] {
             let rect = bounds.pixels(dpi);
-            theme_ui::rounded(dc, rect, px(18), theme::control_surface(), divider);
+            ui::rounded(dc, rect, px(18), theme::control_surface(), divider);
             for &offset in rules {
                 let y = px(bounds.y + offset);
-                theme_ui::fill(
+                ui::fill(
                     dc,
                     &RECT {
                         left: rect.left + 1,
@@ -789,7 +789,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
                 );
             }
         }
-        theme_ui::draw_app_icon(dc, BoxRect::new(230, 151, 42, 42).pixels(dpi));
+        ui::draw_app_icon(dc, BoxRect::new(230, 151, 42, 42).pixels(dpi));
     }
     unsafe {
         let clip = SaveDC(dc);
@@ -802,10 +802,10 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
                 bounds.h = 120;
             }
             let r = bounds.pixels(dpi);
-            theme_ui::rounded(dc, r, px(16), theme::control_surface(), divider);
+            ui::rounded(dc, r, px(16), theme::control_surface(), divider);
             for &y in card.rules {
                 let top = px(bounds.y + y);
-                theme_ui::fill(
+                ui::fill(
                     dc,
                     &RECT {
                         left: r.left + 1,
@@ -817,7 +817,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
                 );
             }
             if page == 3 && bounds.x == layout::RIGHT {
-                theme_ui::fill(dc, &BoxRect::new(798, 487, 1, 80).pixels(dpi), divider);
+                ui::fill(dc, &BoxRect::new(798, 487, 1, 80).pixels(dpi), divider);
             }
         }
         if page == 3 {
@@ -825,7 +825,7 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
                 BoxRect::new(226, 191, 266, 38),
                 BoxRect::new(226, 295, 266, 38),
             ] {
-                theme_ui::rounded(
+                ui::rounded(
                     dc,
                     segment.pixels(dpi),
                     px(14),
@@ -836,9 +836,9 @@ pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
         }
         if page == 4 && more_colors {
             let r = layout::EXTRA_COLORS.pixels(dpi);
-            theme_ui::rounded(dc, r, px(16), theme::control_surface(), divider);
+            ui::rounded(dc, r, px(16), theme::control_surface(), divider);
             for y in [518, 558, 598] {
-                theme_ui::fill(dc, &BoxRect::new(525, y, 547, 1).pixels(dpi), divider);
+                ui::fill(dc, &BoxRect::new(525, y, 547, 1).pixels(dpi), divider);
             }
         }
         if clip != 0 {

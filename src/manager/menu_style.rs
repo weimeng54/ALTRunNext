@@ -4,8 +4,8 @@
 //! Win32 owns popup placement, keyboard navigation and cascading. The manager
 //! supplies the item drawing so the selected ALTRun theme applies to both levels.
 use crate::{
-    native::{scaled, wide},
-    theme, theme_ui,
+    theme,
+    ui::{self, scaled, wide},
 };
 use std::cell::RefCell;
 use windows_sys::Win32::{
@@ -159,10 +159,10 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
         let rect = info.rcItem;
         let dc = info.hDC;
         let surface = theme::control_surface();
-        theme_ui::fill(dc, &rect, surface);
+        ui::fill(dc, &rect, surface);
         if item.rule {
             let top = (rect.top + rect.bottom) / 2;
-            theme_ui::fill(
+            ui::fill(
                 dc,
                 &RECT {
                     left: rect.left + px(6),
@@ -181,7 +181,7 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
                 right: rect.right - px(3),
                 ..rect
             };
-            theme_ui::rounded(dc, hover, px(8), theme::selection(), theme::selection());
+            ui::rounded(dc, hover, px(8), theme::selection(), theme::selection());
         }
         let ink = if disabled {
             theme::muted()
@@ -195,23 +195,23 @@ pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
         };
         unsafe {
             let font = SelectObject(dc, skin.font);
-            theme_ui::line_text(dc, body, &item.label, ink, 0);
+            ui::line_text(dc, body, &item.label, ink, 0);
             if info.itemState & ODS_CHECKED != 0 {
                 let tick = RECT {
                     left: rect.left + px(5),
                     right: body.left,
                     ..rect
                 };
-                theme_ui::line_text(dc, tick, "✓", theme::accent(), DT_CENTER);
+                ui::line_text(dc, tick, "✓", theme::accent(), DT_CENTER);
             }
             if item.child {
-                theme_ui::chevron(
+                ui::chevron(
                     dc,
                     POINT {
                         x: rect.right - px(14),
                         y: (rect.top + rect.bottom) / 2,
                     },
-                    theme_ui::Chevron::Right,
+                    ui::Chevron::Right,
                     skin.dpi,
                     ink,
                 );

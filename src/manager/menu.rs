@@ -11,7 +11,7 @@ pub(super) fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
             let s = state.as_ref().unwrap();
             (s.dpi, s.font)
         });
-        let style = manager_menu::PopupStyle::new(dpi, font);
+        let style = menu_style::PopupStyle::new(dpi, font);
         let append = |target, id, label: &str, checked: bool, disabled: bool| {
             let width = if target != menu || position.is_some() {
                 136
@@ -37,7 +37,7 @@ pub(super) fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 return;
             }
             if p == -1 {
-                let rect = manager_table::row_bounds(list, selected_row.unwrap_or_default());
+                let rect = table::row_bounds(list, selected_row.unwrap_or_default());
                 point = POINT {
                     x: rect.left.max(0) + scaled(12, dpi),
                     y: rect.bottom,
@@ -50,7 +50,7 @@ pub(super) fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 };
                 let mut local = point;
                 ScreenToClient(list, &mut local);
-                let Some(index) = manager_table::row_at(list, local) else {
+                let Some(index) = table::row_at(list, local) else {
                     DestroyMenu(menu);
                     return;
                 };
@@ -60,7 +60,7 @@ pub(super) fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 }
                 let already_selected =
                     SendMessageW(list, LVM_GETITEMSTATE, index, LVIS_SELECTED as LPARAM) != 0;
-                manager_table::select(list, index);
+                table::select(list, index);
                 if already_selected {
                     sync_fields();
                 }

@@ -29,7 +29,7 @@ pub(super) fn apply_intake(hwnd: HWND) {
             theme::install_chrome(&prefs);
             theme::frame(hwnd);
             let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
-            manager_table::set_background(list);
+            table::set_background(list);
             unsafe {
                 RedrawWindow(
                     hwnd,
@@ -48,7 +48,7 @@ pub(super) fn apply_intake(hwnd: HWND) {
                 let launch_enabled = EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled);
                 crate::shortcut_intake::open(hwnd, entries, launch_enabled, save_intake);
             }
-            Err(error) => crate::native::show_error(&error),
+            Err(error) => crate::ui::show_error(&error),
         }
     }
     let action = ACTION.lock().ok().and_then(|mut p| p.take());
@@ -56,7 +56,7 @@ pub(super) fn apply_intake(hwnd: HWND) {
         let found = EDITOR.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
-            if let Some(index) = s.draft.iter().position(|e| e.id == id) {
+            if let Some(index) = index_of(&s.draft, &id) {
                 s.selected = index;
                 true
             } else {
@@ -85,7 +85,7 @@ pub(super) fn apply_intake(hwnd: HWND) {
     }
 }
 
-pub(super) fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
+fn save_intake(additions: &[Entry]) -> Result<(), (usize, String)> {
     let (sender, committed, parent) = EDITOR.with(|c| {
         let mut editor = c.borrow_mut();
         let s = editor.as_mut().unwrap();

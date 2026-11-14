@@ -2,9 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use crate::{
-    localization,
-    native::{make_font, scaled, ui, wide},
-    theme, theme_ui,
+    localization, theme,
+    ui::{self, make_font, scaled, ui, wide},
 };
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::{
@@ -63,9 +62,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 WM_DRAWITEM if l != 0 => {
                     let item = &*(l as *const DRAWITEMSTRUCT);
                     if item.CtlID as usize == CAPTION_CLOSE {
-                        theme_ui::caption_close(item, (*state).dpi);
+                        ui::caption_close(item, (*state).dpi);
                     } else {
-                        theme_ui::button_on(
+                        ui::button_on(
                             item,
                             item.CtlID as usize == CHANGE,
                             theme::chrome(),
@@ -95,7 +94,7 @@ unsafe fn paint(hwnd: HWND, dc: HDC, state: &Warning) {
         let mut rect = RECT::default();
         GetClientRect(hwnd, &mut rect);
         let px = |value| scaled(value, state.dpi);
-        theme_ui::fill(dc, &rect, theme::surface());
+        ui::fill(dc, &rect, theme::surface());
         for bar in [
             RECT {
                 bottom: px(42),
@@ -106,9 +105,9 @@ unsafe fn paint(hwnd: HWND, dc: HDC, state: &Warning) {
                 ..rect
             },
         ] {
-            theme_ui::fill(dc, &bar, theme::chrome());
+            ui::fill(dc, &bar, theme::chrome());
         }
-        theme_ui::fill(
+        ui::fill(
             dc,
             &RECT {
                 top: px(FOOTER),
@@ -117,7 +116,7 @@ unsafe fn paint(hwnd: HWND, dc: HDC, state: &Warning) {
             },
             theme::divider(),
         );
-        theme_ui::panel_caption(dc, state.dpi, state.caption, "ui.startup_warning_title");
+        ui::panel_caption(dc, state.dpi, state.caption, "ui.startup_warning_title");
         let amber = if theme::high_contrast() {
             theme::text()
         } else if theme::is_dark() {
@@ -143,7 +142,7 @@ unsafe fn paint(hwnd: HWND, dc: HDC, state: &Warning) {
             },
         ];
         Polygon(dc, points.as_ptr(), 3);
-        theme_ui::fill(
+        ui::fill(
             dc,
             &RECT {
                 left: px(33),
@@ -153,7 +152,7 @@ unsafe fn paint(hwnd: HWND, dc: HDC, state: &Warning) {
             },
             amber,
         );
-        theme_ui::fill(
+        ui::fill(
             dc,
             &RECT {
                 left: px(33),
@@ -208,10 +207,10 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             return false;
         }
         theme::frame(hwnd);
-        let dpi = crate::window_geometry::fit(hwnd, WIDTH, HEIGHT);
+        let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
         state.dpi = dpi;
         let px = |value| scaled(value, dpi);
-        theme_ui::round_panel(hwnd, px(WIDTH), px(HEIGHT), dpi);
+        ui::round_panel(hwnd, px(WIDTH), px(HEIGHT), dpi);
         let caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
         state.caption = caption;
         let heading = make_font(17, 700, "Microsoft YaHei UI", dpi);
@@ -249,7 +248,7 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             BS_OWNERDRAW as u32,
             body as usize,
         );
-        theme_ui::style_caption_close(caption_close);
+        ui::style_caption_close(caption_close);
         control(
             "STATIC",
             &localization::tr("ui.startup_hotkey_warning"),

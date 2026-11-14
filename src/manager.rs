@@ -3,8 +3,8 @@
 
 //! On-demand shortcut editor, isolated from the resident launcher's UI thread.
 use crate::{
-    native::{make_font, scaled, ui, wide},
     theme,
+    ui::{make_font, scaled, ui, wide},
     windows::file_picker::{drop_paths, pick_path},
 };
 use altrun_probe::{
@@ -25,13 +25,14 @@ use windows_sys::Win32::{
     UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
+mod view;
 mod window;
+use view::{index_of, view_order};
 use window::{run, sync_kind_layout};
 mod editor;
 use editor::{
     can_test, confirm, pending_status, publish_selection, refresh_list, refresh_list_rows, save,
-    select_view_row, status, supports_parameter, sync_fields, sync_parameter_controls, text,
-    update_draft,
+    select_view_row, status, supports_parameter, sync_fields, text, update_draft,
 };
 mod actions;
 use actions::{change_open_with, choose_command_target, test_selected, tool};
@@ -39,14 +40,14 @@ mod intake;
 use intake::{add_paths, apply_intake};
 mod menu;
 use menu::popup;
-mod manager_menu;
-mod manager_table;
+mod menu_style;
+mod table;
 const CLASS: &str = "ALTRun.Native.ShortcutManager";
-const WIDTH: i32 = crate::settings::layout::WIDTH;
-const HEIGHT: i32 = crate::settings::layout::HEIGHT;
+const WIDTH: i32 = crate::ui::geometry::WIDTH;
+const HEIGHT: i32 = crate::ui::geometry::HEIGHT;
 const RAIL: i32 = 376;
-const CAPTION: i32 = crate::settings::layout::CAPTION;
-const FOOTER_TOP: i32 = HEIGHT - crate::settings::layout::FOOTER;
+const CAPTION: i32 = crate::ui::geometry::CAPTION;
+const FOOTER_TOP: i32 = HEIGHT - crate::ui::geometry::FOOTER;
 const FIELD_LEFT: i32 = RAIL + 41;
 const FIELD_RIGHT: i32 = WIDTH - 45;
 const FIELD_WIDTH: i32 = FIELD_RIGHT - FIELD_LEFT;
