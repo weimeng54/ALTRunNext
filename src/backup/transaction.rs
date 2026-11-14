@@ -125,10 +125,10 @@ fn clean(dir: &Path) -> Result<(), String> {
 }
 
 fn checkpoint(dir: &Path, data: &Path) -> Result<(), String> {
-    for i in 0..FILES.len() {
+    for (i, file) in FILES.iter().enumerate() {
         let live = target(data, i);
         if regular(&live, false)? {
-            let old = super::required(&live, FILES[i])?;
+            let old = super::required(&live, file)?;
             write_file(&dir.join(format!("old-{i}")), |f| f.write_all(&old))?;
         } else {
             write_file(&dir.join(format!("absent-{i}")), |_| Ok(()))?;
@@ -162,7 +162,10 @@ pub fn recover(data: &Path) -> Result<(), String> {
             });
         }
         for (i, old) in originals.into_iter().enumerate() {
-            if !regular(&dir.join(format!("pending-{i}")), false)? {
+            // A successful replacement consumes its staged file atomically.
+            if !regular(&dir.join(format!("pending-{i}")), false)?
+                || regular(&dir.join(format!("next-{i}")), false)?
+            {
                 continue;
             }
             let live = target(data, i);
@@ -189,7 +192,13 @@ pub fn recover(data: &Path) -> Result<(), String> {
         {
             let media = data.with_file_name(name);
             if regular(&media, true)? {
-                fs::remove_dir_all(media).map_err(io_error)?;
+                for name in [super::BACKGROUND, super::SOUND] {
+                    let path = media.join(name);
+                    if regular(&path, false)? {
+                        fs::remove_file(path).map_err(io_error)?;
+                    }
+                }
+                fs::remove_dir(media).map_err(io_error)?;
             }
         }
     }
@@ -222,19 +231,18 @@ pub fn apply(data: &Path, backup: Backup, integrations: (bool, bool)) -> Result<
         settings.set("AutoRun", if integrations.0 { "1" } else { "0" })?;
         settings.set("AddToSendTo", if integrations.1 { "1" } else { "0" })?;
         if backup.background.is_some() {
-            settings.set("BGFileName", &format!("{media_name}\\background.bin"))?;
+            let path = Path::new(&media_name).join(super::BACKGROUND);
+            settings.set("BGFileName", &path.to_string_lossy())?;
         } else {
             settings.set("BGFileName", "")?;
             settings.set("ShowSkin", "0")?;
         }
-        settings.set(
-            "PopupFileName",
-            &if backup.sound.is_some() {
-                format!("{media_name}\\notify.wav")
-            } else {
-                crate::preferences::DEFAULT_POPUP_SOUND.into()
-            },
-        )?;
+        let popup = if backup.sound.is_some() {
+            Path::new(&media_name).join(super::SOUND)
+        } else {
+            crate::preferences::DEFAULT_POPUP_SOUND.into()
+        };
+        settings.set("PopupFileName", &popup.to_string_lossy())?;
         let text = settings.text();
         let updates = [
             backup.shortcuts.as_slice(),
@@ -250,10 +258,12 @@ pub fn apply(data: &Path, backup: Backup, integrations: (bool, bool)) -> Result<
             let destination = data.with_file_name(&media_name);
             fs::create_dir(&destination).map_err(io_error)?;
             if let Some(bytes) = bg {
-                write_file(&destination.join("background.bin"), |f| f.write_all(&bytes))?;
+                write_file(&destination.join(super::BACKGROUND), |f| {
+                    f.write_all(&bytes)
+                })?;
             }
             if let Some(bytes) = sound {
-                write_file(&destination.join("notify.wav"), |f| f.write_all(&bytes))?;
+                write_file(&destination.join(super::SOUND), |f| f.write_all(&bytes))?;
             }
         }
         for (i, file) in FILES.iter().enumerate() {
@@ -312,6 +322,11 @@ mod tests {
         fs::write(ready_marker(&dir), "").unwrap();
         fs::write(dir.join("pending-0"), "").unwrap();
         fs::write(dir.join("pending-1"), "").unwrap();
+        // The third replacement was about to start when the process stopped.
+        fs::write(dir.join("pending-2"), "").unwrap();
+        fs::write(dir.join("next-2"), "replacement state").unwrap();
+        let state = data.with_extension("state.tsv");
+        fs::write(&state, b"external state").unwrap();
         fs::write(&data, b"replacement shortcuts").unwrap();
         fs::write(data.with_extension("settings.ini"), b"replacement settings").unwrap();
         let media = root.join("altrun-media-test");
@@ -319,7 +334,40 @@ mod tests {
         recover(&data).unwrap();
         assert_eq!(fs::read(&data).unwrap(), b"original shortcuts");
         assert!(!data.with_extension("settings.ini").exists());
+        assert_eq!(fs::read(&state).unwrap(), b"external state");
         assert!(!media.exists() && !dir.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locked_settings_roll_back_shortcuts_without_touching_the_lock() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+
+        let root = std::env::temp_dir().join(format!("altrun-locked-{}", crate::library::new_id()));
+        fs::create_dir(&root).unwrap();
+        let source = root.join("source.tsv");
+        let data = root.join("shortcuts.tsv");
+        let settings = data.with_extension("settings.ini");
+        let shortcuts = b"calc\tCalculator\tcalc.exe\t0\n";
+        let preferences = crate::preferences::Preferences::default().text();
+        fs::write(&source, b"np\tNotepad\tnotepad.exe\t0\n").unwrap();
+        fs::write(&data, shortcuts).unwrap();
+        fs::write(&settings, &preferences).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&settings)
+            .unwrap();
+
+        let backup = Backup::capture(&source).unwrap();
+        assert!(apply(&data, backup, (false, false)).is_err());
+        assert!(!journal(&data).exists());
+        assert_eq!(fs::read(&data).unwrap(), shortcuts);
+        assert_eq!(fs::read_to_string(&settings).unwrap(), preferences);
+        assert!(!data.with_extension("state.tsv").exists());
+        drop(lock);
         let _ = fs::remove_dir_all(root);
     }
 }

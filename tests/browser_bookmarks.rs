@@ -79,3 +79,13 @@ fn edited_aliases_are_checked_against_draft_and_other_selected_rows() {
     rows[1].checked = false;
     assert_eq!(selected_entries(&rows, &[]).unwrap()[0].alias, "ClAsH");
 }
+
+#[cfg(windows)]
+#[test]
+fn international_host_generates_ascii_alias_and_matches_punycode_duplicate() {
+    let html = "<!DOCTYPE NETSCAPE-Bookmark-file-1><DL><DT><A HREF='https://例子.test/café?a=1#B'>中文</A><DT><A HREF='https://xn--fsqu00a.test/café?a=1#B'>同一网址</A></DL>";
+    let rows = preview(parse(html.as_bytes()).unwrap(), &[]);
+    assert_eq!(rows[0].alias, "xn--fsqu00a.test");
+    assert_eq!(rows[0].bookmark.url, "https://例子.test/café?a=1#B");
+    assert_eq!(rows[1].status, BookmarkStatus::Duplicate);
+}

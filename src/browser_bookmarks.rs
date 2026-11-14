@@ -316,13 +316,49 @@ pub(crate) fn url_key(url: &str) -> Option<(String, String)> {
         }
         Some(port.parse::<u16>().ok()?).filter(|&port| port != default_port)
     };
-    let host = host.to_lowercase();
+    let host = canonical_host(host)?;
     let port = port.map_or_else(String::new, |port| format!(":{port}"));
     let separator = if tail.starts_with('/') { "" } else { "/" };
     Some((
         format!("{scheme}://{user}{host}{port}{separator}{tail}"),
         host,
     ))
+}
+
+fn canonical_host(host: &str) -> Option<String> {
+    if host.is_ascii() {
+        return Some(host.to_ascii_lowercase());
+    }
+    #[cfg(windows)]
+    {
+        use std::ptr::null_mut;
+        use windows_sys::Win32::Globalization::IdnToAscii;
+        let host: Vec<u16> = host.encode_utf16().collect();
+        let len = i32::try_from(host.len()).ok()?;
+        let size = unsafe { IdnToAscii(0, host.as_ptr(), len, null_mut(), 0) };
+        if size <= 0 {
+            return None;
+        }
+        let mut ascii = vec![0; size as usize];
+        let written = unsafe { IdnToAscii(0, host.as_ptr(), len, ascii.as_mut_ptr(), size) };
+        (written == size).then(|| String::from_utf16_lossy(&ascii).to_ascii_lowercase())
+    }
+    #[cfg(not(windows))]
+    Some(host.to_lowercase())
+}
+
+fn entry_url(command: &str) -> Option<String> {
+    let command = command.trim();
+    let command = ["@+", "@-", "@"]
+        .into_iter()
+        .find_map(|prefix| command.strip_prefix(prefix))
+        .unwrap_or(command)
+        .trim_start();
+    let command = command
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(command);
+    url_key(command).map(|(key, _)| key)
 }
 
 fn alias_for(title: &str, host: &str) -> String {
@@ -355,6 +391,8 @@ fn alias_for(title: &str, host: &str) -> String {
                 .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'.' | b'-' | b'_'))
         {
             out = host.to_owned();
+        } else if host.starts_with('[') && host.ends_with(']') {
+            out = format!("ipv6-{}", host[1..host.len() - 1].replace(':', "-"));
         } else {
             out = "website".into();
         }
@@ -367,7 +405,7 @@ pub fn preview(bookmarks: Vec<Bookmark>, current: &[Entry]) -> Vec<PreviewRow> {
     let known: HashSet<String> = current
         .iter()
         .filter(|entry| entry.kind == EntryKind::Command)
-        .filter_map(|entry| url_key(entry.command.trim()).map(|(key, _)| key))
+        .filter_map(|entry| entry_url(&entry.command))
         .collect();
     let mut seen = HashSet::new();
     let mut aliases: HashSet<String> = current

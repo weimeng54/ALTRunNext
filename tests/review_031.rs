@@ -166,12 +166,13 @@ fn windows_031_management_and_import_previews() {
         std::fs::write(&data, &original).unwrap();
         let (mut running, launcher) = start(&data, theme, scale);
         let pid = running.0.id();
-        let manager = review_native_support::manager(launcher, pid);
+        command(launcher, 18003);
+        let manager = ready_window(pid, "ALTRun.Native.ShortcutManager", 2113);
         let list = child(manager, 2101);
         let query = child(manager, 2106);
         let cmd = child(manager, 2104);
         set(query, "文本");
-        assert_eq!(count(list), 1);
+        wait(|| count(list) == 1);
         assert_eq!(text(cmd), "calc.exe");
         native_snapshot::save(manager, &format!("031-manager-filter-{theme}-{scale}"));
         set(child(launcher, 1001), "cl");

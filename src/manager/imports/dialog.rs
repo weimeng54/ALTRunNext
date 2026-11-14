@@ -5,14 +5,19 @@ use super::{Accepted, Preview};
 use crate::{localization as l10n, manager::table, theme, ui};
 use altrun_probe::browser_bookmarks::{BookmarkStatus, selected_entries};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     ptr::{null, null_mut},
 };
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+    UI::{
+        Controls::*,
+        Input::KeyboardAndMouse::*,
+        Shell::{DefSubclassProc, SetWindowSubclass},
+        WindowsAndMessaging::*,
+    },
 };
 
 const WIDTH: i32 = 928;
@@ -34,6 +39,8 @@ const STATUS: usize = 2912;
 const ERROR: usize = 2913;
 const TABLE_TOP: i32 = 115;
 const ROW_HEIGHT: i32 = 30;
+const BOOKMARK_ROW_HEIGHT: i32 = 38;
+const ALIAS_COLUMN: usize = 2;
 const STATIC_NOPREFIX: u32 = 0x80;
 const STATIC_PATHELLIPSIS: u32 = 0x4000;
 
@@ -62,14 +69,17 @@ struct Model {
     preview: Option<Preview>,
     shown: Vec<usize>,
     selected: Option<usize>,
+    editing_alias: Option<usize>,
     query: String,
     updating: bool,
     outcome: Outcome,
 }
 struct Dialog {
     model: RefCell<Model>,
+    composing: Cell<HWND>,
     dpi: i32,
     height: i32,
+    row_height: i32,
     caption: HFONT,
     font: HFONT,
     surface: HBRUSH,
@@ -234,30 +244,86 @@ fn clear_error(hwnd: HWND) {
     unsafe { SetWindowTextW(child(hwnd, ERROR), ui::wide("").as_ptr()) };
 }
 
-fn sync_alias(hwnd: HWND, shared: &Dialog) {
-    let alias = {
-        let mut model = shared.model.borrow_mut();
-        model.updating = true;
-        match (&model.preview, model.selected) {
-            (Some(Preview::Bookmarks { rows, .. }), Some(index))
-                if rows[index].status == BookmarkStatus::Ready =>
-            {
-                Some(rows[index].alias.clone())
-            }
-            _ => None,
-        }
-    };
-    unsafe {
-        let edit = child(hwnd, ALIAS);
-        if !edit.is_null() {
-            EnableWindow(edit, i32::from(alias.is_some()));
-            SetWindowTextW(edit, ui::wide(alias.as_deref().unwrap_or("")).as_ptr());
+fn finish_alias(hwnd: HWND, shared: &Dialog) {
+    if shared.model.borrow_mut().editing_alias.take().is_some() {
+        unsafe {
+            ShowWindow(child(hwnd, ALIAS), SW_HIDE);
+            InvalidateRect(child(hwnd, TABLE), null(), 0);
         }
     }
-    shared.model.borrow_mut().updating = false;
+}
+
+unsafe fn alias_bounds(list: HWND, row: usize, dpi: i32) -> Option<RECT> {
+    unsafe {
+        let mut bounds = RECT {
+            top: ALIAS_COLUMN as i32,
+            left: LVIR_BOUNDS as i32,
+            ..Default::default()
+        };
+        if SendMessageW(
+            list,
+            LVM_GETSUBITEMRECT,
+            row,
+            &mut bounds as *mut _ as LPARAM,
+        ) == 0
+        {
+            return None;
+        }
+        InflateRect(&mut bounds, -ui::scaled(4, dpi), -ui::scaled(3, dpi));
+        (bounds.right > bounds.left && bounds.bottom > bounds.top).then_some(bounds)
+    }
+}
+
+fn begin_alias(hwnd: HWND, shared: &Dialog, position: usize) {
+    let alias = {
+        let model = shared.model.borrow();
+        let (Some(&index), Some(Preview::Bookmarks { rows, .. })) =
+            (model.shown.get(position), model.preview.as_ref())
+        else {
+            return;
+        };
+        if rows[index].status != BookmarkStatus::Ready {
+            return;
+        }
+        (index, rows[index].alias.clone())
+    };
+    unsafe {
+        let list = child(hwnd, TABLE);
+        let edit = child(hwnd, ALIAS);
+        let Some(mut bounds) = alias_bounds(list, position, shared.dpi) else {
+            return;
+        };
+        let mut visible = RECT::default();
+        GetClientRect(list, &mut visible);
+        let header = SendMessageW(list, LVM_GETHEADER, 0, 0) as HWND;
+        let mut header_bounds = RECT::default();
+        GetClientRect(header, &mut header_bounds);
+        visible.top = header_bounds.bottom;
+        let mut clipped = RECT::default();
+        if IntersectRect(&mut clipped, &visible, &bounds) == 0 {
+            return;
+        }
+        bounds = clipped;
+        MapWindowPoints(list, hwnd, (&raw mut bounds).cast::<POINT>(), 2);
+        finish_alias(hwnd, shared);
+        SetWindowTextW(edit, ui::wide(&alias.1).as_ptr());
+        shared.model.borrow_mut().editing_alias = Some(alias.0);
+        SetWindowPos(
+            edit,
+            HWND_TOP,
+            bounds.left,
+            bounds.top,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
+            SWP_SHOWWINDOW,
+        );
+        SetFocus(edit);
+        SendMessageW(edit, EM_SETSEL, 0, -1);
+    }
 }
 
 fn refresh(hwnd: HWND, shared: &Dialog) {
+    finish_alias(hwnd, shared);
     let (rows, selected) = {
         let mut model = shared.model.borrow_mut();
         let rows = model.visible_rows();
@@ -272,10 +338,10 @@ fn refresh(hwnd: HWND, shared: &Dialog) {
             child(hwnd, TABLE),
             &rows,
             selected,
-            ui::scaled(ROW_HEIGHT, shared.dpi),
+            ui::scaled(shared.row_height, shared.dpi),
         );
     }
-    sync_alias(hwnd, shared);
+    shared.model.borrow_mut().updating = false;
     refresh_status(hwnd, shared);
 }
 
@@ -323,14 +389,6 @@ fn toggle(hwnd: HWND, shared: &Dialog, selection: usize) {
     refresh_status(hwnd, shared);
 }
 
-fn read_text(hwnd: HWND) -> String {
-    unsafe {
-        let mut text = vec![0; GetWindowTextLengthW(hwnd) as usize + 1];
-        let len = GetWindowTextW(hwnd, text.as_mut_ptr(), text.len() as i32);
-        String::from_utf16_lossy(&text[..len.max(0) as usize])
-    }
-}
-
 fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HWND) {
     match id {
         APPLY => {
@@ -365,8 +423,8 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
                 *replace = id == REPLACE;
             }
             unsafe {
-                for (control, checked) in [(APPEND, id == APPEND), (REPLACE, id == REPLACE)] {
-                    SendMessageW(child(hwnd, control), BM_SETCHECK, usize::from(checked), 0);
+                for control in [APPEND, REPLACE] {
+                    InvalidateRect(child(hwnd, control), null(), 0);
                 }
             }
             refresh(hwnd, shared);
@@ -390,17 +448,19 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
             refresh(hwnd, shared);
         }
         FILTER if code == EN_CHANGE => {
-            shared.model.borrow_mut().query = read_text(control).trim().to_lowercase();
+            shared.model.borrow_mut().query = ui::window_text(control).trim().to_lowercase();
             refresh(hwnd, shared);
         }
         ALIAS if code == EN_CHANGE => {
-            let value = read_text(control);
+            let value = ui::window_text(control);
             let changed = {
                 let mut model = shared.model.borrow_mut();
                 if model.updating {
                     return;
                 }
-                let Some(index) = model.selected else { return };
+                let Some(index) = model.editing_alias else {
+                    return;
+                };
                 let Some(column) = model.shown.iter().position(|&row| row == index) else {
                     return;
                 };
@@ -415,7 +475,7 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
             };
             let mut value = ui::wide(&value);
             let item = LVITEMW {
-                iSubItem: 2,
+                iSubItem: ALIAS_COLUMN as i32,
                 pszText: value.as_mut_ptr(),
                 ..Default::default()
             };
@@ -426,6 +486,7 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
             }
             clear_error(hwnd);
         }
+        ALIAS if code == EN_KILLFOCUS => finish_alias(hwnd, shared),
         _ => {}
     }
 }
@@ -440,34 +501,24 @@ unsafe fn notify(hwnd: HWND, shared: &Dialog, l: LPARAM) {
             LVN_ITEMCHANGED => {
                 let change = &*(l as *const NMLISTVIEW);
                 if change.uNewState & LVIS_SELECTED != 0 && change.uOldState & LVIS_SELECTED == 0 {
-                    let index = {
-                        let mut model = shared.model.borrow_mut();
-                        model.selected = model.shown.get(change.iItem as usize).copied();
-                        model.selected
-                    };
-                    if index.is_some() {
-                        sync_alias(hwnd, shared);
-                    }
+                    let mut model = shared.model.borrow_mut();
+                    model.selected = model.shown.get(change.iItem as usize).copied();
                 }
             }
-            NM_CLICK | NM_DBLCLK => {
+            NM_CLICK => {
                 let item = &*(l as *const NMITEMACTIVATE);
                 if item.iItem < 0 {
                     return;
                 }
-                if header.code == NM_CLICK && item.iSubItem == 0 {
+                if item.iSubItem == 0 {
                     toggle(hwnd, shared, item.iItem as usize);
-                } else if header.code == NM_DBLCLK {
-                    let alias = child(hwnd, ALIAS);
-                    if IsWindowEnabled(alias) != 0 {
-                        SetFocus(alias);
-                        SendMessageW(alias, EM_SETSEL, 0, -1);
-                    }
+                } else if item.iSubItem == ALIAS_COLUMN as i32 {
+                    begin_alias(hwnd, shared, item.iItem as usize);
                 }
             }
             LVN_KEYDOWN => {
                 let key = &*(l as *const NMLVKEYDOWN);
-                if key.wVKey == VK_SPACE {
+                if matches!(key.wVKey, VK_SPACE | VK_F2) {
                     let index = SendMessageW(
                         header.hwndFrom,
                         LVM_GETNEXTITEM,
@@ -475,7 +526,11 @@ unsafe fn notify(hwnd: HWND, shared: &Dialog, l: LPARAM) {
                         LVNI_SELECTED as LPARAM,
                     );
                     if index >= 0 {
-                        toggle(hwnd, shared, index as usize);
+                        if key.wVKey == VK_SPACE {
+                            toggle(hwnd, shared, index as usize);
+                        } else {
+                            begin_alias(hwnd, shared, index as usize);
+                        }
                     }
                 }
             }
@@ -485,7 +540,7 @@ unsafe fn notify(hwnd: HWND, shared: &Dialog, l: LPARAM) {
 }
 
 fn draw_row(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
-    let cells = {
+    let (cells, check) = {
         let model = dialog.model.borrow();
         let Some(&index) = model.shown.get(item.itemID as usize) else {
             return;
@@ -493,47 +548,48 @@ fn draw_row(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
         match model.preview.as_ref() {
             Some(Preview::LaunchItems { rows, replace, .. }) => {
                 let row = &rows[index];
-                vec![
-                    row.entry.alias.clone(),
-                    row.entry.name.clone(),
-                    row.entry.command.clone(),
-                    l10n::tr(if !replace && !row.conflict.is_empty() {
-                        row.conflict
-                    } else {
-                        "ui.import_ready"
-                    }),
-                ]
+                (
+                    vec![
+                        row.entry.alias.clone(),
+                        row.entry.name.clone(),
+                        row.entry.command.clone(),
+                        l10n::tr(if !replace && !row.conflict.is_empty() {
+                            row.conflict
+                        } else {
+                            "ui.import_ready"
+                        }),
+                    ],
+                    None,
+                )
             }
             Some(Preview::Bookmarks { rows, .. }) => {
                 let row = &rows[index];
-                vec![
-                    String::new(),
-                    row.bookmark.title.clone(),
-                    row.alias.clone(),
-                    row.bookmark.folders.join(" / "),
-                    row.bookmark.url.clone(),
-                    l10n::tr(row.status.label()),
-                ]
+                (
+                    vec![
+                        String::new(),
+                        row.bookmark.title.clone(),
+                        String::new(),
+                        row.bookmark.folders.join(" / "),
+                        row.bookmark.url.clone(),
+                        l10n::tr(row.status.label()),
+                    ],
+                    Some((row.status, row.checked, row.alias.clone())),
+                )
             }
             None => return,
         }
     };
     let columns = cells.iter().map(String::as_str).collect::<Vec<_>>();
     table::draw_columns(item, &columns, dialog.font, dialog.dpi);
-    let check = {
-        let model = dialog.model.borrow();
-        let index = model.shown[item.itemID as usize];
-        match &model.preview {
-            Some(Preview::Bookmarks { rows, .. }) => {
-                Some((rows[index].status, rows[index].checked))
-            }
-            _ => None,
-        }
-    };
-    if let Some((status, checked)) = check {
+    if let Some((status, checked, alias)) = check {
+        draw_alias_cell(item, dialog, status, &alias);
         let px = |n| ui::scaled(n, dialog.dpi);
-        let left = -unsafe { GetScrollPos(item.hwndItem, SB_HORZ) } + px(19);
+        let width = unsafe { SendMessageW(item.hwndItem, LVM_GETCOLUMNWIDTH, 0, 0) } as i32;
         let side = px(16);
+        if width < side + px(8) {
+            return;
+        }
+        let left = -unsafe { GetScrollPos(item.hwndItem, SB_HORZ) } + (width - side) / 2;
         let top = (item.rcItem.top + item.rcItem.bottom - side) / 2;
         let bounds = RECT {
             left,
@@ -564,6 +620,100 @@ fn draw_row(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
                 DeleteObject(pen);
             }
         }
+    }
+}
+
+fn draw_alias_cell(item: &DRAWITEMSTRUCT, dialog: &Dialog, status: BookmarkStatus, alias: &str) {
+    let px = |n| ui::scaled(n, dialog.dpi);
+    unsafe {
+        let Some(bounds) = alias_bounds(item.hwndItem, item.itemID as usize, dialog.dpi) else {
+            return;
+        };
+        let dc = item.hDC;
+        let colour = if status == BookmarkStatus::Ready {
+            ui::rounded(dc, bounds, px(8), theme::paper(), theme::border());
+            theme::text()
+        } else {
+            theme::muted()
+        };
+        let old = SelectObject(dc, dialog.font);
+        ui::line_text(
+            dc,
+            RECT {
+                left: bounds.left + px(7),
+                right: bounds.right - px(5),
+                ..bounds
+            },
+            if status == BookmarkStatus::Ready {
+                alias
+            } else {
+                "—"
+            },
+            colour,
+            0,
+        );
+        SelectObject(dc, old);
+    }
+}
+
+fn draw_mode(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
+    let replace = matches!(
+        &dialog.model.borrow().preview,
+        Some(Preview::LaunchItems { replace: true, .. })
+    );
+    let checked = replace == (item.CtlID as usize == REPLACE);
+    let px = |n| ui::scaled(n, dialog.dpi);
+    let dc = item.hDC;
+    let rect = item.rcItem;
+    ui::fill(dc, &rect, theme::surface());
+    let side = px(16);
+    let top = (rect.top + rect.bottom - side) / 2;
+    let bounds = RECT {
+        left: rect.left + px(2),
+        top,
+        right: rect.left + px(2) + side,
+        bottom: top + side,
+    };
+    let focus = item.itemState & ODS_FOCUS != 0;
+    ui::rounded(
+        dc,
+        bounds,
+        side,
+        theme::paper(),
+        if focus || checked {
+            theme::accent()
+        } else {
+            theme::border()
+        },
+    );
+    if checked {
+        let inset = px(4);
+        ui::rounded(
+            dc,
+            RECT {
+                left: bounds.left + inset,
+                top: top + inset,
+                right: bounds.right - inset,
+                bottom: bounds.bottom - inset,
+            },
+            side - 2 * inset,
+            theme::accent(),
+            theme::accent(),
+        );
+    }
+    unsafe {
+        let old = SelectObject(dc, dialog.font);
+        ui::line_text(
+            dc,
+            RECT {
+                left: bounds.right + px(8),
+                ..rect
+            },
+            &ui::window_text(item.hwndItem),
+            theme::text(),
+            0,
+        );
+        SelectObject(dc, old);
     }
 }
 
@@ -638,7 +788,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
                 WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
                     let id = GetDlgCtrlID(l as HWND) as usize;
-                    SetBkMode(w as HDC, TRANSPARENT as i32);
+                    let edit = msg == WM_CTLCOLOREDIT || id == ALIAS || id == FILTER;
+                    let background = if edit {
+                        theme::paper()
+                    } else if id == STATUS {
+                        theme::chrome()
+                    } else {
+                        theme::surface()
+                    };
+                    SetBkColor(w as HDC, background);
                     SetTextColor(
                         w as HDC,
                         if id == ERROR {
@@ -650,10 +808,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         },
                     );
                     if id == STATUS {
-                        SetDCBrushColor(w as HDC, theme::chrome());
+                        SetDCBrushColor(w as HDC, background);
                         return GetStockObject(DC_BRUSH) as isize;
                     }
-                    if msg == WM_CTLCOLOREDIT || id == ALIAS || id == FILTER {
+                    if edit {
                         return dialog.paper as isize;
                     }
                     return dialog.surface as isize;
@@ -663,6 +821,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     match item.CtlID as usize {
                         TABLE => draw_row(item, dialog),
                         CAPTION_CLOSE => ui::caption_close(item, dialog.dpi),
+                        APPEND | REPLACE => draw_mode(item, dialog),
                         APPLY | CANCEL => ui::button_on(
                             item,
                             item.CtlID as usize == APPLY,
@@ -675,7 +834,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 }
                 WM_MEASUREITEM if w == TABLE && l != 0 => {
                     (*(l as *mut MEASUREITEMSTRUCT)).itemHeight =
-                        ui::scaled(ROW_HEIGHT, dialog.dpi) as u32;
+                        ui::scaled(dialog.row_height, dialog.dpi) as u32;
                     return 1;
                 }
                 WM_COMMAND => {
@@ -691,6 +850,29 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
         }
         DefWindowProcW(hwnd, msg, w, l)
+    }
+}
+
+unsafe extern "system" fn edit_keys(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    data: usize,
+) -> LRESULT {
+    unsafe {
+        let dialog = &*(data as *const Dialog);
+        match msg {
+            WM_IME_STARTCOMPOSITION => dialog.composing.set(hwnd),
+            WM_IME_ENDCOMPOSITION | WM_KILLFOCUS | WM_NCDESTROY
+                if dialog.composing.get() == hwnd =>
+            {
+                dialog.composing.set(null_mut());
+            }
+            _ => {}
+        }
+        DefSubclassProc(hwnd, msg, w, l)
     }
 }
 
@@ -714,12 +896,19 @@ pub(super) fn open(
                 preview,
                 shown: Vec::new(),
                 selected: None,
+                editing_alias: None,
                 query: String::new(),
                 updating: true,
                 outcome: Outcome::Cancelled,
             }),
+            composing: Cell::new(null_mut()),
             dpi: 96,
             height,
+            row_height: if is_bookmarks {
+                BOOKMARK_ROW_HEIGHT
+            } else {
+                ROW_HEIGHT
+            },
             caption: null_mut(),
             font: null_mut(),
             surface: CreateSolidBrush(theme::surface()),
@@ -831,47 +1020,33 @@ pub(super) fn open(
                     0,
                     ui::ui("ui.browser_bookmarks_filter").as_ptr() as LPARAM,
                 );
-                control(
-                    "STATIC",
-                    &l10n::tr("ui.alias"),
-                    0,
-                    (20, 403, 104, 27),
-                    ui::STATIC_CENTER_IMAGE,
-                );
                 let alias = control(
                     "EDIT",
                     "",
                     ALIAS,
-                    (133, 402, 299, 29),
-                    WS_TABSTOP | ES_AUTOHSCROLL as u32,
+                    (0, 0, 1, 1),
+                    WS_CLIPSIBLINGS | ES_AUTOHSCROLL as u32,
                 );
+                ShowWindow(alias, SW_HIDE);
                 ui::style_edit(alias, dpi);
                 SendMessageW(alias, EM_LIMITTEXT, 256, 0);
+                let data = &raw const *dialog as usize;
+                for edit in [filter, alias] {
+                    SetWindowSubclass(edit, Some(edit_keys), 1, data);
+                }
             } else {
                 for (id, label, x) in [
                     (APPEND, "ui.import_append_mode", 20),
                     (REPLACE, "ui.import_replace_mode", 282),
                 ] {
-                    control(
-                        "BUTTON",
-                        &l10n::tr(label),
-                        id,
-                        (x, 77, 255, 29),
-                        WS_TABSTOP | BS_RADIOBUTTON as u32,
-                    );
+                    button(label, id, (x, 77, 255, 29));
                 }
-                SendMessageW(child(hwnd, APPEND), BM_SETCHECK, BST_CHECKED as usize, 0);
             }
             let list = control(
                 "SysListView32",
                 "",
                 TABLE,
-                (
-                    20,
-                    TABLE_TOP,
-                    WIDTH - 40,
-                    if is_bookmarks { 278 } else { 312 },
-                ),
+                (20, TABLE_TOP, WIDTH - 40, 312),
                 WS_TABSTOP
                     | WS_CLIPSIBLINGS
                     | LVS_REPORT
@@ -911,7 +1086,11 @@ pub(super) fn open(
             (20, height - 42, WIDTH - 345, 28),
             STATIC_NOPREFIX | ui::STATIC_CENTER_IMAGE,
         );
-        let cancel = button("ui.cancel", CANCEL, (WIDTH - 308, height - 43, 114, 31));
+        let cancel = button(
+            if failed { "ui.close" } else { "ui.cancel" },
+            CANCEL,
+            (WIDTH - 308, height - 43, 114, 31),
+        );
         button(
             "ui.choose_again",
             APPLY,
@@ -939,16 +1118,29 @@ pub(super) fn open(
             if message.message == WM_KEYDOWN
                 && (message.hwnd == hwnd || IsChild(hwnd, message.hwnd) != 0)
             {
+                if message.hwnd == dialog.composing.get() {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                    continue;
+                }
+                let id = GetDlgCtrlID(GetFocus()) as usize;
                 if message.wParam == VK_ESCAPE as usize {
-                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                    if id == ALIAS {
+                        SetFocus(child(hwnd, TABLE));
+                    } else {
+                        SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                    }
                     continue;
                 }
                 if message.wParam == VK_RETURN as usize {
-                    let id = GetDlgCtrlID(GetFocus()) as usize;
-                    if id == APPLY && IsWindowEnabled(child(hwnd, APPLY)) != 0 {
-                        SendMessageW(hwnd, WM_COMMAND, APPLY, 0);
-                    } else if id == CANCEL {
-                        SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                    if id == ALIAS {
+                        SetFocus(child(hwnd, TABLE));
+                    } else if matches!(
+                        id,
+                        APPLY | CANCEL | CAPTION_CLOSE | APPEND | REPLACE | ALL | INVERT | CLEAR
+                    ) && IsWindowEnabled(child(hwnd, id)) != 0
+                    {
+                        SendMessageW(hwnd, WM_COMMAND, id, 0);
                     }
                     continue;
                 }
