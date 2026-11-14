@@ -8,7 +8,8 @@ mod review_native_support;
 use review_native_support::{Running, command, set, text, wait, window};
 use std::{path::Path, process::Command, ptr::null_mut};
 use windows_sys::Win32::{
-    Foundation::{HWND, LPARAM},
+    Foundation::{HWND, LPARAM, RECT},
+    Graphics::Gdi::{GetPixel, GetWindowDC, ReleaseDC},
     UI::{
         Controls::*,
         Input::KeyboardAndMouse::{VK_F2, VK_RETURN},
@@ -228,6 +229,30 @@ fn count(list: HWND) -> isize {
     unsafe { SendMessageW(list, LVM_GETITEMCOUNT, 0, 0) }
 }
 
+fn check_launcher_scrollbar(data: &Path, theme: &str, scale: &str) {
+    let rows = (0..26)
+        .map(|i| format!("test{i}\tSynthetic {i}\tnotepad.exe\t0\n"))
+        .collect::<String>();
+    std::fs::write(data, rows).unwrap();
+    let (mut process, launcher) = start(data, theme, scale);
+    let list = child(launcher, 1002);
+    let track = child(launcher, 1006);
+    wait(|| unsafe { IsWindowVisible(track) != 0 });
+    unsafe {
+        SendMessageW(list, WM_VSCROLL, SB_LINEDOWN as usize, 0);
+        assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 1);
+        SendMessageW(list, WM_NCPAINT, 1, 0);
+    }
+    native_snapshot::save(launcher, &format!("ui-scrollbar-{theme}-{scale}"));
+    let search = child(launcher, 1001);
+    set(search, "test25");
+    wait(|| unsafe { IsWindowVisible(track) == 0 });
+    set(search, "");
+    wait(|| unsafe { IsWindowVisible(track) != 0 });
+    command(launcher, 18002);
+    wait(|| process.0.try_wait().unwrap().is_some());
+}
+
 fn check_launcher(launcher: HWND, theme: &str, scale: &str) {
     let input = child(launcher, 1001);
     let rows = child(launcher, 1002);
@@ -296,6 +321,7 @@ fn windows_031_management_and_import_previews() {
         ("dark", "150"),
         ("dark", "200"),
     ] {
+        check_launcher_scrollbar(&dir.join("scrollbar.tsv"), theme, scale);
         std::fs::write(&data, &original).unwrap();
         let (mut running, launcher) = start(&data, theme, scale);
         let pid = running.0.id();
@@ -350,6 +376,7 @@ fn windows_031_management_and_import_previews() {
         let preview = ready_window(pid, "ALTRun.Native.ImportPreview", 2907);
         let grid = child(preview, 2901);
         assert_eq!(count(grid), 4);
+        native_snapshot::save(preview, &format!("ui-bookmark-search-{theme}-{scale}"));
         set(child(preview, 2907), "计算器");
         assert_eq!(count(grid), 1);
         unsafe {
@@ -357,6 +384,29 @@ fn windows_031_management_and_import_previews() {
         }
         let alias = child(preview, 2911);
         wait(|| unsafe { IsWindowVisible(alias) != 0 });
+        native_snapshot::save(preview, &format!("ui-bookmark-alias-{theme}-{scale}"));
+        unsafe {
+            let mut bounds = RECT::default();
+            GetWindowRect(alias, &mut bounds);
+            let dc = GetWindowDC(preview);
+            let mut preview_bounds = RECT::default();
+            GetWindowRect(preview, &mut preview_bounds);
+            let corner = GetPixel(
+                dc,
+                bounds.left - preview_bounds.left,
+                bounds.top - preview_bounds.top,
+            );
+            let row_background = GetPixel(
+                dc,
+                bounds.left - preview_bounds.left - 2,
+                bounds.top - preview_bounds.top,
+            );
+            ReleaseDC(preview, dc);
+            assert_eq!(
+                corner, row_background,
+                "alias corner should blend with the selected row"
+            );
+        }
         set(alias, "calculator-links");
         unsafe {
             PostMessageW(alias, WM_KEYDOWN, VK_RETURN as usize, 0);
