@@ -6,6 +6,8 @@
 
 ## [未发布 / Unreleased]
 
+## [0.4.3] - 2026-11-14
+
 ### 变更 / Changed
 
 - Windows 便携 ZIP 随附本文件。\
@@ -121,7 +123,8 @@
 - 首次启动跟随 Windows 显示语言。内置英文和简体中文，便携包附带日语、韩语、法语、德语和西班牙语，并支持外置语言包。\
   The app follows the Windows display language on first launch. English and Simplified Chinese are built in. The portable ZIP includes Japanese, Korean, French, German, and Spanish, and the app supports external language packs.
 
-[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.2...main
+[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.3...main
+[0.4.3]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/weimeng54/ALTRunNext/compare/v0.3.0...v0.4.0
