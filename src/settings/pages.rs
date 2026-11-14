@@ -8,55 +8,79 @@ pub(super) fn show_page(page: usize) {
         return;
     };
     cancel_capture();
-    let (window, tabs, title, sections, extras, preview, more_colors) = EDITOR.with(|c| {
-        let mut editor = c.borrow_mut();
-        let editor = editor.as_mut().unwrap();
-        editor.page = page;
-        (
-            editor.hwnd,
-            editor.tabs,
-            editor.title,
-            editor.sections.clone(),
-            editor.extra_controls.clone(),
-            editor.preview_controls,
-            editor.more_colors,
-        )
-    });
+    let (window, tabs, title, sections, extras, preview, more_colors, dpi, height) =
+        EDITOR.with(|c| {
+            let mut editor = c.borrow_mut();
+            let editor = editor.as_mut().unwrap();
+            editor.page = page;
+            (
+                editor.hwnd,
+                editor.tabs,
+                editor.title,
+                editor.sections.clone(),
+                editor.extra_controls.clone(),
+                editor.preview_controls,
+                editor.more_colors,
+                editor.dpi,
+                editor.height,
+            )
+        });
+    let image = page == 3 && background_image();
+    let showing_preview = matches!(page, 3 | 4);
     unsafe {
-        SendMessageW(tabs, LB_SETCURSEL, page, 0);
+        if SendMessageW(tabs, LB_GETCURSEL, 0, 0) != page as isize {
+            SendMessageW(tabs, LB_SETCURSEL, page, 0);
+        }
         SetWindowTextW(title, ui(design.name).as_ptr());
-        SendMessageW(tabs, LB_SETTOPINDEX, 0, 0);
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visible = field.page == page
                 && !hidden_field(spec.key)
                 && (!extra_color(spec.key) || more_colors);
             for hwnd in [field.label, field.value, field.pick, field.clear] {
+                if hwnd.is_null() {
+                    continue;
+                }
                 let is_color_value = hwnd == field.value
                     && matches!(spec.kind, Kind::Text)
                     && spec.key.ends_with("Color");
-                show_without_redraw(hwnd, visible && !is_color_value);
+                show_without_redraw(
+                    hwnd,
+                    visible
+                        && !is_color_value
+                        && (page != 3
+                            || shows_in_background_mode(GetDlgCtrlID(hwnd) as usize, image)),
+                );
             }
         }
         for (group, hwnd) in sections {
             show_without_redraw(hwnd, group == page);
         }
         for (group, hwnd) in extras {
-            show_without_redraw(hwnd, group == page);
+            show_without_redraw(
+                hwnd,
+                group == page
+                    && (page != 3 || shows_in_background_mode(GetDlgCtrlID(hwnd) as usize, image)),
+            );
         }
         for hwnd in preview {
-            show_without_redraw(hwnd, matches!(page, 3 | 4));
+            show_without_redraw(hwnd, showing_preview);
         }
     }
     sync_save_button(window);
-    update_background_mode();
-    update_preview();
-    if matches!(page, 3 | 4) {
+    if showing_preview {
+        update_preview();
         align_preview();
     }
     unsafe {
+        let mut content = RECT::default();
+        GetClientRect(window, &mut content);
+        content.left = scaled(layout::RAIL, dpi);
+        content.top = scaled(layout::CAPTION, dpi) + 1;
+        content.bottom = height - scaled(layout::FOOTER, dpi);
+        // The sidebar, caption and footer own their repaint independently.
         RedrawWindow(
             window,
-            std::ptr::null(),
+            &content,
             null_mut(),
             RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
         );

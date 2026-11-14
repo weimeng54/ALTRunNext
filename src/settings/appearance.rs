@@ -90,7 +90,9 @@ pub(super) fn update_background_mode() {
 }
 
 pub(super) fn show_without_redraw(hwnd: HWND, visible: bool) {
-    if !hwnd.is_null() {
+    if !hwnd.is_null()
+        && unsafe { (GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE != 0) != visible }
+    {
         unsafe {
             SetWindowPos(
                 hwnd,

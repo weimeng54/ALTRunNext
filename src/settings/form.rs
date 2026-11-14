@@ -191,11 +191,12 @@ pub(super) fn form_is_dirty() -> bool {
 
 pub(super) fn sync_save_button(window: HWND) {
     let about = EDITOR.with(|c| c.borrow().as_ref().unwrap().page == layout::ABOUT_PAGE);
+    let enabled = !about || form_is_dirty();
     unsafe {
-        EnableWindow(
-            GetDlgItem(window, 2310),
-            i32::from(!about || form_is_dirty()),
-        );
+        let button = GetDlgItem(window, 2310);
+        if (IsWindowEnabled(button) != 0) != enabled {
+            EnableWindow(button, i32::from(enabled));
+        }
     }
 }
 
