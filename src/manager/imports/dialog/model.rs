@@ -27,12 +27,12 @@ fn launch_cells(row: &Incoming, replace: bool) -> Vec<String> {
     ]
 }
 
-fn bookmark_cells(row: &PreviewRow, folder: String) -> Vec<String> {
+fn bookmark_cells(row: &PreviewRow, folder: &str) -> Vec<String> {
     vec![
         check_mark(row.status, row.checked).into(),
         row.bookmark.title.clone(),
         row.alias.clone(),
-        folder,
+        folder.into(),
         row.bookmark.url.clone(),
         l10n::tr(row.status.label()),
     ]
@@ -43,46 +43,101 @@ pub(super) struct DisplayRow {
     pub(super) bookmark: Option<(BookmarkStatus, bool, String)>,
 }
 
+struct BookmarkFilter {
+    folder: String,
+    title: String,
+    address: String,
+    folded_folder: String,
+}
+
+impl BookmarkFilter {
+    fn new(row: &PreviewRow) -> Self {
+        let folder = row.bookmark.folders.join(" / ");
+        Self {
+            title: row.bookmark.title.to_lowercase(),
+            address: row.bookmark.url.to_lowercase(),
+            folded_folder: folder.to_lowercase(),
+            folder,
+        }
+    }
+
+    fn matches(&self, query: &str) -> bool {
+        self.title.contains(query)
+            || self.address.contains(query)
+            || self.folded_folder.contains(query)
+    }
+}
+
 pub(super) struct Model {
     pub(super) preview: Option<Preview>,
     pub(super) shown: Vec<usize>,
     pub(super) selected: Option<usize>,
     pub(super) editing_alias: Option<usize>,
-    pub(super) query: String,
+    query: String,
     pub(super) updating: bool,
     pub(super) outcome: Outcome,
+    bookmark_filter: Vec<BookmarkFilter>,
 }
 
 impl Model {
-    pub(super) fn visible_rows(&mut self) -> Vec<Vec<String>> {
-        let mut shown = Vec::new();
-        let table = match self.preview.as_ref() {
-            Some(Preview::LaunchItems { rows, replace, .. }) => {
-                shown.extend(0..rows.len());
-                rows.iter().map(|row| launch_cells(row, *replace)).collect()
-            }
-            Some(Preview::Bookmarks { rows, .. }) => rows
-                .iter()
-                .enumerate()
-                .filter_map(|(index, row)| {
-                    let folder = row.bookmark.folders.join(" / ");
-                    let matches = [&row.bookmark.title, &row.bookmark.url, &folder]
-                        .iter()
-                        .any(|text| text.to_lowercase().contains(&self.query));
-                    if !matches {
-                        return None;
-                    }
-                    shown.push(index);
-                    Some(bookmark_cells(row, folder))
-                })
-                .collect(),
+    pub(super) fn new(preview: Option<Preview>) -> Self {
+        let bookmark_filter = match &preview {
+            Some(Preview::Bookmarks { rows, .. }) => rows.iter().map(BookmarkFilter::new).collect(),
+            _ => Vec::new(),
+        };
+        let shown = match &preview {
+            Some(Preview::Bookmarks { rows, .. }) => (0..rows.len()).collect(),
+            Some(Preview::LaunchItems { rows, .. }) => (0..rows.len()).collect(),
             None => Vec::new(),
         };
+        let selected = shown.first().copied();
+        Self {
+            preview,
+            bookmark_filter,
+            shown,
+            selected,
+            editing_alias: None,
+            query: String::new(),
+            updating: true,
+            outcome: Outcome::Cancelled,
+        }
+    }
+
+    pub(super) fn filter(&mut self, query: String) -> bool {
+        if self.query == query {
+            return false;
+        }
+        let shown: Vec<_> = self
+            .bookmark_filter
+            .iter()
+            .enumerate()
+            .filter_map(|(index, filter)| {
+                (query.is_empty() || filter.matches(&query)).then_some(index)
+            })
+            .collect();
+        self.query = query;
+        if shown == self.shown {
+            return false;
+        }
         self.shown = shown;
         if !self.selected.is_some_and(|row| self.shown.contains(&row)) {
             self.selected = self.shown.first().copied();
         }
-        table
+        true
+    }
+
+    pub(super) fn visible_rows(&self) -> Vec<Vec<String>> {
+        match self.preview.as_ref() {
+            Some(Preview::LaunchItems { rows, replace, .. }) => {
+                rows.iter().map(|row| launch_cells(row, *replace)).collect()
+            }
+            Some(Preview::Bookmarks { rows, .. }) => self
+                .shown
+                .iter()
+                .map(|&i| bookmark_cells(&rows[i], &self.bookmark_filter[i].folder))
+                .collect(),
+            None => Vec::new(),
+        }
     }
 
     pub(super) fn display_row(&self, position: usize) -> Option<DisplayRow> {
@@ -94,7 +149,7 @@ impl Model {
             }),
             Preview::Bookmarks { rows, .. } => {
                 let row = &rows[index];
-                let mut cells = bookmark_cells(row, row.bookmark.folders.join(" / "));
+                let mut cells = bookmark_cells(row, &self.bookmark_filter[index].folder);
                 cells[0].clear();
                 let alias = std::mem::take(&mut cells[ALIAS_COLUMN]);
                 Some(DisplayRow {

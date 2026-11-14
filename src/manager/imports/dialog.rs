@@ -303,8 +303,11 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
             refresh(hwnd, shared);
         }
         FILTER if code == EN_CHANGE => {
-            shared.model.borrow_mut().query = ui::window_text(control).trim().to_lowercase();
-            refresh(hwnd, shared);
+            let query = ui::window_text(control).trim().to_lowercase();
+            let rows_changed = shared.model.borrow_mut().filter(query);
+            if rows_changed {
+                refresh(hwnd, shared);
+            }
         }
         ALIAS if code == EN_CHANGE => {
             let value = ui::window_text(control);
@@ -532,15 +535,7 @@ pub(super) fn open(
         let failed = preview.is_none();
         let height = if failed { 233 } else { HEIGHT };
         let mut dialog = Box::new(Dialog {
-            model: RefCell::new(Model {
-                preview,
-                shown: Vec::new(),
-                selected: None,
-                editing_alias: None,
-                query: String::new(),
-                updating: true,
-                outcome: Outcome::Cancelled,
-            }),
+            model: RefCell::new(Model::new(preview)),
             composing: Cell::new(null_mut()),
             dpi: 96,
             height,

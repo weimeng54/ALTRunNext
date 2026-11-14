@@ -428,6 +428,10 @@ fn windows_031_management_and_import_previews() {
         let grid = child(preview, 2901);
         assert_eq!(count(grid), 4);
         native_snapshot::save(preview, &format!("ui-bookmark-search-{theme}-{scale}"));
+        set(child(preview, 2907), "EXAMPLE.ORG");
+        assert_eq!(count(grid), 2);
+        set(child(preview, 2907), "参考");
+        assert_eq!(count(grid), 4);
         set(child(preview, 2907), "计算器");
         assert_eq!(count(grid), 1);
         unsafe {
