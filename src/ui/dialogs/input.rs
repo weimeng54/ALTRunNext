@@ -141,8 +141,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     && GetWindowLongW(control, GWL_STYLE) as u32 & ES_READONLY as u32 != 0;
                 let (color, brush) = if msg != WM_CTLCOLORSTATIC || read_only_edit {
                     (theme::paper(), (*state).paper)
-                } else if item.CtlID == 4 && state.preview {
-                    ui::caption_close(item, state.dpi);
                 } else {
                     (theme::surface(), (*state).background)
                 };
@@ -155,6 +153,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let state = unsafe { &*state };
                 if item.CtlType == ODT_LISTBOX {
                     draw_report_row(item, state);
+                } else if item.CtlID == 4 && state.preview {
+                    ui::caption_close(item, state.dpi);
                 } else {
                     ui::button_on(item, item.CtlID == 1, theme::surface(), state.dpi);
                 }
