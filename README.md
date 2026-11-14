@@ -1,9 +1,9 @@
 # ALTRunNext
 
-[![Rust](https://img.shields.io/github/languages/top/weimeng54/ALTRunNext)](src/)
-[![License](https://img.shields.io/github/license/weimeng54/ALTRunNext)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/weimeng54/ALTRunNext)](https://github.com/weimeng54/ALTRunNext/releases/latest)
 [![Windows build](https://github.com/weimeng54/ALTRunNext/actions/workflows/windows.yml/badge.svg?branch=main)](https://github.com/weimeng54/ALTRunNext/actions/workflows/windows.yml)
+[![MIT License](https://img.shields.io/github/license/weimeng54/ALTRunNext)](LICENSE)
+[![Rust](https://img.shields.io/badge/language-Rust-dea584?logo=rust)](src/)
 
 [简体中文](#简体中文) · [English](#english)
 
