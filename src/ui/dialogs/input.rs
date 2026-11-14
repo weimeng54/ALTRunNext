@@ -14,6 +14,8 @@ use windows_sys::Win32::{
 };
 struct Input {
     dpi: i32,
+    caption: HFONT,
+    title: String,
     done: bool,
     value: Option<String>,
     alternate: bool,
@@ -81,6 +83,52 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     let state = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Input;
     if !state.is_null() {
         match msg {
+            WM_NCHITTEST if unsafe { (*state).preview } => unsafe {
+                let mut point = POINT {
+                    x: l as i16 as i32,
+                    y: (l >> 16) as i16 as i32,
+                };
+                ScreenToClient(hwnd, &mut point);
+                let mut client = RECT::default();
+                GetClientRect(hwnd, &mut client);
+                let dpi = (*state).dpi;
+                return if (0..scaled(ui::geometry::CAPTION, dpi)).contains(&point.y)
+                    && point.x < client.right - scaled(47, dpi)
+                {
+                    HTCAPTION as isize
+                } else {
+                    HTCLIENT as isize
+                };
+            },
+            WM_PAINT if unsafe { (*state).preview } => unsafe {
+                let state = &*state;
+                let mut paint = PAINTSTRUCT::default();
+                let dc = BeginPaint(hwnd, &mut paint);
+                let mut client = RECT::default();
+                GetClientRect(hwnd, &mut client);
+                let caption = scaled(ui::geometry::CAPTION, state.dpi);
+                ui::fill(dc, &client, theme::surface());
+                ui::fill(
+                    dc,
+                    &RECT {
+                        bottom: caption,
+                        ..client
+                    },
+                    theme::chrome(),
+                );
+                ui::fill(
+                    dc,
+                    &RECT {
+                        top: caption - 1,
+                        bottom: caption,
+                        ..client
+                    },
+                    theme::divider(),
+                );
+                ui::panel_caption(dc, state.dpi, state.caption, &state.title);
+                EndPaint(hwnd, &paint);
+                return 0;
+            },
             WM_ERASEBKGND => unsafe {
                 let mut rect = std::mem::zeroed();
                 GetClientRect(hwnd, &mut rect);
@@ -93,6 +141,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     && GetWindowLongW(control, GWL_STYLE) as u32 & ES_READONLY as u32 != 0;
                 let (color, brush) = if msg != WM_CTLCOLORSTATIC || read_only_edit {
                     (theme::paper(), (*state).paper)
+                } else if item.CtlID == 4 && state.preview {
+                    ui::caption_close(item, state.dpi);
                 } else {
                     (theme::surface(), (*state).background)
                 };
@@ -114,7 +164,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
     }
     if !state.is_null()
-        && ((msg == WM_COMMAND && (1..=3).contains(&(w & 65535))) || msg == WM_CLOSE)
+        && ((msg == WM_COMMAND && (1..=4).contains(&(w & 65535))) || msg == WM_CLOSE)
     {
         if msg == WM_COMMAND && w & 65535 == 1 {
             unsafe {
@@ -287,6 +337,8 @@ fn open(
         RegisterClassW(&wc);
         let state = Box::into_raw(Box::new(Input {
             dpi: 96,
+            caption: null_mut(),
+            title: title.to_owned(),
             done: false,
             value: None,
             alternate: false,
@@ -302,7 +354,12 @@ fn open(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
             ui(title).as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
+            (if preview.is_some() {
+                WS_POPUP
+            } else {
+                WS_OVERLAPPED | WS_CAPTION
+            }) | WS_SYSMENU
+                | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             420,
@@ -343,6 +400,11 @@ fn open(
         } else {
             0
         };
+        let start_y = if preview.is_some() {
+            ui::geometry::CAPTION
+        } else {
+            0
+        };
         let (height, content_height, action_y) = if preview.is_some() {
             let action_y = note_top + note_height;
             (action_y + 48, summary_height, action_y)
@@ -359,9 +421,29 @@ fn open(
         } else {
             (110, 28, 66)
         };
-        let dpi = crate::ui::geometry::fit(hwnd, width, height);
+        let dpi = crate::ui::geometry::fit(hwnd, width, height + start_y);
         (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
+        let y = |coordinate| scaled(start_y + coordinate, dpi);
+        if preview.is_some() {
+            (*state).caption = make_font(14, 600, "Microsoft YaHei UI", dpi);
+            ui::round_panel(hwnd, width, height + start_y, dpi);
+            let close = CreateWindowExW(
+                0,
+                wide("BUTTON").as_ptr(),
+                ui("ui.close").as_ptr(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
+                scaled(width - 46, dpi),
+                0,
+                scaled(46, dpi),
+                scaled(start_y, dpi),
+                hwnd,
+                4usize as HMENU,
+                instance,
+                null_mut(),
+            );
+            ui::style_caption_close(close);
+        }
         let content_style = if long {
             WS_TABSTOP
                 | WS_VSCROLL
@@ -391,7 +473,7 @@ fn open(
             wide(&content_text).as_ptr(),
             WS_CHILD | WS_VISIBLE | content_style,
             scaled(16, dpi),
-            scaled(16, dpi),
+            y(16),
             scaled(width - 32, dpi),
             scaled(content_height, dpi),
             hwnd,
@@ -436,14 +518,11 @@ fn open(
                     ui(label).as_ptr(),
                     WS_CHILD | WS_VISIBLE,
                     scaled(x, dpi),
-                    scaled(
-                        if preview.is_some() {
-                            table_top - 26
-                        } else {
-                            105
-                        },
-                        dpi,
-                    ),
+                    y(if preview.is_some() {
+                        table_top - 26
+                    } else {
+                        105
+                    }),
                     scaled(w, dpi),
                     scaled(22, dpi),
                     hwnd,
@@ -468,7 +547,7 @@ fn open(
                     | WS_CLIPSIBLINGS
                     | (LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS) as u32,
                 scaled(16, dpi),
-                scaled(if preview.is_some() { table_top } else { 132 }, dpi),
+                y(if preview.is_some() { table_top } else { 132 }),
                 scaled(width - 32, dpi),
                 if preview.is_some() {
                     report.rows.len() as i32 * scaled(row_height, dpi)
@@ -503,7 +582,7 @@ fn open(
                         ui(preview.note).as_ptr(),
                         WS_CHILD | WS_VISIBLE,
                         scaled(16, dpi),
-                        scaled(note_top, dpi),
+                        y(note_top),
                         scaled(width - 32, dpi),
                         scaled(note_height, dpi),
                         hwnd,
@@ -549,7 +628,7 @@ fn open(
                 ui(text).as_ptr(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
                 scaled(x, dpi),
-                scaled(action_y, dpi),
+                y(action_y),
                 scaled(width, dpi),
                 scaled(28, dpi),
                 hwnd,
@@ -586,13 +665,13 @@ fn open(
                     continue;
                 }
                 let focused = GetDlgCtrlID(GetFocus());
-                if has_rows && msg.wParam as u16 == VK_RETURN && focused != 1 && focused != 2 {
+                if has_rows && msg.wParam as u16 == VK_RETURN && !matches!(focused, 1 | 2 | 4) {
                     continue;
                 }
                 SendMessageW(
                     hwnd,
                     WM_COMMAND,
-                    if msg.wParam as u16 == VK_ESCAPE || focused == 2 {
+                    if msg.wParam as u16 == VK_ESCAPE || matches!(focused, 2 | 4) {
                         2
                     } else if focused == 3 {
                         3
@@ -614,6 +693,9 @@ fn open(
         EnableWindow(owner, 1);
         SetForegroundWindow(owner);
         DeleteObject(font);
+        if !(*state).caption.is_null() {
+            DeleteObject((*state).caption);
+        }
         UnregisterClassW(class.as_ptr(), instance);
         DeleteObject(background);
         DeleteObject(paper);

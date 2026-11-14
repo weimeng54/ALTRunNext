@@ -56,7 +56,10 @@ fn file_name_field(picker: HWND) -> HWND {
     unsafe extern "system" fn find(hwnd: HWND, context: LPARAM) -> i32 {
         let mut name = [0; 32];
         let len = unsafe { GetClassNameW(hwnd, name.as_mut_ptr(), 32) };
-        if len == 4 && String::from_utf16_lossy(&name[..4]) == "Edit" {
+        if len == 4
+            && String::from_utf16_lossy(&name[..4]) == "Edit"
+            && unsafe { IsWindowVisible(hwnd) } != 0
+        {
             unsafe { *(context as *mut HWND) = hwnd };
             return 0;
         }
@@ -69,14 +72,20 @@ fn file_name_field(picker: HWND) -> HWND {
         }
         let mut input: HWND = null_mut();
         let combo = GetDlgItem(picker, 1148);
-        if !combo.is_null() {
-            EnumChildWindows(combo, Some(find), &mut input as *mut HWND as LPARAM);
-        }
+        EnumChildWindows(
+            if combo.is_null() { picker } else { combo },
+            Some(find),
+            &mut input as *mut HWND as LPARAM,
+        );
         input
     }
 }
 
 fn choose_file(pid: u32, file: &Path) {
+    eprintln!(
+        "Waiting for file picker: {}",
+        file.file_name().unwrap().display()
+    );
     let mut picker = null_mut();
     let mut input = null_mut();
     wait(|| {
@@ -114,10 +123,13 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     let original = std::fs::read(data).unwrap();
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2365);
+    native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
     native_snapshot::save(preview, &format!("031-backup-{theme}-{scale}"));
+    eprintln!("Confirming the backup preview");
     begin(preview, 1);
+    wait(|| unsafe { IsWindow(preview) == 0 });
     choose_file(pid, &archive);
     wait(|| altrun_probe::backup::Backup::load(&archive).is_ok_and(|backup| backup.count() == 5));
     wait(|| unsafe {
