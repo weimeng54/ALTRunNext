@@ -3,7 +3,7 @@
 
 use crate::ui::wide;
 use std::ptr::null_mut;
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 
 pub(crate) fn clipboard_text() -> Option<String> {
     use windows_sys::Win32::System::{DataExchange::*, Memory::*};

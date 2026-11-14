@@ -15,8 +15,8 @@ pub(crate) use fields::{
     style_slider,
 };
 pub(crate) use painting::{
-    Chevron, STATIC_CENTER_IMAGE, app_icon, chevron, draw_app_icon, fill, line_text, round_panel,
-    rounded, window_text,
+    Chevron, STATIC_CENTER_IMAGE, app_icon, chevron, draw_app_icon, fill, line_text, panel_caption,
+    round_panel, rounded, window_text,
 };
 pub(crate) use scrollbars::{
     draw_scrollbar, style_horizontal_scrollbar, style_vertical_scrollbar, vertical_scrollbar,

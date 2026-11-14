@@ -516,10 +516,10 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             let style = WS_TABSTOP
                 | ES_AUTOHSCROLL as u32
                 | if id == PATH { ES_READONLY as u32 } else { 0 };
-            ui::style_edit(
+            ui::style_preview_edit(
                 control("EDIT", "", id, (140, form + dy, width - 162, 36), style),
                 dpi,
-                false,
+                || (theme::surface(), theme::paper()),
             );
         }
         control(
