@@ -2,14 +2,21 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::*;
-use crate::ui::dialogs::input::confirm_details;
+use crate::ui::dialogs::input::{
+    Choice, PreviewLabels, Report, choose, confirm_details, confirm_preview,
+};
 use altrun_probe::backup::{Backup, Media};
 
 enum Complete {
     Preview(Box<Backup>, bool, Option<PathBuf>),
     Saved,
     Restored,
-    Failed(String, bool),
+    Failed {
+        error: String,
+        restore: bool,
+        pending: bool,
+    },
+    Cancelled,
 }
 
 thread_local! {
@@ -142,12 +149,21 @@ pub(super) fn open(hwnd: HWND, restore: bool) {
         };
         match result {
             Ok(backup) => Complete::Preview(Box::new(backup), restore, source),
-            Err(error) => Complete::Failed(error, false),
+            Err(error) => Complete::Failed {
+                error,
+                restore,
+                pending: false,
+            },
         }
     });
 }
 
-fn media(value: Media, default: &str) -> String {
+fn media(value: Media, filename: Option<&str>, default: &str) -> String {
+    if value == Media::Included
+        && let Some(filename) = filename
+    {
+        return filename.to_owned();
+    }
     localization::tr(match value {
         Media::Default => "backup.default",
         Media::Missing => default,
@@ -179,36 +195,69 @@ fn date(unix: u64) -> String {
 }
 
 fn preview(hwnd: HWND, backup: Backup, restore: bool, source: Option<PathBuf>) {
-    let mut message = localization::message(
-        "backup.preview",
-        &[
-            ("count", &backup.count().to_string()),
-            (
-                "background",
-                &media(backup.background(), "backup.background_missing"),
-            ),
-            ("sound", &media(backup.sound(), "backup.sound_missing")),
-        ],
-    );
-    if let Some(source) = source {
+    let summary = if let Some(source) = source {
         let header = source
             .file_name()
             .unwrap_or(source.as_os_str())
             .to_string_lossy();
-        message = format!(
-            "{}\n{}\n\n{}\n\n{}",
+        format!(
+            "{} · {}\n{}",
             header,
             localization::message("backup.created", &[("date", &date(backup.created()))]),
-            message,
             localization::tr("backup.restore_note")
-        );
-    }
+        )
+    } else {
+        localization::tr("backup.saved_data")
+    };
     let (title, action) = if restore {
         ("backup.preview_restore", "backup.confirm_restore")
     } else {
         ("backup.preview_create", "backup.confirm_create")
     };
-    if !confirm_details(hwnd, title, &message, action) {
+    let rows = vec![
+        (
+            localization::tr("backup.launch_items"),
+            localization::message(
+                "backup.items_count",
+                &[("count", &backup.count().to_string())],
+            ),
+        ),
+        (
+            localization::tr("backup.settings"),
+            localization::tr("backup.included"),
+        ),
+        (
+            localization::tr("backup.history"),
+            localization::tr("backup.history_contents"),
+        ),
+        (
+            localization::tr("backup.background"),
+            media(
+                backup.background(),
+                backup.background_name(),
+                "backup.background_missing",
+            ),
+        ),
+        (
+            localization::tr("backup.sound"),
+            media(backup.sound(), backup.sound_name(), "backup.sound_missing"),
+        ),
+    ];
+    let (column, note) = if restore {
+        ("backup.restore_result", "backup.keep_integrations")
+    } else {
+        ("backup.contents", "")
+    };
+    if !confirm_preview(
+        hwnd,
+        title,
+        Report { summary, rows },
+        PreviewLabels {
+            columns: ["backup.content", column],
+            note,
+        },
+        action,
+    ) {
         status("");
         return;
     }
@@ -228,47 +277,70 @@ fn preview(hwnd: HWND, backup: Backup, restore: bool, source: Option<PathBuf>) {
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
         {
-            failed(hwnd, "backup.choose_other_file", false);
+            failed(hwnd, "backup.choose_other_file", false, false);
             return;
         }
         work(hwnd, move || match backup.write(&dest) {
             Ok(()) => Complete::Saved,
-            Err(error) => Complete::Failed(error, false),
+            Err(error) => Complete::Failed {
+                error,
+                restore: false,
+                pending: false,
+            },
         });
         return;
     }
     if form_is_dirty() {
-        if !confirm_details(
+        match choose(
             hwnd,
-            title,
+            "backup.unsaved_title",
             "backup.unsaved_settings",
-            "ui.discard_and_close",
+            "backup.save_continue",
+            "backup.discard_continue",
         ) {
-            return;
+            Choice::Primary => {
+                apply();
+                if form_is_dirty() {
+                    return;
+                }
+            }
+            Choice::Alternate => {}
+            Choice::Cancel => {
+                status("");
+                return;
+            }
         }
-        let saved = EDITOR.with(|c| c.borrow().as_ref().unwrap().saved.clone());
-        load_form(&saved);
-        sync_save_button(hwnd);
     }
     work(hwnd, move || {
         let result = flush(&settings, launcher, true).and_then(|()| {
+            if !crate::manager::prepare_for_restore()? {
+                return Ok(None);
+            }
             let state = altrun_probe::integration::Integration::for_data(&data)?.status()?;
-            altrun_probe::backup::apply(&data, backup, state)
+            altrun_probe::backup::apply(&data, backup, state).map(Some)
         });
         match result {
-            Ok(_) => Complete::Restored,
+            Ok(Some(_)) => Complete::Restored,
+            Ok(None) => {
+                queue(&settings, launcher, Change::CancelRestore);
+                Complete::Cancelled
+            }
             Err(error) => {
                 let pending = altrun_probe::backup::recovery_pending(&data);
                 if !pending {
                     queue(&settings, launcher, Change::CancelRestore);
                 }
-                Complete::Failed(error, pending)
+                Complete::Failed {
+                    error,
+                    restore: true,
+                    pending,
+                }
             }
         }
     });
 }
 
-fn failed(hwnd: HWND, error: &str, pending: bool) {
+fn failed(hwnd: HWND, error: &str, restore: bool, pending: bool) {
     let message = localization::message("backup.failed", &[("detail", &localization::tr(error))]);
     status(&message);
     if pending {
@@ -278,8 +350,17 @@ fn failed(hwnd: HWND, error: &str, pending: bool) {
             DestroyWindow(hwnd);
         }
         queue(&settings, launcher, Change::ExitForRecovery);
-    } else {
-        let _ = confirm_details(hwnd, "backup.preview_restore", &message, "ui.ok");
+    } else if confirm_details(
+        hwnd,
+        if restore {
+            "backup.preview_restore"
+        } else {
+            "backup.preview_create"
+        },
+        &message,
+        "backup.retry",
+    ) {
+        open(hwnd, restore);
     }
 }
 
@@ -303,7 +384,12 @@ pub(super) fn complete(hwnd: HWND) {
             }
             queue(&settings, launcher, Change::FinishRestore);
         }
-        Some(Complete::Failed(error, pending)) => failed(hwnd, &error, pending),
+        Some(Complete::Failed {
+            error,
+            restore,
+            pending,
+        }) => failed(hwnd, &error, restore, pending),
+        Some(Complete::Cancelled) => status(""),
         None => {}
     }
 }

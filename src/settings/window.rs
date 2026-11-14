@@ -810,6 +810,7 @@ pub(crate) fn open(
                         BoxRect::new(866, 152, 207, 21),
                     ),
                     (4, "ui.panel_font", BoxRect::new(228, 196, 72, 26)),
+                    (0, "backup.description", BoxRect::new(229, 637, 824, 23)),
                 ] {
                     let style = if bounds.x == 866 { 2 } else { 0 };
                     let control = control(
@@ -835,8 +836,8 @@ pub(crate) fn open(
                     (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
                     (FONT_FAMILY, "", 310, 191, 180, 34, 4),
                     (MORE_COLORS, "ui.other_colors", 215, 517, 288, 40, 4),
-                    (CREATE_BACKUP, "backup.create", 229, 600, 175, 34, 0),
-                    (RESTORE_BACKUP, "backup.restore", 415, 600, 187, 34, 0),
+                    (CREATE_BACKUP, "backup.create", 229, 593, 175, 34, 0),
+                    (RESTORE_BACKUP, "backup.restore", 415, 593, 187, 34, 0),
                 ] {
                     let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
                     if (SEGMENT..SEGMENT + 5).contains(&id) {

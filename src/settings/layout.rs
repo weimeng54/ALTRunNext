@@ -48,7 +48,7 @@ pub const CARDS: &[Card] = &[
     card(
         0,
         "backup.section",
-        BoxRect::new(CONTENT, 590, 859, 54),
+        BoxRect::new(CONTENT, 584, 859, 82),
         &[],
     ),
     card(

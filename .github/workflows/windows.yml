@@ -67,7 +67,7 @@ jobs:
         timeout-minutes: 2
         run: |
           $env:ALTRUN_RELEASE_SMOKE_EXE = (Resolve-Path target/x86_64-pc-windows-msvc/release/ALTRunNext.exe).Path
-          cargo test --locked --test review_startup_hotkeys --test complete_native --test manager --test localization_native --test review_send_to --test review_031
+          cargo test --locked --test review_startup_hotkeys --test complete_native --test native --test manager --test localization_native --test review_send_to --test review_031
       - name: Package launcher
         shell: pwsh
         run: |

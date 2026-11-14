@@ -44,6 +44,10 @@ struct Manifest {
     created: u64,
     background: Media,
     sound: Media,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    background_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sound_name: Option<String>,
 }
 
 pub struct Backup {
@@ -66,7 +70,8 @@ impl Backup {
         let history = file(&data.with_extension("state.tsv"), HISTORY)?.unwrap_or_default();
         Usage::parse(&library::decode(&history)?)?;
         let base = data.parent().unwrap_or_else(|| Path::new("."));
-        let (background_status, background) = media(base, &settings.get("BGFileName"), BACKGROUND)?;
+        let background_name = settings.get("BGFileName");
+        let (background_status, background) = media(base, &background_name, BACKGROUND)?;
         let sound_name = settings.get("PopupFileName");
         let (sound_status, sound) =
             if sound_name.eq_ignore_ascii_case(crate::preferences::DEFAULT_POPUP_SOUND) {
@@ -83,6 +88,8 @@ impl Backup {
                     .as_secs(),
                 background: background_status,
                 sound: sound_status,
+                background_name: media_name(background_status, &background_name),
+                sound_name: media_name(sound_status, &sound_name),
             },
             count,
             shortcuts,
@@ -154,6 +161,23 @@ impl Backup {
     pub fn sound(&self) -> Media {
         self.manifest.sound
     }
+
+    pub fn background_name(&self) -> Option<&str> {
+        self.manifest.background_name.as_deref()
+    }
+
+    pub fn sound_name(&self) -> Option<&str> {
+        self.manifest.sound_name.as_deref()
+    }
+}
+
+fn media_name(status: Media, path: &str) -> Option<String> {
+    if status != Media::Included {
+        return None;
+    }
+    Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
 }
 
 fn file(path: &Path, entry: &str) -> Result<Option<Vec<u8>>, String> {

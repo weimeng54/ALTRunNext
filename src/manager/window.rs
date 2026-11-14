@@ -46,6 +46,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     if msg == WM_ENABLE && w != 0 {
         unsafe { PostMessageW(hwnd, FOCUS, 0, 0) };
     }
+    if msg == PREPARE_BACKUP_RESTORE {
+        if let Some(reply) = RESTORE_REPLY.lock().ok().and_then(|mut slot| slot.take()) {
+            let _ = reply.send(prepare_backup_restore(hwnd));
+        }
+        return 0;
+    }
     if msg == WM_CLOSE {
         let dirty = EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
         if !dirty || confirm(hwnd, "ui.discard_unsaved_changes_and_close") {
@@ -230,6 +236,39 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }),
         _ => unsafe { DefWindowProcW(hwnd, msg, w, l) },
     }
+}
+
+fn prepare_backup_restore(hwnd: HWND) -> Result<bool, &'static str> {
+    use crate::ui::dialogs::input::{Choice, choose};
+
+    if unsafe { IsWindowEnabled(hwnd) } == 0 || crate::shortcut_intake::is_open() {
+        return Err("backup.close_manager");
+    }
+    let dirty = || EDITOR.with(|c| c.borrow().as_ref().is_some_and(Editor::is_dirty));
+    if dirty() {
+        unsafe {
+            ShowWindow(hwnd, SW_SHOWNORMAL);
+            SetForegroundWindow(hwnd);
+        }
+        match choose(
+            hwnd,
+            "backup.unsaved_title",
+            "backup.unsaved_manager",
+            "backup.save_continue",
+            "backup.discard_continue",
+        ) {
+            Choice::Primary => {
+                save();
+                if dirty() {
+                    return Ok(false);
+                }
+            }
+            Choice::Alternate => {}
+            Choice::Cancel => return Ok(false),
+        }
+    }
+    unsafe { DestroyWindow(hwnd) };
+    Ok(true)
 }
 
 fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {

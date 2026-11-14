@@ -67,6 +67,7 @@ const TABLE_ROW_HEIGHT_PROP: &str = "ALTRun.TableRowHeight";
 
 const FOCUS: u32 = WM_APP + 1;
 const RESTORE_TABLE_SELECTION: u32 = WM_APP + 2;
+const PREPARE_BACKUP_RESTORE: u32 = WM_APP + 17;
 pub const UPDATED: u32 = WM_APP + 6;
 pub const GEOMETRY_CHANGED: u32 = WM_APP + 16;
 #[derive(Clone, Default)]
@@ -182,6 +183,43 @@ thread_local! { static EDITOR: RefCell<Option<Editor>> = const { RefCell::new(No
 pub fn is_open() -> bool {
     OPEN.load(Ordering::Acquire)
 }
+
+type RestoreReply = std::sync::mpsc::Sender<Result<bool, &'static str>>;
+static RESTORE_REPLY: std::sync::Mutex<Option<RestoreReply>> = std::sync::Mutex::new(None);
+
+pub(crate) fn prepare_for_restore() -> Result<bool, &'static str> {
+    use std::{sync::mpsc, time::Duration};
+
+    if !is_open() {
+        return Ok(true);
+    }
+    let hwnd = WINDOW.load(Ordering::Acquire) as HWND;
+    if hwnd.is_null() {
+        return Err("backup.busy");
+    }
+    let (reply, result) = mpsc::channel();
+    *RESTORE_REPLY.lock().map_err(|_| "backup.busy")? = Some(reply);
+    if unsafe { PostMessageW(hwnd, PREPARE_BACKUP_RESTORE, 0, 0) } == 0 {
+        if let Ok(mut slot) = RESTORE_REPLY.lock() {
+            slot.take();
+        }
+        return Err("backup.busy");
+    }
+    loop {
+        match result.recv_timeout(Duration::from_millis(150)) {
+            Ok(result) => return result,
+            Err(_) if !is_open() => {
+                if let Ok(mut slot) = RESTORE_REPLY.lock() {
+                    slot.take();
+                }
+                return Ok(true);
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Err("backup.busy"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
 pub fn focus() {
     notify(true);
 }

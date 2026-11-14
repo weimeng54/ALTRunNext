@@ -16,17 +16,38 @@ struct Input {
     dpi: i32,
     done: bool,
     value: Option<String>,
+    alternate: bool,
     edit: HWND,
     old_edit: isize,
     composing: bool,
     background: HBRUSH,
     paper: HBRUSH,
     report: Option<Report>,
+    preview: bool,
 }
 
 pub struct Report {
     pub summary: String,
     pub rows: Vec<(String, String)>,
+}
+
+pub struct PreviewLabels<'a> {
+    pub columns: [&'a str; 2],
+    pub note: &'a str,
+}
+
+#[derive(Clone, Copy)]
+pub enum Choice {
+    Primary,
+    Alternate,
+    Cancel,
+}
+
+#[derive(Default)]
+struct Options<'a> {
+    action: Option<&'a str>,
+    alternate: Option<&'a str>,
+    preview: Option<PreviewLabels<'a>>,
 }
 
 unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -92,7 +113,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             _ => {}
         }
     }
-    if !state.is_null() && ((msg == WM_COMMAND && matches!(w & 65535, 1 | 2)) || msg == WM_CLOSE) {
+    if !state.is_null()
+        && ((msg == WM_COMMAND && (1..=3).contains(&(w & 65535))) || msg == WM_CLOSE)
+    {
         if msg == WM_COMMAND && w & 65535 == 1 {
             unsafe {
                 let edit = (*state).edit;
@@ -102,6 +125,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
         }
         unsafe {
+            (*state).alternate = msg == WM_COMMAND && w & 65535 == 3;
             (*state).done = true;
             DestroyWindow(hwnd);
         }
@@ -110,19 +134,74 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
 pub fn ask(owner: HWND, title: &str) -> Option<String> {
-    open(owner, title, None, None, None)
+    open(owner, title, None, None, Options::default()).0
 }
 
 pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
-    open(owner, title, Some(message), None, None).is_some()
+    open(owner, title, Some(message), None, Options::default())
+        .0
+        .is_some()
 }
 
 pub fn report(owner: HWND, title: &str, report: Report) -> bool {
-    open(owner, title, Some(""), Some(report), None).is_some()
+    open(owner, title, Some(""), Some(report), Options::default())
+        .0
+        .is_some()
 }
 
 pub fn confirm_details(owner: HWND, title: &str, message: &str, action: &str) -> bool {
-    open(owner, title, Some(message), None, Some(action)).is_some()
+    open(
+        owner,
+        title,
+        Some(message),
+        None,
+        Options {
+            action: Some(action),
+            ..Options::default()
+        },
+    )
+    .0
+    .is_some()
+}
+
+pub fn confirm_preview(
+    owner: HWND,
+    title: &str,
+    report: Report,
+    labels: PreviewLabels<'_>,
+    action: &str,
+) -> bool {
+    open(
+        owner,
+        title,
+        Some(""),
+        Some(report),
+        Options {
+            action: Some(action),
+            preview: Some(labels),
+            ..Options::default()
+        },
+    )
+    .0
+    .is_some()
+}
+
+pub fn choose(owner: HWND, title: &str, message: &str, action: &str, alternate: &str) -> Choice {
+    match open(
+        owner,
+        title,
+        Some(message),
+        None,
+        Options {
+            action: Some(action),
+            alternate: Some(alternate),
+            preview: None,
+        },
+    ) {
+        (Some(_), _) => Choice::Primary,
+        (_, true) => Choice::Alternate,
+        _ => Choice::Cancel,
+    }
 }
 
 fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
@@ -166,6 +245,13 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
             );
         }
         SelectObject(item.hDC, previous);
+        if state.preview {
+            let line = RECT {
+                top: rect.bottom - 1,
+                ..rect
+            };
+            ui::fill(item.hDC, &line, theme::divider());
+        }
         if item.itemState & ODS_FOCUS != 0 {
             DrawFocusRect(item.hDC, &rect);
         }
@@ -177,9 +263,14 @@ fn open(
     title: &str,
     message: Option<&str>,
     report: Option<Report>,
-    action: Option<&str>,
-) -> Option<String> {
+    options: Options<'_>,
+) -> (Option<String>, bool) {
     unsafe {
+        let Options {
+            action,
+            alternate,
+            preview,
+        } = options;
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide(if message.is_some() {
             "ALTRun.Native.Confirmation"
@@ -198,12 +289,14 @@ fn open(
             dpi: 96,
             done: false,
             value: None,
+            alternate: false,
             edit: null_mut(),
             old_edit: 0,
             composing: false,
             background,
             paper,
             report,
+            preview: preview.is_some(),
         }));
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
@@ -224,7 +317,7 @@ fn open(
             DeleteObject(background);
             DeleteObject(paper);
             drop(Box::from_raw(state));
-            return None;
+            return (None, false);
         }
         theme::frame(hwnd);
         let long =
@@ -236,7 +329,24 @@ fn open(
         } else {
             420
         };
-        let (height, content_height, action_y) = if has_rows {
+        let summary_height = if report.is_some_and(|report| report.summary.contains('\n')) {
+            62
+        } else {
+            34
+        };
+        let table_top = 16 + summary_height + 30;
+        let row_height = 32;
+        let table_height = report.map_or(0, |r| r.rows.len() as i32 * row_height);
+        let note_top = table_top + table_height + 14;
+        let note_height = if preview.as_ref().is_some_and(|p| !p.note.is_empty()) {
+            38
+        } else {
+            0
+        };
+        let (height, content_height, action_y) = if preview.is_some() {
+            let action_y = note_top + note_height;
+            (action_y + 48, summary_height, action_y)
+        } else if has_rows {
             (408, 78, 360)
         } else if report.is_some() {
             (168, 96, 120)
@@ -296,7 +406,7 @@ fn open(
             DeleteObject(background);
             DeleteObject(paper);
             drop(Box::from_raw(state));
-            return None;
+            return (None, false);
         }
         if message.is_none() {
             (*state).edit = content;
@@ -316,14 +426,24 @@ fn open(
             ui::style_vertical_scrollbar(content, 12, dpi);
         }
         if let Some(report) = report.filter(|r| !r.rows.is_empty()) {
-            for (label, x, w) in [("ui.alias", 26, 170), ("ui.name", 216, 350)] {
+            let [left, right] = preview
+                .as_ref()
+                .map_or(["ui.alias", "ui.name"], |p| p.columns);
+            for (label, x, w) in [(left, 26, 170), (right, 216, 350)] {
                 let header = CreateWindowExW(
                     0,
                     wide("STATIC").as_ptr(),
                     ui(label).as_ptr(),
                     WS_CHILD | WS_VISIBLE,
                     scaled(x, dpi),
-                    scaled(105, dpi),
+                    scaled(
+                        if preview.is_some() {
+                            table_top - 26
+                        } else {
+                            105
+                        },
+                        dpi,
+                    ),
                     scaled(w, dpi),
                     scaled(22, dpi),
                     hwnd,
@@ -333,27 +453,40 @@ fn open(
                 );
                 SendMessageW(header, WM_SETFONT, font as usize, 0);
             }
+            let table_style = if preview.is_some() {
+                LBS_NOSEL as u32
+            } else {
+                WS_TABSTOP | WS_VSCROLL
+            };
             let table = CreateWindowExW(
                 0,
                 wide("LISTBOX").as_ptr(),
                 std::ptr::null(),
                 WS_CHILD
                     | WS_VISIBLE
-                    | WS_TABSTOP
-                    | WS_VSCROLL
+                    | table_style
                     | WS_CLIPSIBLINGS
                     | (LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS) as u32,
                 scaled(16, dpi),
-                scaled(132, dpi),
+                scaled(if preview.is_some() { table_top } else { 132 }, dpi),
                 scaled(width - 32, dpi),
-                7 * scaled(29, dpi),
+                if preview.is_some() {
+                    report.rows.len() as i32 * scaled(row_height, dpi)
+                } else {
+                    7 * scaled(29, dpi)
+                },
                 hwnd,
                 11usize as HMENU,
                 instance,
                 std::ptr::null(),
             );
             SendMessageW(table, WM_SETFONT, font as usize, 0);
-            SendMessageW(table, LB_SETITEMHEIGHT, 0, scaled(29, dpi) as isize);
+            SendMessageW(
+                table,
+                LB_SETITEMHEIGHT,
+                0,
+                scaled(if preview.is_some() { row_height } else { 29 }, dpi) as isize,
+            );
             for (alias, name) in &report.rows {
                 SendMessageW(
                     table,
@@ -362,26 +495,53 @@ fn open(
                     wide(&format!("{alias} · {name}")).as_ptr() as LPARAM,
                 );
             }
-            ui::style_vertical_scrollbar(table, 12, dpi);
+            if let Some(preview) = &preview {
+                if !preview.note.is_empty() {
+                    let note = CreateWindowExW(
+                        0,
+                        wide("STATIC").as_ptr(),
+                        ui(preview.note).as_ptr(),
+                        WS_CHILD | WS_VISIBLE,
+                        scaled(16, dpi),
+                        scaled(note_top, dpi),
+                        scaled(width - 32, dpi),
+                        scaled(note_height, dpi),
+                        hwnd,
+                        null_mut(),
+                        instance,
+                        null_mut(),
+                    );
+                    SendMessageW(note, WM_SETFONT, font as usize, 0);
+                }
+            } else {
+                ui::style_vertical_scrollbar(table, 12, dpi);
+            }
         }
         let mut focus = content;
-        let actions: &[(&str, usize, i32, i32)] = if has_rows {
-            &[
-                ("ui.remove_missing", 1, 372, 120),
-                ("ui.cancel", 2, 500, 84),
-            ]
-        } else if report.is_some() {
-            &[("ui.close", 1, 500, 84)]
-        } else if let Some(action) = action {
-            &[(action, 1, 404, 180), ("ui.cancel", 2, 310, 84)]
-        } else if title == "ui.close_settings" {
-            &[
-                ("ui.discard_and_close", 1, 156, 120),
-                ("ui.keep_editing", 2, 284, 120),
-            ]
-        } else {
-            &[("ui.ok", 1, 224, 84), ("ui.cancel", 2, 320, 84)]
-        };
+        let actions: &[(&str, usize, i32, i32)] =
+            if let (Some(action), Some(alternate)) = (action, alternate) {
+                &[
+                    (action, 1, 424, 160),
+                    (alternate, 3, 234, 180),
+                    ("ui.cancel", 2, 140, 84),
+                ]
+            } else if let Some(action) = action {
+                &[(action, 1, 404, 180), ("ui.cancel", 2, 310, 84)]
+            } else if has_rows {
+                &[
+                    ("ui.remove_missing", 1, 372, 120),
+                    ("ui.cancel", 2, 500, 84),
+                ]
+            } else if report.is_some() {
+                &[("ui.close", 1, 500, 84)]
+            } else if title == "ui.close_settings" {
+                &[
+                    ("ui.discard_and_close", 1, 156, 120),
+                    ("ui.keep_editing", 2, 284, 120),
+                ]
+            } else {
+                &[("ui.ok", 1, 224, 84), ("ui.cancel", 2, 320, 84)]
+            };
         for &(text, id, x, width) in actions {
             let button = CreateWindowExW(
                 0,
@@ -432,10 +592,12 @@ fn open(
                 SendMessageW(
                     hwnd,
                     WM_COMMAND,
-                    if msg.wParam as u16 == VK_RETURN && focused != 2 {
-                        1
-                    } else {
+                    if msg.wParam as u16 == VK_ESCAPE || focused == 2 {
                         2
+                    } else if focused == 3 {
+                        3
+                    } else {
+                        1
                     },
                     0,
                 );
@@ -455,6 +617,7 @@ fn open(
         UnregisterClassW(class.as_ptr(), instance);
         DeleteObject(background);
         DeleteObject(paper);
-        Box::from_raw(state).value.take()
+        let state = Box::from_raw(state);
+        (state.value, state.alternate)
     }
 }

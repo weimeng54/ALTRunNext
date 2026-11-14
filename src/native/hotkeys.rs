@@ -114,9 +114,6 @@ pub(super) fn apply_settings_messages() {
                 let result = STATE.with(|cell| {
                     let state = cell.borrow();
                     let state = state.as_ref().unwrap();
-                    if crate::manager::is_open() {
-                        return Err("backup.close_manager".into());
-                    }
                     if RESTORING_BACKUP.get()
                         || state.launching.is_some()
                         || state.pending_settings.is_some()

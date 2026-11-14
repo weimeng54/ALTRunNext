@@ -9,7 +9,11 @@ use review_native_support::{Running, command, set, text, wait, window};
 use std::{path::Path, process::Command, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM},
-    UI::{Controls::*, Input::KeyboardAndMouse::VK_F2, WindowsAndMessaging::*},
+    UI::{
+        Controls::*,
+        Input::KeyboardAndMouse::{VK_F2, VK_RETURN},
+        WindowsAndMessaging::*,
+    },
 };
 
 fn start(data: &Path, theme: &str, scale: &str) -> (Running, HWND) {
@@ -83,8 +87,17 @@ fn choose_file(pid: u32, file: &Path) {
         input = file_name_field(picker);
         unsafe { IsWindowVisible(picker) != 0 && !input.is_null() }
     });
-    set(input, &file.to_string_lossy());
-    begin(picker, IDOK as usize);
+    eprintln!(
+        "Selecting synthetic file {}",
+        file.file_name().unwrap().display()
+    );
+    let value = review_native_support::wide(&file.to_string_lossy());
+    unsafe {
+        SendMessageW(input, EM_SETSEL, 0, -1);
+        SendMessageW(input, EM_REPLACESEL, 1, value.as_ptr() as LPARAM);
+        let submit = child(picker, IDOK);
+        assert_ne!(PostMessageW(submit, BM_CLICK, 0, 0), 0);
+    }
     wait(|| unsafe { IsWindow(picker) == 0 });
 }
 
@@ -124,6 +137,30 @@ fn child(hwnd: HWND, id: i32) -> HWND {
 
 fn count(list: HWND) -> isize {
     unsafe { SendMessageW(list, LVM_GETITEMCOUNT, 0, 0) }
+}
+
+fn check_launcher(launcher: HWND, theme: &str, scale: &str) {
+    let input = child(launcher, 1001);
+    let rows = child(launcher, 1002);
+    let hotkey =
+        || unsafe { SendMessageW(launcher, WM_HOTKEY, 17001, (isize::from(b'R') << 16) | 1) };
+    hotkey();
+    assert_eq!(unsafe { IsWindowVisible(launcher) }, 0);
+    hotkey();
+    assert!(text(input).is_empty());
+    assert_eq!(unsafe { SendMessageW(rows, LB_GETCOUNT, 0, 0) }, 2);
+    unsafe {
+        for ch in b"cl" {
+            SendMessageW(input, WM_CHAR, usize::from(*ch), 1);
+        }
+    }
+    assert_eq!(text(input), "cl");
+    assert_eq!(unsafe { SendMessageW(rows, LB_GETCOUNT, 0, 0) }, 1);
+    assert!(text(child(launcher, 1003)).contains("calc.exe"));
+    native_snapshot::save(launcher, &format!("031-launcher-{theme}-{scale}"));
+    set(input, "计算器");
+    assert_eq!(unsafe { SendMessageW(rows, LB_GETCOUNT, 0, 0) }, 0);
+    set(input, "");
 }
 
 #[test]
@@ -166,6 +203,7 @@ fn windows_031_management_and_import_previews() {
         std::fs::write(&data, &original).unwrap();
         let (mut running, launcher) = start(&data, theme, scale);
         let pid = running.0.id();
+        check_launcher(launcher, theme, scale);
         command(launcher, 18003);
         let manager = ready_window(pid, "ALTRun.Native.ShortcutManager", 2113);
         let list = child(manager, 2101);
@@ -214,6 +252,16 @@ fn windows_031_management_and_import_previews() {
         assert_eq!(count(grid), 4);
         set(child(preview, 2907), "计算器");
         assert_eq!(count(grid), 1);
+        unsafe {
+            SendMessageW(grid, WM_KEYDOWN, VK_F2 as usize, 0);
+        }
+        let alias = child(preview, 2911);
+        wait(|| unsafe { IsWindowVisible(alias) != 0 });
+        set(alias, "calculator-links");
+        unsafe {
+            PostMessageW(alias, WM_KEYDOWN, VK_RETURN as usize, 0);
+        }
+        wait(|| unsafe { IsWindowVisible(alias) == 0 });
         command(preview, 2910);
         assert_eq!(
             unsafe {
@@ -235,6 +283,7 @@ fn windows_031_management_and_import_previews() {
             .unwrap()
             .entries;
         assert_eq!(saved.len(), 5);
+        assert!(saved.iter().any(|entry| entry.alias == "calculator-links"));
         let repaired = saved.iter().find(|entry| entry.alias == "edit").unwrap();
         assert_eq!(repaired.id, original_entries[1].id);
         assert!(repaired.command.contains("existing file.txt"));

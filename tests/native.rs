@@ -143,9 +143,11 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
     }
     std::fs::write(&data, fixture).unwrap();
     std::fs::write(data.with_extension("settings.ini"), "[GUI]\nLang=zh-Hans\n").unwrap();
+    let executable = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     for scale in ["100", "125", "150", "200"] {
         let _child = Running(
-            Command::new(env!("CARGO_BIN_EXE_ALTRunNext"))
+            Command::new(&executable)
                 .arg("--show")
                 .arg("--enable-launch")
                 .arg("--ui-scale")

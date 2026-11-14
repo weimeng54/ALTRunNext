@@ -1,9 +1,14 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
+mod model;
+mod paint;
+
 use super::{Accepted, Preview};
 use crate::{localization as l10n, manager::table, theme, ui};
-use altrun_probe::browser_bookmarks::{BookmarkStatus, selected_entries};
+use altrun_probe::browser_bookmarks::BookmarkStatus;
+use model::{Model, check_mark};
+use paint::{draw_mode, draw_row, paint};
 use std::{
     cell::{Cell, RefCell},
     ptr::{null, null_mut},
@@ -65,15 +70,6 @@ pub(super) enum Outcome {
     Cancelled,
 }
 
-struct Model {
-    preview: Option<Preview>,
-    shown: Vec<usize>,
-    selected: Option<usize>,
-    editing_alias: Option<usize>,
-    query: String,
-    updating: bool,
-    outcome: Outcome,
-}
 struct Dialog {
     model: RefCell<Model>,
     composing: Cell<HWND>,
@@ -85,155 +81,6 @@ struct Dialog {
     surface: HBRUSH,
     paper: HBRUSH,
     title: String,
-}
-
-impl Model {
-    fn visible_rows(&mut self) -> Vec<Vec<String>> {
-        let mut shown = Vec::new();
-        let table = match self.preview.as_ref() {
-            Some(Preview::LaunchItems { rows, replace, .. }) => {
-                shown.extend(0..rows.len());
-                rows.iter()
-                    .map(|r| {
-                        vec![
-                            r.entry.alias.clone(),
-                            r.entry.name.clone(),
-                            r.entry.command.clone(),
-                            l10n::tr(if !replace && !r.conflict.is_empty() {
-                                r.conflict
-                            } else {
-                                "ui.import_ready"
-                            }),
-                        ]
-                    })
-                    .collect()
-            }
-            Some(Preview::Bookmarks { rows, .. }) => rows
-                .iter()
-                .enumerate()
-                .filter_map(|(index, row)| {
-                    let folder = row.bookmark.folders.join(" / ");
-                    let matches = [&row.bookmark.title, &row.bookmark.url, &folder]
-                        .iter()
-                        .any(|text| text.to_lowercase().contains(&self.query));
-                    if !matches {
-                        return None;
-                    }
-                    shown.push(index);
-                    let mark = if row.status != BookmarkStatus::Ready {
-                        "—"
-                    } else if row.checked {
-                        "☑"
-                    } else {
-                        "☐"
-                    };
-                    Some(vec![
-                        mark.into(),
-                        row.bookmark.title.clone(),
-                        row.alias.clone(),
-                        folder,
-                        row.bookmark.url.clone(),
-                        l10n::tr(row.status.label()),
-                    ])
-                })
-                .collect(),
-            None => Vec::new(),
-        };
-        self.shown = shown;
-        if !self.selected.is_some_and(|row| self.shown.contains(&row)) {
-            self.selected = self.shown.first().copied();
-        }
-        table
-    }
-
-    fn status(&self) -> (String, String, bool) {
-        let label = l10n::tr("ui.choose_again");
-        match self.preview.as_ref() {
-            Some(Preview::LaunchItems {
-                existing,
-                rows,
-                replace,
-                ignored,
-            }) => {
-                let included = rows
-                    .iter()
-                    .filter(|row| *replace || row.conflict.is_empty())
-                    .count();
-                let added = included.to_string();
-                let skipped = (rows.len() - included + ignored).to_string();
-                let (key, args, label) = if *replace {
-                    (
-                        "ui.import_replace_summary",
-                        vec![
-                            ("existing", existing.to_string()),
-                            ("count", added),
-                            ("skipped", skipped),
-                        ],
-                        "ui.import_replace_draft",
-                    )
-                } else {
-                    (
-                        "ui.import_append_summary",
-                        vec![("count", added), ("skipped", skipped)],
-                        "ui.import_append_draft",
-                    )
-                };
-                let args = args
-                    .iter()
-                    .map(|(label, value)| (*label, value.as_str()))
-                    .collect::<Vec<_>>();
-                (l10n::message(key, &args), l10n::tr(label), included > 0)
-            }
-            Some(Preview::Bookmarks { rows, .. }) => {
-                let total = rows
-                    .iter()
-                    .filter(|row| row.status == BookmarkStatus::Ready)
-                    .count();
-                let selected = rows
-                    .iter()
-                    .filter(|row| row.checked && row.status == BookmarkStatus::Ready)
-                    .count();
-                let selected_text = selected.to_string();
-                (
-                    l10n::message(
-                        "ui.browser_bookmarks_selected",
-                        &[
-                            ("selected", &selected_text),
-                            ("total", &total.to_string()),
-                            ("skipped", &(rows.len() - total).to_string()),
-                        ],
-                    ),
-                    l10n::message("ui.browser_bookmarks_confirm", &[("count", &selected_text)]),
-                    selected > 0,
-                )
-            }
-            None => (String::new(), label, true),
-        }
-    }
-
-    fn accept(&self) -> Result<Option<Accepted>, String> {
-        match self.preview.as_ref() {
-            Some(Preview::LaunchItems { rows, replace, .. }) => {
-                let entries: Vec<_> = rows
-                    .iter()
-                    .filter(|row| *replace || row.conflict.is_empty())
-                    .map(|row| row.entry.clone())
-                    .collect();
-                Ok((!entries.is_empty()).then_some(Accepted {
-                    entries,
-                    replace: *replace,
-                }))
-            }
-            Some(Preview::Bookmarks { current, rows }) => {
-                let entries = selected_entries(rows, current)?;
-                Ok((!entries.is_empty()).then_some(Accepted {
-                    entries,
-                    replace: false,
-                }))
-            }
-            None => Ok(None),
-        }
-    }
 }
 
 unsafe fn child(hwnd: HWND, id: usize) -> HWND {
@@ -370,7 +217,7 @@ fn toggle(hwnd: HWND, shared: &Dialog, selection: usize) {
         row.checked = !row.checked;
         row.checked
     };
-    let mut text = ui::wide(if toggle { "☑" } else { "☐" });
+    let mut text = ui::wide(check_mark(BookmarkStatus::Ready, toggle));
     unsafe {
         let list = child(hwnd, TABLE);
         let item = LVITEMW {
@@ -537,220 +384,6 @@ unsafe fn notify(hwnd: HWND, shared: &Dialog, l: LPARAM) {
             _ => {}
         }
     }
-}
-
-fn draw_row(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
-    let (cells, check) = {
-        let model = dialog.model.borrow();
-        let Some(&index) = model.shown.get(item.itemID as usize) else {
-            return;
-        };
-        match model.preview.as_ref() {
-            Some(Preview::LaunchItems { rows, replace, .. }) => {
-                let row = &rows[index];
-                (
-                    vec![
-                        row.entry.alias.clone(),
-                        row.entry.name.clone(),
-                        row.entry.command.clone(),
-                        l10n::tr(if !replace && !row.conflict.is_empty() {
-                            row.conflict
-                        } else {
-                            "ui.import_ready"
-                        }),
-                    ],
-                    None,
-                )
-            }
-            Some(Preview::Bookmarks { rows, .. }) => {
-                let row = &rows[index];
-                (
-                    vec![
-                        String::new(),
-                        row.bookmark.title.clone(),
-                        String::new(),
-                        row.bookmark.folders.join(" / "),
-                        row.bookmark.url.clone(),
-                        l10n::tr(row.status.label()),
-                    ],
-                    Some((row.status, row.checked, row.alias.clone())),
-                )
-            }
-            None => return,
-        }
-    };
-    let columns = cells.iter().map(String::as_str).collect::<Vec<_>>();
-    table::draw_columns(item, &columns, dialog.font, dialog.dpi);
-    if let Some((status, checked, alias)) = check {
-        draw_alias_cell(item, dialog, status, &alias);
-        let px = |n| ui::scaled(n, dialog.dpi);
-        let width = unsafe { SendMessageW(item.hwndItem, LVM_GETCOLUMNWIDTH, 0, 0) } as i32;
-        let side = px(16);
-        if width < side + px(8) {
-            return;
-        }
-        let left = -unsafe { GetScrollPos(item.hwndItem, SB_HORZ) } + (width - side) / 2;
-        let top = (item.rcItem.top + item.rcItem.bottom - side) / 2;
-        let bounds = RECT {
-            left,
-            top,
-            right: left + side,
-            bottom: top + side,
-        };
-        let active = status == BookmarkStatus::Ready;
-        let fill = if active && checked {
-            theme::accent()
-        } else {
-            theme::paper()
-        };
-        let border = if active && checked {
-            theme::accent()
-        } else {
-            theme::border()
-        };
-        ui::rounded(item.hDC, bounds, px(4), fill, border);
-        if active && checked {
-            unsafe {
-                let pen = CreatePen(PS_SOLID, px(2).max(1), theme::on_accent());
-                let old = SelectObject(item.hDC, pen);
-                MoveToEx(item.hDC, left + px(4), top + px(8), null_mut());
-                LineTo(item.hDC, left + px(7), top + px(11));
-                LineTo(item.hDC, left + px(13), top + px(5));
-                SelectObject(item.hDC, old);
-                DeleteObject(pen);
-            }
-        }
-    }
-}
-
-fn draw_alias_cell(item: &DRAWITEMSTRUCT, dialog: &Dialog, status: BookmarkStatus, alias: &str) {
-    let px = |n| ui::scaled(n, dialog.dpi);
-    unsafe {
-        let Some(bounds) = alias_bounds(item.hwndItem, item.itemID as usize, dialog.dpi) else {
-            return;
-        };
-        let dc = item.hDC;
-        let colour = if status == BookmarkStatus::Ready {
-            ui::rounded(dc, bounds, px(8), theme::paper(), theme::border());
-            theme::text()
-        } else {
-            theme::muted()
-        };
-        let old = SelectObject(dc, dialog.font);
-        ui::line_text(
-            dc,
-            RECT {
-                left: bounds.left + px(7),
-                right: bounds.right - px(5),
-                ..bounds
-            },
-            if status == BookmarkStatus::Ready {
-                alias
-            } else {
-                "—"
-            },
-            colour,
-            0,
-        );
-        SelectObject(dc, old);
-    }
-}
-
-fn draw_mode(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
-    let replace = matches!(
-        &dialog.model.borrow().preview,
-        Some(Preview::LaunchItems { replace: true, .. })
-    );
-    let checked = replace == (item.CtlID as usize == REPLACE);
-    let px = |n| ui::scaled(n, dialog.dpi);
-    let dc = item.hDC;
-    let rect = item.rcItem;
-    ui::fill(dc, &rect, theme::surface());
-    let side = px(16);
-    let top = (rect.top + rect.bottom - side) / 2;
-    let bounds = RECT {
-        left: rect.left + px(2),
-        top,
-        right: rect.left + px(2) + side,
-        bottom: top + side,
-    };
-    let focus = item.itemState & ODS_FOCUS != 0;
-    ui::rounded(
-        dc,
-        bounds,
-        side,
-        theme::paper(),
-        if focus || checked {
-            theme::accent()
-        } else {
-            theme::border()
-        },
-    );
-    if checked {
-        let inset = px(4);
-        ui::rounded(
-            dc,
-            RECT {
-                left: bounds.left + inset,
-                top: top + inset,
-                right: bounds.right - inset,
-                bottom: bounds.bottom - inset,
-            },
-            side - 2 * inset,
-            theme::accent(),
-            theme::accent(),
-        );
-    }
-    unsafe {
-        let old = SelectObject(dc, dialog.font);
-        ui::line_text(
-            dc,
-            RECT {
-                left: bounds.right + px(8),
-                ..rect
-            },
-            &ui::window_text(item.hwndItem),
-            theme::text(),
-            0,
-        );
-        SelectObject(dc, old);
-    }
-}
-
-fn paint(hwnd: HWND, dialog: &Dialog, dc: HDC) {
-    let mut bounds = RECT::default();
-    unsafe { GetClientRect(hwnd, &mut bounds) };
-    let y = ui::scaled(HEADER, dialog.dpi);
-    let footer_y = ui::scaled(dialog.height - FOOTER, dialog.dpi);
-    ui::fill(dc, &bounds, theme::surface());
-    ui::fill(
-        dc,
-        &RECT {
-            bottom: y,
-            ..bounds
-        },
-        theme::chrome(),
-    );
-    ui::fill(
-        dc,
-        &RECT {
-            top: footer_y,
-            ..bounds
-        },
-        theme::chrome(),
-    );
-    for top in [y - 1, footer_y] {
-        ui::fill(
-            dc,
-            &RECT {
-                top,
-                bottom: top + 1,
-                ..bounds
-            },
-            theme::divider(),
-        );
-    }
-    ui::panel_caption(dc, dialog.dpi, dialog.caption, &dialog.title);
 }
 
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
