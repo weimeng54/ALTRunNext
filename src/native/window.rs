@@ -171,14 +171,15 @@ pub(super) unsafe extern "system" fn window_proc(
                         let mut s = c.borrow_mut();
                         let s = s.as_mut().unwrap();
                         if let Some((id, query, param)) = launched {
-                            s.usage.record(
-                                &id,
-                                &query,
-                                param.as_deref(),
-                                s.preferences.number("ParamHistoryLimit") as usize,
-                            );
-                            s.usage_writer.publish(s.usage.text());
-                            rebuild_index(s);
+                            let change = UsageChange::Launch {
+                                id: id.clone(),
+                                query,
+                                parameter: param,
+                                limit: s.preferences.number("ParamHistoryLimit") as usize,
+                            };
+                            change.clone().apply(&mut s.usage);
+                            s.usage_writer.publish(change);
+                            super::search::update_frequency(s, &id);
                         }
                     });
                     if current {
@@ -297,16 +298,14 @@ pub(super) unsafe extern "system" fn window_proc(
                 let s = s.as_mut().unwrap();
                 s.moving = false;
                 if s.preferences.get("PositionMode") == "remember" {
-                    s.usage.positions.insert(
-                        "launcher".into(),
-                        (
-                            rect.left,
-                            rect.top,
-                            rect.right - rect.left,
-                            rect.bottom - rect.top,
-                        ),
-                    );
-                    s.usage_writer.publish(s.usage.text());
+                    let change = UsageChange::LauncherPosition((
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                    ));
+                    change.clone().apply(&mut s.usage);
+                    s.usage_writer.publish(change);
                 }
                 s.preferences.number("HideDelay")
             });
@@ -382,10 +381,9 @@ pub(super) unsafe extern "system" fn window_proc(
             STATE.with(|c| {
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
-                s.usage
-                    .selection
-                    .insert("manager".into(), geometry.selected);
-                s.usage_writer.publish(s.usage.text());
+                let change = UsageChange::ManagerSelection(geometry.selected);
+                change.clone().apply(&mut s.usage);
+                s.usage_writer.publish(change);
             });
             0
         }

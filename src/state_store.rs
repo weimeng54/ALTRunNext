@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 //! A serialized, coalescing writer. Disk access never happens on input/show.
+use crate::usage::{Usage, UsageChange};
 use std::{
     path::{Path, PathBuf},
     sync::mpsc,
@@ -65,20 +66,50 @@ impl TextFile {
         Ok(())
     }
 }
-pub struct Writer {
-    sender: Option<mpsc::Sender<WriteRequest>>,
+pub struct Writer<T = String> {
+    sender: Option<mpsc::Sender<WriteRequest<T>>>,
     worker: Option<JoinHandle<()>>,
     pub errors: mpsc::Receiver<String>,
 }
-enum WriteRequest {
-    Text(String),
+enum WriteRequest<T> {
+    Update(T),
     Flush(mpsc::Sender<Result<(), String>>),
 }
-impl Writer {
+impl Writer<String> {
     pub fn start(file: TextFile) -> Self {
         Self::start_notified(file, || {})
     }
-    pub fn start_notified(mut file: TextFile, notify: impl Fn() + Send + 'static) -> Self {
+    pub fn start_notified(file: TextFile, notify: impl Fn() + Send + 'static) -> Self {
+        Self::start_worker(
+            file,
+            String::new(),
+            |state, text| *state = text,
+            |file, text| file.save(text),
+            notify,
+        )
+    }
+}
+
+impl Writer<UsageChange> {
+    pub fn start_usage(file: TextFile, usage: Usage, notify: impl Fn() + Send + 'static) -> Self {
+        Self::start_worker(
+            file,
+            usage,
+            |state, change| change.apply(state),
+            |file, usage| file.save(&usage.text()),
+            notify,
+        )
+    }
+}
+
+impl<T: Send + 'static> Writer<T> {
+    fn start_worker<S: Send + 'static>(
+        mut file: TextFile,
+        mut state: S,
+        apply: fn(&mut S, T),
+        save: fn(&mut TextFile, &S) -> Result<(), String>,
+        notify: impl Fn() + Send + 'static,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let (errors_tx, errors) = mpsc::channel();
         let worker = std::thread::spawn(move || {
@@ -86,17 +117,18 @@ impl Writer {
             let mut previous = Ok(());
             while let Some(request) = queued.take().or_else(|| receiver.recv().ok()) {
                 match request {
-                    WriteRequest::Text(mut text) => {
+                    WriteRequest::Update(update) => {
+                        apply(&mut state, update);
                         while let Ok(request) = receiver.try_recv() {
                             match request {
-                                WriteRequest::Text(newer) => text = newer,
+                                WriteRequest::Update(newer) => apply(&mut state, newer),
                                 flush => {
                                     queued = Some(flush);
                                     break;
                                 }
                             }
                         }
-                        previous = file.save(&text);
+                        previous = save(&mut file, &state);
                         if let Err(e) = &previous {
                             let _ = errors_tx.send(e.clone());
                             notify();
@@ -114,9 +146,9 @@ impl Writer {
             errors,
         }
     }
-    pub fn publish(&self, text: String) {
+    pub fn publish(&self, update: T) {
         if let Some(sender) = &self.sender {
-            let _ = sender.send(WriteRequest::Text(text));
+            let _ = sender.send(WriteRequest::Update(update));
         }
     }
     pub fn flush(&self) -> mpsc::Receiver<Result<(), String>> {
@@ -127,7 +159,7 @@ impl Writer {
         result
     }
 }
-impl Drop for Writer {
+impl<T> Drop for Writer<T> {
     fn drop(&mut self) {
         self.sender.take();
         if let Some(worker) = self.worker.take() {

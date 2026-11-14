@@ -126,6 +126,37 @@ fn background_state_writer_flushes_and_refuses_external_overwrite() {
     assert!(file.save("changed").is_err());
     assert_eq!(std::fs::read_to_string(path).unwrap(), "external");
 }
+
+#[test]
+fn usage_changes_are_applied_in_order_before_flushing() {
+    use altrun_probe::{
+        state_store::{TextFile, Writer},
+        usage::{Usage, UsageChange},
+    };
+    let directory = std::env::current_dir()
+        .unwrap()
+        .join("target/complete-state");
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("usage.tsv");
+    let initial = "F\titem\t2\n";
+    std::fs::write(&path, initial).unwrap();
+    let (file, text) = TextFile::open(&path).unwrap();
+    let writer = Writer::start_usage(file, Usage::parse(&text).unwrap(), || {});
+    for parameter in ["first", "second", "first"] {
+        writer.publish(UsageChange::Launch {
+            id: "item".into(),
+            query: "it".into(),
+            parameter: Some(parameter.into()),
+            limit: 2,
+        });
+    }
+    writer.publish(UsageChange::ManagerSelection("item".into()));
+    writer.flush().recv().unwrap().unwrap();
+    let saved = Usage::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved.counts["item"], 5);
+    assert_eq!(saved.parameters["item"], ["first", "second"]);
+    assert_eq!(saved.selection["manager"], "item");
+}
 #[test]
 fn search_treats_punctuation_as_literal_text() {
     let rows = altrun_probe::parse_entries(concat!(
@@ -162,6 +193,25 @@ fn literal_search_ranks_exact_prefix_contiguous_then_fuzzy() {
             .unwrap()
             .flag("EnglishSearch")
     );
+}
+
+#[test]
+fn updating_one_frequency_reorders_matches_without_changing_priority() {
+    let rows = altrun_probe::parse_entries(concat!(
+        "cl\tExact\tcalc.exe\t0\n",
+        "cl-a\tFirst\tn.exe\t1\n",
+        "cl-b\tSecond\tn.exe\t1\n",
+    ))
+    .unwrap();
+    let mut index = altrun_probe::SearchIndex::new(&rows);
+    assert_eq!(index.query(""), vec![1, 2, 0]);
+    index.set_frequency(2, 2);
+    assert_eq!(index.query(""), vec![2, 1, 0]);
+    assert_eq!(index.query("cl"), vec![0, 2, 1]);
+    index.set_frequency(2, 1);
+    assert_eq!(index.query(""), vec![1, 2, 0]);
+    index.set_frequency(1, -1);
+    assert_eq!(index.query("cl"), vec![0, 2, 1]);
 }
 
 #[test]

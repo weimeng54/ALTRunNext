@@ -10,6 +10,7 @@ use crate::{
         shell_execute::{execute_request, execute_request_with},
     },
 };
+use altrun_probe::usage::UsageChange;
 use altrun_probe::{Entry, SearchIndex, advance, parse_entries};
 use std::{
     cell::{Cell, RefCell},
@@ -98,7 +99,7 @@ struct State {
     skin_results: std::sync::mpsc::Receiver<BackdropResult>,
     preferences: altrun_probe::preferences::Preferences,
     usage: altrun_probe::usage::Usage,
-    usage_writer: altrun_probe::state_store::Writer,
+    usage_writer: altrun_probe::state_store::Writer<UsageChange>,
     settings_sender: std::sync::mpsc::Sender<crate::settings::Change>,
     settings_updates: std::sync::mpsc::Receiver<crate::settings::Change>,
     hotkeys: Vec<(i32, Option<altrun_probe::preferences::Hotkey>)>,

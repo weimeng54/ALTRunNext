@@ -2,12 +2,14 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use crate::{Entry, library::EntryKind};
+use std::cmp::Reverse;
 
 pub struct SearchIndex {
     aliases: Vec<String>,
     frequencies: Vec<i64>,
     characters: Vec<Vec<char>>,
     active: Vec<bool>,
+    default_order: Vec<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,11 +43,7 @@ impl SearchIndex {
             return Vec::new();
         }
         if input.is_empty() {
-            let mut hits: Vec<_> = (0..self.aliases.len())
-                .filter(|&i| self.active[i])
-                .collect();
-            hits.sort_unstable_by_key(|&i| (std::cmp::Reverse(self.frequencies[i]), i));
-            return hits;
+            return self.default_order.clone();
         }
         let needle = input.to_lowercase();
         let length = needle.chars().count();
@@ -120,18 +118,49 @@ impl SearchIndex {
             .saturating_sub((self.characters[index].len() as i64 - length).saturating_mul(16))
     }
     pub fn new(entries: &[Entry]) -> Self {
+        Self::with_frequencies(entries, |e| e.frequency)
+    }
+
+    pub fn with_frequencies(entries: &[Entry], frequency: impl Fn(&Entry) -> i64) -> Self {
+        let active: Vec<_> = entries
+            .iter()
+            .map(|e| e.kind == EntryKind::Command)
+            .collect();
+        let aliases: Vec<_> = entries.iter().map(|e| e.alias.to_lowercase()).collect();
+        let characters = aliases
+            .iter()
+            .map(|alias| alias.chars().collect())
+            .collect();
+        let frequencies: Vec<_> = entries.iter().map(frequency).collect();
+        let mut default_order: Vec<_> = (0..entries.len()).filter(|&i| active[i]).collect();
+        default_order.sort_unstable_by_key(|&i| (Reverse(frequencies[i]), i));
         Self {
-            active: entries
-                .iter()
-                .map(|e| e.kind == EntryKind::Command)
-                .collect(),
-            aliases: entries.iter().map(|e| e.alias.to_lowercase()).collect(),
-            frequencies: entries.iter().map(|e| e.frequency).collect(),
-            characters: entries
-                .iter()
-                .map(|e| e.alias.to_lowercase().chars().collect())
-                .collect(),
+            aliases,
+            frequencies,
+            characters,
+            active,
+            default_order,
         }
+    }
+
+    pub fn set_frequency(&mut self, index: usize, frequency: i64) {
+        if self.frequencies[index] == frequency {
+            return;
+        }
+        if !self.active[index] {
+            self.frequencies[index] = frequency;
+            return;
+        }
+        let key = |&i: &usize| (Reverse(self.frequencies[i]), i);
+        let old = self
+            .default_order
+            .binary_search_by_key(&key(&index), key)
+            .expect("active entry is present in default order");
+        self.default_order.remove(old);
+        self.frequencies[index] = frequency;
+        let key = |&i: &usize| (Reverse(self.frequencies[i]), i);
+        let insert = self.default_order.partition_point(|i| key(i) < key(&index));
+        self.default_order.insert(insert, index);
     }
 
     pub fn query(&self, input: &str) -> Vec<usize> {

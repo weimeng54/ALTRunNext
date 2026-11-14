@@ -11,6 +11,39 @@ pub struct Usage {
     pub favourites: BTreeMap<String, String>,
     pub parameters: BTreeMap<String, Vec<String>>,
 }
+
+#[derive(Clone)]
+pub enum UsageChange {
+    Launch {
+        id: String,
+        query: String,
+        parameter: Option<String>,
+        limit: usize,
+    },
+    LauncherPosition((i32, i32, i32, i32)),
+    ManagerSelection(String),
+}
+
+impl UsageChange {
+    pub fn apply(self, usage: &mut Usage) {
+        match self {
+            Self::Launch {
+                id,
+                query,
+                parameter,
+                limit,
+            } => {
+                usage.record(&id, &query, parameter.as_deref(), limit);
+            }
+            Self::LauncherPosition(rect) => {
+                usage.positions.insert("launcher".into(), rect);
+            }
+            Self::ManagerSelection(id) => {
+                usage.selection.insert("manager".into(), id);
+            }
+        }
+    }
+}
 impl Usage {
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut out = Self::default();

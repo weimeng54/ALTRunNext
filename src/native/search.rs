@@ -149,18 +149,29 @@ pub(super) fn reset_search() {
 pub(super) fn rebuild_index(s: &mut State) {
     s.default_list_ready = false;
     s.list_dirty = true;
-    let mut rows = s.entries.clone();
-    for entry in &mut rows {
-        entry.frequency = entry.frequency.saturating_add(
-            s.usage
-                .counts
-                .get(&entry.id)
-                .copied()
-                .unwrap_or(0)
-                .min(i64::MAX as u64) as i64,
-        );
+    s.index = index_with_usage(&s.entries, &s.usage);
+}
+
+pub(super) fn index_with_usage(
+    entries: &[Entry],
+    usage: &altrun_probe::usage::Usage,
+) -> SearchIndex {
+    SearchIndex::with_frequencies(entries, |entry| frequency(entry, usage))
+}
+
+fn frequency(entry: &Entry, usage: &altrun_probe::usage::Usage) -> i64 {
+    let count = usage.counts.get(&entry.id).copied().unwrap_or(0);
+    entry
+        .frequency
+        .saturating_add(count.min(i64::MAX as u64) as i64)
+}
+
+pub(super) fn update_frequency(s: &mut State, id: &str) {
+    if let Some(index) = s.entries.iter().position(|entry| entry.id == id) {
+        s.index
+            .set_frequency(index, frequency(&s.entries[index], &s.usage));
+        s.default_list_ready = false;
     }
-    s.index = SearchIndex::new(&rows);
 }
 
 pub(super) fn choose_number(digit: usize) {

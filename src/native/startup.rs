@@ -56,12 +56,12 @@ pub(crate) fn run() -> Result<(), String> {
         altrun_probe::library::Snapshot::new(data_path.clone(), entries.clone())?.save(&entries)?;
         entries
     };
-    let index = SearchIndex::new(&entries);
     let (base_directory, base_is_working_directory) = working_directory(&preferences, &data_path);
     let allow_dynamic_target = preferences.flag("AllowDynamicTarget");
     let (state_file, state_text) =
         altrun_probe::state_store::TextFile::open(&data_path.with_extension("state.tsv"))?;
     let usage = altrun_probe::usage::Usage::parse(&state_text)?;
+    let index = super::search::index_with_usage(&entries, &usage);
     let (settings_sender, settings_updates) = std::sync::mpsc::channel();
     let (skin_sender, skin_results) = std::sync::mpsc::channel();
     let (sound_sender, sound_tasks) = std::sync::mpsc::sync_channel::<PopupSound>(1);
@@ -244,7 +244,7 @@ pub(crate) fn run() -> Result<(), String> {
         let (library_sender, library_updates) = altrun_probe::library_updates::channel();
         let owner = hwnd as usize;
         let usage_writer =
-            altrun_probe::state_store::Writer::start_notified(state_file, move || {
+            altrun_probe::state_store::Writer::start_usage(state_file, usage.clone(), move || {
                 PostMessageW(owner as HWND, STATE_ERROR, 0, 0);
             });
         LAUNCH_SENDER.with(|s| *s.borrow_mut() = Some(launch_sender));
@@ -324,7 +324,6 @@ pub(crate) fn run() -> Result<(), String> {
             })
         });
         crate::ui::style_vertical_scrollbar(list, ID_SCROLLBAR, 0);
-        STATE.with(|c| rebuild_index(c.borrow_mut().as_mut().unwrap()));
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
         let mut startup_warnings = Vec::new();
