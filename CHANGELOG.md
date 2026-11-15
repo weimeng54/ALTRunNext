@@ -6,6 +6,8 @@
 
 ## [未发布 / Unreleased]
 
+## [0.4.4] - 2026-11-15
+
 ### 新增 / Added
 
 - 启动面板支持在结果列表中直接按 Del，或通过右键菜单「删除命令」确认删除所选启动项。\
@@ -133,7 +135,8 @@
 - 首次启动跟随 Windows 显示语言。内置英文和简体中文，便携包附带日语、韩语、法语、德语和西班牙语，并支持外置语言包。\
   The app follows the Windows display language on first launch. English and Simplified Chinese are built in. The portable ZIP includes Japanese, Korean, French, German, and Spanish, and the app supports external language packs.
 
-[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.3...main
+[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.4...main
+[0.4.4]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.0...v0.4.1
