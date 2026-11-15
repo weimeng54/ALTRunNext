@@ -79,8 +79,6 @@ pub(super) fn apply_intake(hwnd: HWND) {
                     let alias = EDITOR.with(|c| c.borrow().as_ref().unwrap().alias);
                     SetWindowTextW(alias, wide(&id).as_ptr());
                 }
-            } else if action == VK_DELETE {
-                SendMessageW(hwnd, WM_COMMAND, DELETE, 0);
             } else {
                 let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().command);
                 SetFocus(field);

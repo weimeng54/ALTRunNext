@@ -158,23 +158,14 @@ pub(super) unsafe extern "system" fn edit_proc(
                 edit_selected_command();
                 return 0;
             }
-            VK_INSERT | VK_DELETE if !parameter_mode => {
-                let id = STATE.with(|c| {
-                    let s = c.borrow();
-                    let s = s.as_ref().unwrap();
-                    if w as u16 == VK_INSERT {
-                        return s.current_query.clone();
-                    }
-                    s.hits
-                        .get(s.selected)
-                        .map(|i| s.entries[*i].id.clone())
-                        .unwrap_or_default()
-                });
-                if id.is_empty() && w as u16 != VK_INSERT {
-                    return 0;
-                }
-                crate::manager::enqueue(Vec::new(), Some((id, w as u16)));
+            VK_INSERT if !parameter_mode => {
+                let query = STATE.with(|c| c.borrow().as_ref().unwrap().current_query.clone());
+                crate::manager::enqueue(Vec::new(), Some((query, VK_INSERT)));
                 open_manager();
+                return 0;
+            }
+            VK_DELETE if !parameter_mode => {
+                request_delete(hwnd, l);
                 return 0;
             }
             VK_PRIOR if !parameter_mode => {
@@ -284,6 +275,12 @@ pub(super) unsafe extern "system" fn edit_proc(
         update_search_ime(msg == WM_SETFOCUS);
     }
     result
+}
+
+pub(super) fn request_delete(control: HWND, key_flags: LPARAM) {
+    if key_flags & (1 << 30) == 0 {
+        unsafe { PostMessageW(GetParent(control), WM_COMMAND, ID_DELETE_COMMAND, 0) };
+    }
 }
 
 fn parameter_history(delta: isize) -> bool {

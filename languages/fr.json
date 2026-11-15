@@ -200,6 +200,8 @@
     "ui.downloads_2": "Téléchargements",
     "ui.dynamic_input_cannot_replace_the_program_path": "Le contenu dynamique ne peut pas remplacer le chemin du programme. Vous pouvez l’autoriser dans les paramètres.",
     "ui.edit_command_f2": "Modifier la commande\tF2",
+    "ui.delete_command_del": "Supprimer la commande\tDel",
+    "ui.confirm_delete_command": "Supprimer « {item} » ? La modification prend effet immédiatement.",
     "ui.edit_shortcut": "Modifier l’élément de lancement",
     "ui.enable_fuzzy_matching": "Activer la recherche approximative",
     "ui.enter_a_color_in_rrggbb_format": "La couleur doit être au format #RRGGBB.",

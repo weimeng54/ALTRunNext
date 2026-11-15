@@ -638,6 +638,10 @@ pub(super) unsafe extern "system" fn list_proc(
     w: WPARAM,
     l: LPARAM,
 ) -> LRESULT {
+    if msg == WM_KEYDOWN && w as u16 == VK_DELETE {
+        super::input::request_delete(hwnd, l);
+        return 0;
+    }
     if msg == WM_MBUTTONUP {
         launch_selected();
         return 0;

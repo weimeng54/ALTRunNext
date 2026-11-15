@@ -200,6 +200,8 @@
     "ui.downloads_2": "Descargas",
     "ui.dynamic_input_cannot_replace_the_program_path": "El contenido dinámico solo puede sustituir la ruta del programa si lo activas en Ajustes.",
     "ui.edit_command_f2": "Editar comando\tF2",
+    "ui.delete_command_del": "Eliminar comando\tDel",
+    "ui.confirm_delete_command": "¿Eliminar «{item}»? El cambio se aplica de inmediato.",
     "ui.edit_shortcut": "Editar elemento de inicio",
     "ui.enable_fuzzy_matching": "Activar coincidencias aproximadas",
     "ui.enter_a_color_in_rrggbb_format": "El color debe tener el formato #RRGGBB.",

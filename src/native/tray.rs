@@ -21,6 +21,7 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
             &[
                 (ID_COPY, "ui.copy_command_ctrl_c"),
                 (ID_EDIT_COMMAND, "ui.edit_command_f2"),
+                (ID_DELETE_COMMAND, "ui.delete_command_del"),
                 (ID_OPEN_FOLDER, "ui.open_containing_folder_ctrl_d"),
                 (ID_RECENT, "ui.recent_launches_ctrl_l"),
                 (0, ""),
@@ -36,8 +37,11 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
             if id == 0 {
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             } else {
-                let unavailable =
-                    matches!(id, ID_COPY | ID_EDIT_COMMAND | ID_OPEN_FOLDER) && !has_selection;
+                let unavailable = (matches!(
+                    id,
+                    ID_COPY | ID_EDIT_COMMAND | ID_DELETE_COMMAND | ID_OPEN_FOLDER
+                ) && !has_selection)
+                    || (id == ID_DELETE_COMMAND && crate::manager::is_open());
                 let flags = MF_STRING | if unavailable { MF_GRAYED } else { 0 };
                 AppendMenuW(menu, flags, id, ui(label).as_ptr());
             }

@@ -1,10 +1,11 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use super::{ALIAS_COLUMN, Accepted, Outcome, Preview};
+use super::{Accepted, Outcome, Preview};
 use crate::localization as l10n;
 use crate::manager::imports::Incoming;
 use altrun_probe::browser_bookmarks::{BookmarkStatus, PreviewRow, selected_entries};
+use std::borrow::Cow;
 
 pub(super) fn check_mark(status: BookmarkStatus, checked: bool) -> &'static str {
     match (status, checked) {
@@ -24,17 +25,6 @@ fn launch_cells(row: &Incoming, replace: bool) -> Vec<String> {
         } else {
             "ui.import_ready"
         }),
-    ]
-}
-
-fn bookmark_cells(row: &PreviewRow, folder: &str) -> Vec<String> {
-    vec![
-        check_mark(row.status, row.checked).into(),
-        row.bookmark.title.clone(),
-        row.alias.clone(),
-        folder.into(),
-        row.bookmark.url.clone(),
-        l10n::tr(row.status.label()),
     ]
 }
 
@@ -77,13 +67,29 @@ pub(super) struct Model {
     pub(super) updating: bool,
     pub(super) outcome: Outcome,
     bookmark_filter: Vec<BookmarkFilter>,
+    ready_count: usize,
+    checked_count: usize,
 }
 
 impl Model {
     pub(super) fn new(preview: Option<Preview>) -> Self {
-        let bookmark_filter = match &preview {
-            Some(Preview::Bookmarks { rows, .. }) => rows.iter().map(BookmarkFilter::new).collect(),
-            _ => Vec::new(),
+        let (bookmark_filter, ready_count, checked_count) = match &preview {
+            Some(Preview::Bookmarks { rows, .. }) => {
+                let mut ready = 0;
+                let mut checked = 0;
+                let filter = rows
+                    .iter()
+                    .map(|row| {
+                        if row.status == BookmarkStatus::Ready {
+                            ready += 1;
+                            checked += usize::from(row.checked);
+                        }
+                        BookmarkFilter::new(row)
+                    })
+                    .collect();
+                (filter, ready, checked)
+            }
+            _ => (Vec::new(), 0, 0),
         };
         let shown = match &preview {
             Some(Preview::Bookmarks { rows, .. }) => (0..rows.len()).collect(),
@@ -94,6 +100,8 @@ impl Model {
         Self {
             preview,
             bookmark_filter,
+            ready_count,
+            checked_count,
             shown,
             selected,
             editing_alias: None,
@@ -120,24 +128,73 @@ impl Model {
             return false;
         }
         self.shown = shown;
-        if !self.selected.is_some_and(|row| self.shown.contains(&row)) {
+        if !self
+            .selected
+            .is_some_and(|row| self.shown.binary_search(&row).is_ok())
+        {
             self.selected = self.shown.first().copied();
         }
         true
     }
 
-    pub(super) fn visible_rows(&self) -> Vec<Vec<String>> {
+    pub(super) fn launch_rows(&self) -> Vec<Vec<String>> {
         match self.preview.as_ref() {
             Some(Preview::LaunchItems { rows, replace, .. }) => {
                 rows.iter().map(|row| launch_cells(row, *replace)).collect()
             }
-            Some(Preview::Bookmarks { rows, .. }) => self
-                .shown
-                .iter()
-                .map(|&i| bookmark_cells(&rows[i], &self.bookmark_filter[i].folder))
-                .collect(),
-            None => Vec::new(),
+            _ => Vec::new(),
         }
+    }
+
+    pub(super) fn bookmark_text(&self, position: usize, column: i32) -> Option<Cow<'_, str>> {
+        let &index = self.shown.get(position)?;
+        let Some(Preview::Bookmarks { rows, .. }) = self.preview.as_ref() else {
+            return None;
+        };
+        let row = &rows[index];
+        Some(match column {
+            0 => check_mark(row.status, row.checked).into(),
+            1 => row.bookmark.title.as_str().into(),
+            2 if row.status == BookmarkStatus::Ready => row.alias.as_str().into(),
+            2 => "—".into(),
+            3 => self.bookmark_filter[index].folder.as_str().into(),
+            4 => row.bookmark.url.as_str().into(),
+            5 => l10n::tr(row.status.label()).into(),
+            _ => return None,
+        })
+    }
+
+    pub(super) fn toggle(&mut self, position: usize) -> Option<()> {
+        let &index = self.shown.get(position)?;
+        let Some(Preview::Bookmarks { rows, .. }) = self.preview.as_mut() else {
+            return None;
+        };
+        let row = &mut rows[index];
+        if row.status != BookmarkStatus::Ready {
+            return None;
+        }
+        row.checked = !row.checked;
+        if row.checked {
+            self.checked_count += 1;
+        } else {
+            self.checked_count -= 1;
+        }
+        Some(())
+    }
+
+    pub(super) fn set_checks(&mut self, update: impl Fn(bool) -> bool) {
+        let Some(Preview::Bookmarks { rows, .. }) = self.preview.as_mut() else {
+            return;
+        };
+        let mut checked = 0;
+        for row in rows
+            .iter_mut()
+            .filter(|row| row.status == BookmarkStatus::Ready)
+        {
+            row.checked = update(row.checked);
+            checked += usize::from(row.checked);
+        }
+        self.checked_count = checked;
     }
 
     pub(super) fn display_row(&self, position: usize) -> Option<DisplayRow> {
@@ -149,12 +206,16 @@ impl Model {
             }),
             Preview::Bookmarks { rows, .. } => {
                 let row = &rows[index];
-                let mut cells = bookmark_cells(row, &self.bookmark_filter[index].folder);
-                cells[0].clear();
-                let alias = std::mem::take(&mut cells[ALIAS_COLUMN]);
                 Some(DisplayRow {
-                    cells,
-                    bookmark: Some((row.status, row.checked, alias)),
+                    cells: vec![
+                        String::new(),
+                        row.bookmark.title.clone(),
+                        String::new(),
+                        self.bookmark_filter[index].folder.clone(),
+                        row.bookmark.url.clone(),
+                        l10n::tr(row.status.label()),
+                    ],
+                    bookmark: Some((row.status, row.checked, row.alias.clone())),
                 })
             }
         }
@@ -199,14 +260,8 @@ impl Model {
                 (l10n::message(key, &args), l10n::tr(label), included > 0)
             }
             Some(Preview::Bookmarks { rows, .. }) => {
-                let total = rows
-                    .iter()
-                    .filter(|row| row.status == BookmarkStatus::Ready)
-                    .count();
-                let selected = rows
-                    .iter()
-                    .filter(|row| row.checked && row.status == BookmarkStatus::Ready)
-                    .count();
+                let total = self.ready_count;
+                let selected = self.checked_count;
                 let selected_text = selected.to_string();
                 (
                     l10n::message(

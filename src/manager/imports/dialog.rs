@@ -7,7 +7,7 @@ mod paint;
 use super::{Accepted, Preview};
 use crate::{localization as l10n, manager::table, theme, ui};
 use altrun_probe::browser_bookmarks::BookmarkStatus;
-use model::{Model, check_mark};
+use model::Model;
 use paint::{draw_mode, draw_row, paint};
 use std::{
     cell::{Cell, RefCell},
@@ -177,27 +177,47 @@ fn begin_alias(hwnd: HWND, shared: &Dialog, position: usize) {
     }
 }
 
-fn refresh(hwnd: HWND, shared: &Dialog) {
+fn refresh_rows(hwnd: HWND, shared: &Dialog) {
     finish_alias(hwnd, shared);
-    let (rows, selected) = {
+    let (count, selected, launch_rows) = {
         let mut model = shared.model.borrow_mut();
-        let rows = model.visible_rows();
         let selected = model
             .selected
-            .and_then(|selected| model.shown.iter().position(|&index| index == selected));
+            .and_then(|selected| model.shown.binary_search(&selected).ok());
+        let launch_rows = (!matches!(model.preview, Some(Preview::Bookmarks { .. })))
+            .then(|| model.launch_rows());
         model.updating = true;
-        (rows, selected)
+        (model.shown.len(), selected, launch_rows)
     };
     unsafe {
-        table::replace_report_rows(
-            child(hwnd, TABLE),
-            &rows,
-            selected,
-            ui::scaled(shared.row_height, shared.dpi),
-        );
+        let list = child(hwnd, TABLE);
+        if let Some(rows) = launch_rows {
+            table::replace_report_rows(
+                list,
+                &rows,
+                selected,
+                ui::scaled(shared.row_height, shared.dpi),
+            );
+        } else {
+            let clear = LVITEMW {
+                stateMask: LVIS_SELECTED | LVIS_FOCUSED,
+                ..Default::default()
+            };
+            SendMessageW(
+                list,
+                LVM_SETITEMSTATE,
+                usize::MAX,
+                &raw const clear as LPARAM,
+            );
+            SendMessageW(list, LVM_SETITEMCOUNT, count, LVSICF_NOSCROLL as LPARAM);
+            if let Some(row) = selected {
+                table::select(list, row);
+                SendMessageW(list, LVM_ENSUREVISIBLE, row, 0);
+            }
+            InvalidateRect(list, null(), 0);
+        }
     }
     shared.model.borrow_mut().updating = false;
-    refresh_status(hwnd, shared);
 }
 
 fn refresh_status(hwnd: HWND, shared: &Dialog) {
@@ -210,35 +230,16 @@ fn refresh_status(hwnd: HWND, shared: &Dialog) {
 }
 
 fn toggle(hwnd: HWND, shared: &Dialog, selection: usize) {
-    let toggle = {
-        let mut model = shared.model.borrow_mut();
-        let Some(&index) = model.shown.get(selection) else {
-            return;
-        };
-        let Some(Preview::Bookmarks { rows, .. }) = model.preview.as_mut() else {
-            return;
-        };
-        let row = &mut rows[index];
-        if row.status != BookmarkStatus::Ready {
-            return;
-        }
-        row.checked = !row.checked;
-        row.checked
-    };
-    let mut text = ui::wide(check_mark(BookmarkStatus::Ready, toggle));
+    if shared.model.borrow_mut().toggle(selection).is_none() {
+        return;
+    }
     unsafe {
-        let list = child(hwnd, TABLE);
-        let item = LVITEMW {
-            pszText: text.as_mut_ptr(),
-            ..Default::default()
-        };
         SendMessageW(
-            list,
-            LVM_SETITEMTEXTW,
+            child(hwnd, TABLE),
+            LVM_REDRAWITEMS,
             selection,
-            &item as *const _ as LPARAM,
+            selection as LPARAM,
         );
-        InvalidateRect(list, null(), 0);
     }
     clear_error(hwnd);
     refresh_status(hwnd, shared);
@@ -282,44 +283,35 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
                     InvalidateRect(child(hwnd, control), null(), 0);
                 }
             }
-            refresh(hwnd, shared);
+            refresh_rows(hwnd, shared);
+            refresh_status(hwnd, shared);
         }
         ALL | INVERT | CLEAR => {
-            if let Some(Preview::Bookmarks { rows, .. }) =
-                shared.model.borrow_mut().preview.as_mut()
-            {
-                for row in rows
-                    .iter_mut()
-                    .filter(|row| row.status == BookmarkStatus::Ready)
-                {
-                    row.checked = match id {
-                        ALL => true,
-                        CLEAR => false,
-                        _ => !row.checked,
-                    };
-                }
-            }
+            finish_alias(hwnd, shared);
+            shared.model.borrow_mut().set_checks(|checked| match id {
+                ALL => true,
+                CLEAR => false,
+                _ => !checked,
+            });
+            unsafe { InvalidateRect(child(hwnd, TABLE), null(), 0) };
             clear_error(hwnd);
-            refresh(hwnd, shared);
+            refresh_status(hwnd, shared);
         }
         FILTER if code == EN_CHANGE => {
             let query = ui::window_text(control).trim().to_lowercase();
             let rows_changed = shared.model.borrow_mut().filter(query);
             if rows_changed {
-                refresh(hwnd, shared);
+                refresh_rows(hwnd, shared);
             }
         }
         ALIAS if code == EN_CHANGE => {
             let value = ui::window_text(control);
-            let changed = {
+            {
                 let mut model = shared.model.borrow_mut();
                 if model.updating {
                     return;
                 }
                 let Some(index) = model.editing_alias else {
-                    return;
-                };
-                let Some(column) = model.shown.iter().position(|&row| row == index) else {
                     return;
                 };
                 let Some(Preview::Bookmarks { rows, .. }) = model.preview.as_mut() else {
@@ -328,19 +320,7 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
                 if rows[index].status != BookmarkStatus::Ready {
                     return;
                 }
-                rows[index].alias = value.clone();
-                column
-            };
-            let mut value = ui::wide(&value);
-            let item = LVITEMW {
-                iSubItem: ALIAS_COLUMN as i32,
-                pszText: value.as_mut_ptr(),
-                ..Default::default()
-            };
-            unsafe {
-                let list = child(hwnd, TABLE);
-                SendMessageW(list, LVM_SETITEMTEXTW, changed, &item as *const _ as LPARAM);
-                InvalidateRect(list, null(), 0);
+                rows[index].alias = value;
             }
             clear_error(hwnd);
         }
@@ -352,7 +332,30 @@ fn handle_command(hwnd: HWND, shared: &Dialog, id: usize, code: u32, control: HW
 unsafe fn notify(hwnd: HWND, shared: &Dialog, l: LPARAM) {
     unsafe {
         let header = &*(l as *const NMHDR);
-        if header.idFrom != TABLE || shared.model.borrow().updating {
+        if header.idFrom != TABLE {
+            return;
+        }
+        if header.code == LVN_GETDISPINFOW {
+            let item = &(*(l as *const NMLVDISPINFOW)).item;
+            if item.mask & LVIF_TEXT != 0 && item.cchTextMax > 0 && !item.pszText.is_null() {
+                let model = shared.model.borrow();
+                let text = model.bookmark_text(item.iItem as usize, item.iSubItem);
+                let buffer = std::slice::from_raw_parts_mut(item.pszText, item.cchTextMax as usize);
+                let mut length = 0;
+                for unit in text
+                    .as_deref()
+                    .unwrap_or("")
+                    .encode_utf16()
+                    .take(buffer.len() - 1)
+                {
+                    buffer[length] = unit;
+                    length += 1;
+                }
+                buffer[length] = 0;
+            }
+            return;
+        }
+        if shared.model.borrow().updating {
             return;
         }
         match header.code {
@@ -681,7 +684,8 @@ pub(super) fn open(
                     | LVS_REPORT
                     | LVS_OWNERDRAWFIXED
                     | LVS_SINGLESEL
-                    | LVS_SHOWSELALWAYS,
+                    | LVS_SHOWSELALWAYS
+                    | if is_bookmarks { LVS_OWNERDATA } else { 0 },
             );
             if !list.is_null() {
                 table::configure_report(
@@ -725,11 +729,10 @@ pub(super) fn open(
             APPLY,
             (WIDTH - 186, height - 43, 166, 31),
         );
-        if failed {
-            refresh_status(hwnd, &dialog);
-        } else {
-            refresh(hwnd, &dialog);
+        if !failed {
+            refresh_rows(hwnd, &dialog);
         }
+        refresh_status(hwnd, &dialog);
         let modal_owner = ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetFocus(if focus.is_null() { apply } else { focus });

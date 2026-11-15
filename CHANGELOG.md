@@ -6,6 +6,16 @@
 
 ## [未发布 / Unreleased]
 
+### 新增 / Added
+
+- 启动面板支持在结果列表中直接按 Del，或通过右键菜单「删除命令」确认删除所选启动项。\
+  Delete the selected launch item directly from the launcher with Del or the Delete command context menu.
+
+### 变更 / Changed
+
+- 浏览器收藏夹导入预览按需显示表格行，减少大列表打开、筛选和清空筛选时的开销。\
+  The browser bookmark import preview loads table rows on demand to speed up opening, filtering, and clearing large lists.
+
 ## [0.4.3] - 2026-11-14
 
 ### 变更 / Changed

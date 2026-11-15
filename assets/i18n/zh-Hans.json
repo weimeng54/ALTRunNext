@@ -200,6 +200,8 @@
     "ui.downloads_2": "下载",
     "ui.dynamic_input_cannot_replace_the_program_path": "动态内容不能替换程序路径；可在设置中明确启用",
     "ui.edit_command_f2": "编辑命令\tF2",
+    "ui.delete_command_del": "删除命令\tDel",
+    "ui.confirm_delete_command": "删除「{item}」？确认后立即生效。",
     "ui.edit_shortcut": "编辑启动项",
     "ui.enable_fuzzy_matching": "支持模糊匹配",
     "ui.enter_a_color_in_rrggbb_format": "颜色应为 #RRGGBB",

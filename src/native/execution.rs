@@ -3,6 +3,65 @@
 
 use super::*;
 
+pub(super) fn delete_selected_command(hwnd: HWND) {
+    if crate::manager::is_open() {
+        show_inline_error("ui.save_and_close_the_shortcut_manager_or");
+        return;
+    }
+    let target = STATE.with(|cell| {
+        let state = cell.borrow();
+        let s = state.as_ref().unwrap();
+        if s.parameter_entry.is_some() || s.composing {
+            return None;
+        }
+        let entry = s
+            .hits
+            .get(s.selected)
+            .and_then(|&index| s.entries.get(index))?;
+        Some((entry.clone(), s.data_path.clone()))
+    });
+    let Some((entry, path)) = target else {
+        return;
+    };
+    let label = format!("{} · {}", entry.alias, entry.name);
+    let message = crate::localization::message("ui.confirm_delete_command", &[("item", &label)]);
+    CONFIRMING_DELETE.set(true);
+    let confirmed = crate::ui::dialogs::input::confirm(hwnd, "ui.delete", &message);
+    CONFIRMING_DELETE.set(false);
+    let delay = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.number("HideDelay"));
+    if delay > 0 {
+        unsafe { SetTimer(hwnd, AUTO_HIDE, delay as u32 * 1000, None) };
+    }
+    if !confirmed || RESTORING_BACKUP.get() || crate::manager::is_open() {
+        return;
+    }
+
+    let saved = (|| {
+        let mut file = altrun_probe::library::Snapshot::open(&path)?;
+        let mut entries = std::mem::take(&mut file.entries);
+        let index = entries
+            .iter()
+            .position(|row| row.id == entry.id && row == &entry)
+            .ok_or_else(|| "ui.the_data_file_changed_outside_altrunnext_keep".to_owned())?;
+        entries.remove(index);
+        file.save(&entries)?;
+        Ok::<_, String>(entries)
+    })();
+    match saved {
+        Ok(entries) => {
+            STATE.with(|cell| {
+                cell.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .library_sender
+                    .saved(entries)
+            });
+            unsafe { SendMessageW(hwnd, crate::manager::UPDATED, 0, 0) };
+        }
+        Err(error) => show_inline_error(&error),
+    }
+}
+
 pub(super) fn launch_selected() {
     let (enabled, allow, busy, selected, parameter_mode, hwnd, edit, title) = STATE.with(|c| {
         let s = c.borrow();

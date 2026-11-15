@@ -200,6 +200,8 @@
     "ui.downloads_2": "Downloads",
     "ui.dynamic_input_cannot_replace_the_program_path": "Dynamic input cannot replace the program path with the current settings.",
     "ui.edit_command_f2": "Edit command\tF2",
+    "ui.delete_command_del": "Delete command\tDel",
+    "ui.confirm_delete_command": "Delete “{item}”? The change takes effect immediately.",
     "ui.edit_shortcut": "Edit launch item",
     "ui.enable_fuzzy_matching": "Enable fuzzy matching",
     "ui.enter_a_color_in_rrggbb_format": "Enter a color in #RRGGBB format.",

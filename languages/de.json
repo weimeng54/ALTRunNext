@@ -200,6 +200,8 @@
     "ui.downloads_2": "Downloads",
     "ui.dynamic_input_cannot_replace_the_program_path": "Dynamische Inhalte dürfen den Programmpfad nicht ersetzen. Dies lässt sich in den Einstellungen freigeben.",
     "ui.edit_command_f2": "Befehl bearbeiten\tF2",
+    "ui.delete_command_del": "Befehl löschen\tDel",
+    "ui.confirm_delete_command": "„{item}“ löschen? Die Änderung wird sofort wirksam.",
     "ui.edit_shortcut": "Starteintrag bearbeiten",
     "ui.enable_fuzzy_matching": "Unscharfe Suche aktivieren",
     "ui.enter_a_color_in_rrggbb_format": "Die Farbe muss das Format #RRGGBB haben.",

@@ -6,13 +6,13 @@ mod native_snapshot;
 mod review_native_support;
 
 use review_native_support::{Running, command, set, text, wait, window};
-use std::{path::Path, process::Command, ptr::null_mut};
+use std::{path::Path, process::Command, ptr::null_mut, time::Instant};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, RECT},
     Graphics::Gdi::{GetPixel, GetWindowDC, ReleaseDC},
     UI::{
         Controls::*,
-        Input::KeyboardAndMouse::{VK_ESCAPE, VK_F2, VK_RETURN},
+        Input::KeyboardAndMouse::{VK_DELETE, VK_ESCAPE, VK_F2, VK_RETURN},
         WindowsAndMessaging::*,
     },
 };
@@ -88,7 +88,7 @@ fn file_name_field(picker: HWND) -> HWND {
     }
 }
 
-fn choose_file(pid: u32, file: &Path) {
+fn choose_file(pid: u32, file: &Path) -> Instant {
     eprintln!(
         "Waiting for file picker: {}",
         file.file_name().unwrap().display()
@@ -109,17 +109,20 @@ fn choose_file(pid: u32, file: &Path) {
     );
     let path = file.to_string_lossy().replace('/', "\\");
     let value = review_native_support::wide(&path);
-    unsafe {
+    let submitted = unsafe {
         SendMessageW(input, EM_SETSEL, 0, -1);
         SendMessageW(input, EM_REPLACESEL, 1, value.as_ptr() as LPARAM);
         assert_eq!(text(input), path);
         let submit = child(picker, IDOK);
+        let submitted = Instant::now();
         assert_ne!(
             PostMessageW(picker, WM_COMMAND, IDOK as usize, submit as LPARAM),
             0
         );
-    }
+        submitted
+    };
     wait(|| unsafe { IsWindow(picker) == 0 });
+    submitted
 }
 
 fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str) {
@@ -328,6 +331,85 @@ fn check_launcher(launcher: HWND, theme: &str, scale: &str) {
     set(input, "");
 }
 
+fn check_direct_delete(launcher: HWND, pid: u32, data: &Path) {
+    let edit = child(launcher, 1001);
+    let results = child(launcher, 1002);
+    let saved = std::fs::read_to_string(data).unwrap();
+    set(edit, "calc");
+    press(results, VK_DELETE);
+    let dialog = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    press(dialog, VK_ESCAPE);
+    wait(|| unsafe { IsWindow(dialog) == 0 });
+    assert_eq!(std::fs::read_to_string(data).unwrap(), saved);
+
+    begin(launcher, 18014);
+    let dialog = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    press(dialog, VK_RETURN);
+    wait(|| unsafe { SendMessageW(results, LB_GETCOUNT, 0, 0) == 0 });
+    let entries = altrun_probe::library::Snapshot::open(data).unwrap().entries;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].alias, "edit");
+    assert_eq!(text(edit), "calc");
+    assert_eq!(unsafe { IsWindowVisible(launcher) }, 1);
+    assert!(window("ALTRun.Native.ShortcutManager", pid).is_null());
+
+    set(edit, "edit");
+    press(edit, VK_DELETE);
+    let dialog = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    press(dialog, VK_RETURN);
+    wait(|| unsafe { SendMessageW(results, LB_GETCOUNT, 0, 0) == 0 });
+    assert!(
+        altrun_probe::library::Snapshot::open(data)
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    std::fs::write(data, saved).unwrap();
+}
+
+fn check_large_bookmark_preview(manager: HWND, pid: u32, file: &Path) {
+    use std::fmt::Write;
+
+    let mut html = String::from("<!DOCTYPE NETSCAPE-Bookmark-file-1><DL>");
+    for i in 0..10_000 {
+        let group = if i < 6_000 { "reference" } else { "guide" };
+        write!(
+            html,
+            r#"<DT><A HREF="https://example.com/{group}/{i}">{group}-{i}</A>"#
+        )
+        .unwrap();
+    }
+    html.push_str("</DL>");
+    std::fs::write(file, html).unwrap();
+    begin(manager, 2138);
+    let opened = choose_file(pid, file);
+    let preview = ready_window(pid, "ALTRun.Native.ImportPreview", 2907);
+    let opening = opened.elapsed();
+    let grid = child(preview, 2901);
+    let filter = child(preview, 2907);
+    assert_eq!(count(grid), 10_000);
+    let mut timings = Vec::new();
+    for _ in 0..7 {
+        let start = Instant::now();
+        set(filter, "reference");
+        assert_eq!(count(grid), 6_000);
+        set(filter, "");
+        assert_eq!(count(grid), 10_000);
+        timings.push(start.elapsed());
+    }
+    timings.sort_unstable();
+    eprintln!(
+        "10k bookmark preview open: {opening:?}; filter + clear median: {:?}",
+        timings[3]
+    );
+    assert_ne!(
+        unsafe { GetWindowLongW(grid, GWL_STYLE) as u32 & LVS_OWNERDATA },
+        0
+    );
+    press(preview, VK_ESCAPE);
+    wait(|| unsafe { IsWindow(preview) == 0 });
+}
+
 #[test]
 fn windows_031_management_and_import_previews() {
     let dir = std::env::current_dir()
@@ -377,6 +459,14 @@ fn windows_031_management_and_import_previews() {
         let (mut running, launcher) = start(&data, theme, scale);
         let pid = running.0.id();
         check_launcher(launcher, theme, scale);
+        if theme == "light" && scale == "100" {
+            check_direct_delete(launcher, pid, &data);
+            command(launcher, 18002);
+            wait(|| running.0.try_wait().unwrap().is_some());
+            (running, _) = start(&data, theme, scale);
+        }
+        let pid = running.0.id();
+        let launcher = ready_window(pid, "ALTRun.Native.PerformanceProbe", 1001);
         command(launcher, 18003);
         let manager = ready_window(pid, "ALTRun.Native.ShortcutManager", 2113);
         let list = child(manager, 2101);
@@ -420,6 +510,7 @@ fn windows_031_management_and_import_previews() {
 
         if theme == "light" && scale == "100" {
             check_legacy_import(manager, pid, &dir, list);
+            check_large_bookmark_preview(manager, pid, &dir.join("large-bookmarks.html"));
         }
 
         begin(manager, 2138);

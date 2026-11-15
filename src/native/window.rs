@@ -29,6 +29,11 @@ pub(super) unsafe extern "system" fn window_proc(
             _ => {}
         }
     }
+    if CONFIRMING_DELETE.get()
+        && matches!(msg, WM_HOTKEY | SHOW | WM_COMMAND | WM_CONTEXTMENU | TRAY)
+    {
+        return 0;
+    }
     match msg {
         WM_COPYDATA => match crate::instance::decode(l) {
             Ok(paths) => {
@@ -319,7 +324,8 @@ pub(super) unsafe extern "system" fn window_proc(
         WM_TIMER if w == AUTO_HIDE => {
             unsafe {
                 KillTimer(hwnd, AUTO_HIDE);
-                if !STATE.with(|c| c.borrow().as_ref().unwrap().moving) {
+                if !CONFIRMING_DELETE.get() && !STATE.with(|c| c.borrow().as_ref().unwrap().moving)
+                {
                     ShowWindow(hwnd, SW_HIDE);
                 }
             }
@@ -327,11 +333,13 @@ pub(super) unsafe extern "system" fn window_proc(
         }
         WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
             update_search_ime(false);
-            if STATE.with(|c| {
-                c.borrow()
-                    .as_ref()
-                    .is_some_and(|s| !s.moving && s.preferences.number("HideDelay") > 0)
-            }) {
+            if !CONFIRMING_DELETE.get()
+                && STATE.with(|c| {
+                    c.borrow()
+                        .as_ref()
+                        .is_some_and(|s| !s.moving && s.preferences.number("HideDelay") > 0)
+                })
+            {
                 unsafe {
                     ShowWindow(hwnd, SW_HIDE);
                 }
@@ -575,6 +583,10 @@ pub(super) unsafe extern "system" fn window_proc(
 fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
     if w & 65535 == ID_EDIT_COMMAND {
         edit_selected_command();
+        return 0;
+    }
+    if w & 65535 == ID_DELETE_COMMAND {
+        delete_selected_command(hwnd);
         return 0;
     }
     if w & 65535 == ID_COPY {

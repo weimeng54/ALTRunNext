@@ -200,6 +200,8 @@
     "ui.downloads_2": "다운로드",
     "ui.dynamic_input_cannot_replace_the_program_path": "동적 값으로 프로그램 경로를 바꾸려면 설정에서 허용하세요.",
     "ui.edit_command_f2": "명령 편집\tF2",
+    "ui.delete_command_del": "명령 삭제\tDel",
+    "ui.confirm_delete_command": "‘{item}’을(를) 삭제할까요? 변경 사항이 즉시 적용됩니다.",
     "ui.edit_shortcut": "실행 항목 편집",
     "ui.enable_fuzzy_matching": "유사 검색 사용",
     "ui.enter_a_color_in_rrggbb_format": "색은 #RRGGBB 형식으로 입력하세요.",

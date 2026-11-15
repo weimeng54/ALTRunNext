@@ -49,7 +49,8 @@ use tray::{
 };
 mod execution;
 use execution::{
-    capture_context, launch_selected, selected_action, trace_event, working_directory,
+    capture_context, delete_selected_command, launch_selected, selected_action, trace_event,
+    working_directory,
 };
 
 const ID_EDIT: usize = 1001;
@@ -72,6 +73,7 @@ const ID_COPY: usize = 18010;
 const ID_OPEN_FOLDER: usize = 18011;
 const ID_SHOW: usize = 18012;
 const ID_EDIT_COMMAND: usize = 18013;
+const ID_DELETE_COMMAND: usize = 18014;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
 const STATE_ERROR: u32 = WM_APP + 17;
@@ -155,6 +157,7 @@ struct State {
 
 thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
 thread_local! { static RESTORING_BACKUP: Cell<bool> = const { Cell::new(false) }; }
+thread_local! { static CONFIRMING_DELETE: Cell<bool> = const { Cell::new(false) }; }
 
 thread_local! { static LAUNCH_SENDER: RefCell<Option<std::sync::mpsc::Sender<Result<(), String>>>> = const { RefCell::new(None) }; }
 

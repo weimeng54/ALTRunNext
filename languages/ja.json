@@ -200,6 +200,8 @@
     "ui.downloads_2": "ダウンロード",
     "ui.dynamic_input_cannot_replace_the_program_path": "動的な値でプログラムのパスを置き換えるには、設定で明示的に許可してください。",
     "ui.edit_command_f2": "コマンドを編集\tF2",
+    "ui.delete_command_del": "コマンドを削除\tDel",
+    "ui.confirm_delete_command": "「{item}」を削除しますか？変更はすぐに反映されます。",
     "ui.edit_shortcut": "起動項目を編集",
     "ui.enable_fuzzy_matching": "あいまい検索を使う",
     "ui.enter_a_color_in_rrggbb_format": "色は #RRGGBB 形式で指定してください。",
