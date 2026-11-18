@@ -13,7 +13,10 @@ BEGIN
  BEGIN
   BLOCK "040904B0"
   BEGIN
-   VALUE "FileDescription", "ALTRunNext Native Launcher\0"
+   VALUE "CompanyName", "weimeng54\0"
+   VALUE "FileDescription", "ALTRunNext\0"
+   VALUE "InternalName", "ALTRunNext\0"
+   VALUE "LegalCopyright", "Copyright (c) 2026 weimeng54\0"
    VALUE "ProductName", "ALTRunNext\0"
    VALUE "OriginalFilename", "ALTRunNext.exe\0"
    VALUE "FileVersion", "0.4.4\0"

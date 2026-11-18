@@ -6,6 +6,11 @@
 
 ## [未发布 / Unreleased]
 
+### 变更 / Changed
+
+- Windows 可执行文件的详细信息显示产品名 ALTRunNext、发布者 weimeng54 和版权。\
+  Windows executable details now show the ALTRunNext product name, publisher weimeng54, and copyright.
+
 ## [0.4.4] - 2026-11-15
 
 ### 新增 / Added
