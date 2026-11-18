@@ -14,7 +14,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         WM_PAINT => unsafe {
             let mut paint = PAINTSTRUCT::default();
             let dc = BeginPaint(hwnd, &mut paint);
-            paint_settings(hwnd, dc);
+            ui::buffered(dc, paint.rcPaint, |target| paint_settings(hwnd, target));
             EndPaint(hwnd, &paint);
             0
         },

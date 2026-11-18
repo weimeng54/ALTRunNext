@@ -217,6 +217,11 @@ pub(crate) fn run() -> Result<(), String> {
             16,
             1005,
         );
+        for edit in [command, inline_error] {
+            if !edit.is_null() {
+                crate::ui::style_plain_edit(edit);
+            }
+        }
         ShowWindow(inline_error, SW_HIDE);
         let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
         SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
@@ -259,6 +264,7 @@ pub(crate) fn run() -> Result<(), String> {
             });
         LAUNCH_SENDER.with(|s| *s.borrow_mut() = Some(launch_sender));
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
+        crate::ui::style_plain_edit(edit);
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {

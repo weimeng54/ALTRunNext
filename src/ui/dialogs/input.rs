@@ -496,6 +496,9 @@ fn open(
             (*state).old_edit =
                 SetWindowLongPtrW(content, GWLP_WNDPROC, edit_procedure as *const () as isize);
         }
+        if message.is_none() || long {
+            crate::ui::style_plain_edit(content);
+        }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
         if long {
             let inset = scaled(8, dpi) as isize;

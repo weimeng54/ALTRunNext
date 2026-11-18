@@ -5,7 +5,7 @@
 mod native_snapshot;
 mod review_native_support;
 
-use review_native_support::{Running, command, set, text, wait, window};
+use review_native_support::{Running, check_edit_selection, command, set, text, wait, window};
 use std::{path::Path, process::Command, ptr::null_mut, time::Instant};
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, RECT},
@@ -472,6 +472,7 @@ fn windows_031_management_and_import_previews() {
         let list = child(manager, 2101);
         let query = child(manager, 2106);
         let cmd = child(manager, 2104);
+        check_edit_selection(manager, 2104);
         set(query, "文本");
         wait(|| count(list) == 1);
         assert_eq!(text(cmd), "calc.exe");

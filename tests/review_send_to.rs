@@ -82,6 +82,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
     });
     native_snapshot::save(dialog, "send-to-light");
     assert_surface(dialog, 245 | (247 << 8) | (251 << 16));
+    check_edit_selection(dialog, 3103);
     unsafe {
         assert_eq!(text(GetDlgItem(dialog, 3103)), file.to_str().unwrap());
         assert_eq!(SendMessageW(GetDlgItem(dialog, 3104), LB_GETCOUNT, 0, 0), 2);
@@ -134,6 +135,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         assert_eq!(text(GetDlgItem(dialog, 3103)), executable.to_str().unwrap());
         assert_eq!(IsWindowVisible(GetDlgItem(dialog, 3105)), 0);
         assert_surface(dialog, 25 | (30 << 8) | (37 << 16));
+        check_edit_selection(dialog, 3103);
         native_snapshot::save(dialog, "send-to-dark-link");
         let list = GetDlgItem(dialog, 3104);
         SendMessageW(list, LB_SETCURSEL, 1, 0);

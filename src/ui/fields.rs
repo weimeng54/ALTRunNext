@@ -169,6 +169,38 @@ fn set_edit_style(hwnd: HWND, style: EditStyle) {
     }
 }
 
+pub fn style_plain_edit(hwnd: HWND) {
+    unsafe { SetWindowSubclass(hwnd, Some(plain_edit_proc), 1, 0) };
+}
+
+unsafe extern "system" fn plain_edit_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    _: usize,
+) -> LRESULT {
+    match msg {
+        WM_ERASEBKGND => 1,
+        WM_PAINT if w == 0 => paint_edit(hwnd, |_| {}),
+        _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
+    }
+}
+
+fn paint_edit(hwnd: HWND, overlay: impl FnOnce(HDC)) -> LRESULT {
+    unsafe {
+        let mut paint = PAINTSTRUCT::default();
+        let dc = BeginPaint(hwnd, &mut paint);
+        buffered(dc, paint.rcPaint, |target| {
+            DefSubclassProc(hwnd, WM_PRINTCLIENT, target as WPARAM, PRF_CLIENT as LPARAM);
+            overlay(target);
+        });
+        EndPaint(hwnd, &paint);
+    }
+    0
+}
+
 unsafe fn search_inset(hwnd: HWND, height: i32, dpi: i32) -> i32 {
     unsafe {
         let dc = GetDC(hwnd);
@@ -271,7 +303,11 @@ unsafe extern "system" fn edit_proc(
             return 0;
         }
         if msg == WM_NCPAINT {
-            let dc = GetWindowDC(hwnd);
+            let dc = if w > 1 {
+                GetDCEx(hwnd, w as HRGN, DCX_WINDOW | DCX_INTERSECTRGN | DCX_CACHE)
+            } else {
+                GetWindowDC(hwnd)
+            };
             if !dc.is_null() {
                 let mut rect: RECT = std::mem::zeroed();
                 GetWindowRect(hwnd, &mut rect);
@@ -285,39 +321,30 @@ unsafe extern "system" fn edit_proc(
                     || (theme::control_surface(), theme::paper()),
                     |colours| colours(),
                 );
-                fill(dc, &rect, backdrop);
-                rounded(
-                    dc,
-                    rect,
-                    scaled(12, dpi),
-                    paper,
-                    if GetFocus() == hwnd {
-                        theme::accent()
-                    } else {
-                        theme::border()
-                    },
-                );
-                if number {
-                    draw_arrows(dc, rect, dpi);
-                }
+                let border = if GetFocus() == hwnd {
+                    theme::accent()
+                } else {
+                    theme::border()
+                };
+                buffered(dc, rect, |target| {
+                    fill(target, &rect, backdrop);
+                    rounded(target, rect, scaled(12, dpi), paper, border);
+                    if number {
+                        draw_arrows(target, rect, dpi);
+                    }
+                });
                 ReleaseDC(hwnd, dc);
             }
             return 0;
         }
-        let result = DefSubclassProc(hwnd, msg, w, l);
-        if let Some(cue) = cue
-            && matches!(msg, WM_PAINT | WM_PRINTCLIENT)
-            && GetFocus() != hwnd
-            && GetWindowTextLengthW(hwnd) == 0
-        {
-            let dc = if msg == WM_PAINT {
-                GetDC(hwnd)
-            } else {
-                w as HDC
-            };
-            let mut bounds = RECT::default();
-            GetClientRect(hwnd, &mut bounds);
-            if !dc.is_null() {
+        let draw_cue = |dc: HDC| {
+            if let Some(cue) = cue
+                && GetFocus() != hwnd
+                && GetWindowTextLengthW(hwnd) == 0
+                && !dc.is_null()
+            {
+                let mut bounds = RECT::default();
+                GetClientRect(hwnd, &mut bounds);
                 let old = SelectObject(dc, SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT);
                 fill(
                     dc,
@@ -326,10 +353,17 @@ unsafe extern "system" fn edit_proc(
                 );
                 line_text(dc, bounds, &crate::localization::tr(cue), theme::muted(), 0);
                 SelectObject(dc, old);
-                if msg == WM_PAINT {
-                    ReleaseDC(hwnd, dc);
-                }
             }
+        };
+        if msg == WM_ERASEBKGND {
+            return 1;
+        }
+        if msg == WM_PAINT && w == 0 {
+            return paint_edit(hwnd, draw_cue);
+        }
+        let result = DefSubclassProc(hwnd, msg, w, l);
+        if matches!(msg, WM_PAINT | WM_PRINTCLIENT) {
+            draw_cue(w as HDC);
         }
         if matches!(msg, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE) {
             RedrawWindow(

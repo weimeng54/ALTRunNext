@@ -12,11 +12,11 @@ mod scrollbars;
 pub(crate) use buttons::{button_on, caption_close, menu_button, style_caption_close, switch};
 pub(crate) use fields::{
     NUMBER_STEP, combo, slider, style_combo, style_edit, style_edit_with_colours, style_number,
-    style_search, style_slider,
+    style_plain_edit, style_search, style_slider,
 };
 pub(crate) use painting::{
-    Chevron, STATIC_CENTER_IMAGE, app_icon, chevron, draw_app_icon, fill, line_text, panel_caption,
-    round_panel, rounded, window_text,
+    Chevron, STATIC_CENTER_IMAGE, app_icon, buffered, chevron, draw_app_icon, fill, line_text,
+    panel_caption, round_panel, rounded, window_text,
 };
 pub(crate) use scrollbars::{style_horizontal_scrollbar, style_vertical_scrollbar};
 

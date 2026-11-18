@@ -6,6 +6,11 @@
 
 ## [未发布 / Unreleased]
 
+### 修复 / Fixed
+
+- 减少在命令、目标路径和其他输入框里拖选文字时的绘制闪烁。\
+  Reduced repaint flicker when selecting text in command, target path, and other edit fields.
+
 ### 变更 / Changed
 
 - Windows 可执行文件的详细信息显示产品名 ALTRunNext、发布者 weimeng54 和版权。\

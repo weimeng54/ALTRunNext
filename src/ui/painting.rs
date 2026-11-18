@@ -13,6 +13,40 @@ use windows_sys::Win32::{
 
 pub const STATIC_CENTER_IMAGE: u32 = 0x0200;
 
+/// Compose a dirty rectangle before presenting it to the clipped window DC.
+pub(crate) fn buffered(dc: HDC, rect: RECT, draw: impl FnOnce(HDC)) {
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if dc.is_null() || width <= 0 || height <= 0 {
+        return;
+    }
+    unsafe {
+        let memory = CreateCompatibleDC(dc);
+        if memory.is_null() {
+            draw(dc);
+            return;
+        }
+        let bitmap = CreateCompatibleBitmap(dc, width, height);
+        if bitmap.is_null() {
+            DeleteDC(memory);
+            draw(dc);
+            return;
+        }
+        let old = SelectObject(memory, bitmap);
+        SetViewportOrgEx(memory, -rect.left, -rect.top, std::ptr::null_mut());
+        BitBlt(
+            memory, rect.left, rect.top, width, height, dc, rect.left, rect.top, SRCCOPY,
+        );
+        draw(memory);
+        BitBlt(
+            dc, rect.left, rect.top, width, height, memory, rect.left, rect.top, SRCCOPY,
+        );
+        SelectObject(memory, old);
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+    }
+}
+
 pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
     unsafe {
         let brush = CreateSolidBrush(colour);

@@ -10,7 +10,11 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{
+    Foundation::*,
+    Graphics::Gdi::*,
+    UI::{Controls::*, WindowsAndMessaging::*},
+};
 pub fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
 }
@@ -87,6 +91,55 @@ pub fn text(hwnd: HWND) -> String {
         let mut b = vec![0u16; n + 1];
         let n = SendMessageW(hwnd, WM_GETTEXT, b.len(), b.as_mut_ptr() as isize).max(0) as usize;
         String::from_utf16_lossy(&b[..n])
+    }
+}
+
+#[track_caller]
+pub fn check_edit_selection(dialog: HWND, id: i32) {
+    unsafe {
+        let edit = GetDlgItem(dialog, id);
+        let before = text(edit);
+        assert!(before.encode_utf16().count() > 5);
+        UpdateWindow(dialog);
+        let dc = GetDC(dialog);
+        let marker = 0x00c3_7341;
+        let (x, y) = (2, 64);
+        let original = GetPixel(dc, x, y);
+        assert_ne!(original, u32::MAX);
+        assert_eq!(SetPixel(dc, x, y, marker), marker);
+        ReleaseDC(dialog, dc);
+
+        SendMessageW(edit, EM_SETSEL, 0, 0);
+        SendMessageW(edit, EM_SCROLLCARET, 0, 0);
+        let position = |index| {
+            let point = SendMessageW(edit, EM_POSFROMCHAR, index, 0);
+            assert_ne!(point, -1);
+            point
+        };
+        SendMessageW(edit, WM_LBUTTONDOWN, 1, position(1));
+        for index in 2..=5 {
+            SendMessageW(edit, WM_MOUSEMOVE, 1, position(index));
+            UpdateWindow(edit);
+        }
+        SendMessageW(edit, WM_LBUTTONUP, 0, position(5));
+        let selection = SendMessageW(edit, EM_GETSEL, 0, 0) as u32;
+        assert!(
+            selection >> 16 > selection & 0xffff,
+            "edit {id} must select text"
+        );
+        assert_eq!(
+            text(edit),
+            before,
+            "edit {id} changed its text while selecting"
+        );
+
+        UpdateWindow(dialog);
+        let dc = GetDC(dialog);
+        let actual = GetPixel(dc, x, y);
+        SetPixel(dc, x, y, original);
+        ReleaseDC(dialog, dc);
+        assert_eq!(actual, marker, "edit {id} repainted outside its control");
+        SendMessageW(edit, EM_SETSEL, 0, 0);
     }
 }
 pub fn shell() -> std::path::PathBuf {
