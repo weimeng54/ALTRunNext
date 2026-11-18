@@ -137,10 +137,13 @@ static TEST_CONTEXT: std::sync::Mutex<altrun_probe::launch::LaunchContext> =
         base_is_working_directory: false,
         allow_dynamic_target: false,
     });
-pub fn configure_context(context: altrun_probe::launch::LaunchContext) {
+static TEST_ENGLISH: AtomicBool = AtomicBool::new(true);
+
+pub fn configure_context(context: altrun_probe::launch::LaunchContext, english: bool) {
     if let Ok(mut current) = TEST_CONTEXT.lock() {
         *current = context;
     }
+    TEST_ENGLISH.store(english, Ordering::Relaxed);
 }
 static OPEN: AtomicBool = AtomicBool::new(false);
 static WINDOW: AtomicUsize = AtomicUsize::new(0);

@@ -3,6 +3,17 @@
 
 use super::*;
 
+mod parameter;
+pub(super) use parameter::{defer_intake, focus_parameter, open_parameter, parameter_open};
+
+pub(super) struct LaunchAttempt {
+    generation: u64,
+    id: String,
+    query: String,
+    parameter: Option<String>,
+    prompt: Option<HWND>,
+}
+
 pub(super) fn delete_selected_command(hwnd: HWND) {
     if crate::manager::is_open() {
         show_inline_error("ui.save_and_close_the_shortcut_manager_or");
@@ -11,7 +22,7 @@ pub(super) fn delete_selected_command(hwnd: HWND) {
     let target = STATE.with(|cell| {
         let state = cell.borrow();
         let s = state.as_ref().unwrap();
-        if s.parameter_entry.is_some() || s.composing {
+        if parameter_open() || s.composing {
             return None;
         }
         let entry = s
@@ -63,26 +74,24 @@ pub(super) fn delete_selected_command(hwnd: HWND) {
 }
 
 pub(super) fn launch_selected() {
-    let (enabled, allow, busy, selected, parameter_mode, hwnd, edit, title) = STATE.with(|c| {
+    let (enabled, allow, busy, entry, hwnd, query) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
             s.enabled,
             s.allow_launch,
             s.launching.is_some(),
-            s.parameter_entry
-                .or_else(|| s.hits.get(s.selected).copied()),
-            s.parameter_entry.is_some(),
+            s.hits
+                .get(s.selected)
+                .map(|&index| s.entries[index].clone()),
             s.hwnd,
-            s.edit,
-            s.title,
+            s.current_query.clone(),
         )
     });
-    if busy {
+    if busy || parameter_open() {
         return;
     }
-    let Some(index) = selected else {
-        let query = STATE.with(|c| c.borrow().as_ref().unwrap().current_query.clone());
+    let Some(entry) = entry else {
         if enabled
             && !query.is_empty()
             && unsafe {
@@ -99,7 +108,6 @@ pub(super) fn launch_selected() {
         }
         return;
     };
-    let entry = STATE.with(|c| c.borrow().as_ref().unwrap().entries[index].clone());
     if !enabled {
         if allow
             && entry.command == "notepad.exe"
@@ -112,62 +120,29 @@ pub(super) fn launch_selected() {
         }
         return;
     }
-    if entry.param_type.needs_input(&entry.command)
-        && !parameter_mode
-        && (entry.open_target.is_some()
-            || altrun_probe::launch::has_parameter(&entry.command)
-            || !altrun_probe::launch::has_context(&entry.command))
-    {
-        let query = edit_text(edit);
-        let list = STATE.with(|c| c.borrow().as_ref().unwrap().list);
-        STATE.with(|c| {
-            let mut s = c.borrow_mut();
-            let s = s.as_mut().unwrap();
-            s.saved_query = query;
-            s.parameter_entry = Some(index);
-            s.history_position = usize::MAX;
-        });
-        update_search_ime(false);
-        unsafe {
-            EnableWindow(list, 0);
-            SetWindowTextW(
-                title,
-                wide(&crate::localization::message(
-                    "ui.name_enter_a_parameter",
-                    &[("name", &entry.name)],
-                ))
-                .as_ptr(),
-            );
-            SetWindowTextW(edit, wide("").as_ptr());
-            SendMessageW(
-                edit,
-                EM_SETCUEBANNER,
-                0,
-                ui("ui.enter_a_parameter_enter_to_launch_esc").as_ptr() as LPARAM,
-            );
-        }
+    if altrun_probe::launch::requires_input(&entry) {
+        parameter::enqueue(hwnd, entry, query);
         return;
     }
-    let parameter = if parameter_mode {
-        Some(edit_text(edit))
-    } else {
-        None
-    };
+    start_launch(entry, query, None, None);
+}
+
+fn start_launch(entry: Entry, query: String, parameter: Option<String>, prompt: Option<HWND>) {
     let result_sender = LAUNCH_SENDER.with(|s| s.borrow().as_ref().unwrap().clone());
-    let query = if parameter_mode {
-        STATE.with(|c| c.borrow().as_ref().unwrap().saved_query.clone())
-    } else {
-        STATE.with(|c| c.borrow().as_ref().unwrap().current_query.clone())
-    };
-    let mut context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
-    STATE.with(|c| {
+    let (hwnd, mut context) = STATE.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
-        s.successful = Some((entry.id.clone(), query, parameter.clone()));
-        s.launching = Some(s.generation);
+        s.launching = Some(LaunchAttempt {
+            generation: s.generation,
+            id: entry.id.clone(),
+            query,
+            parameter: parameter.clone(),
+            prompt,
+        });
+        (s.hwnd, s.context.clone())
     });
-    unsafe {
-        ShowWindow(hwnd, SW_HIDE);
+    if prompt.is_none() {
+        unsafe { ShowWindow(hwnd, SW_HIDE) };
     }
     let owner = hwnd as usize;
     let language = crate::localization::current();
@@ -190,6 +165,48 @@ pub(super) fn launch_selected() {
             PostMessageW(owner as HWND, LAUNCH_DONE, 0, 0);
         }
     });
+}
+
+pub(super) fn finish_launch() {
+    let completed = STATE.with(|cell| {
+        let mut state = cell.borrow_mut();
+        let s = state.as_mut()?;
+        let result = s.launch_results.try_recv().ok()?;
+        let LaunchAttempt {
+            generation,
+            id,
+            query,
+            parameter,
+            prompt,
+        } = s.launching.take()?;
+        if result.is_ok() {
+            let change = UsageChange::Launch {
+                id: id.clone(),
+                query,
+                parameter,
+                limit: s.preferences.number("ParamHistoryLimit") as usize,
+            };
+            change.clone().apply(&mut s.usage);
+            s.usage_writer.publish(change);
+            super::search::update_frequency(s, &id);
+        }
+        Some((result, generation == s.generation, prompt))
+    });
+    let Some((result, current, prompt)) = completed else {
+        return;
+    };
+    trace_event(if result.is_ok() {
+        "launch_succeeded"
+    } else {
+        "launch_failed"
+    });
+    if let Some(prompt) = prompt {
+        if unsafe { IsWindow(prompt) } != 0 {
+            crate::ui::dialogs::input::finish_parameter(prompt, result);
+        }
+    } else if current && let Err(message) = result {
+        show_inline_error(&message);
+    }
 }
 
 pub(super) fn working_directory(

@@ -196,7 +196,10 @@ pub(super) fn apply_settings_messages() {
                         s.context.base_is_working_directory,
                     ) = working_directory(&s.preferences, &s.data_path);
                     s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
-                    crate::manager::configure_context(s.context.clone());
+                    crate::manager::configure_context(
+                        s.context.clone(),
+                        s.preferences.flag("EnglishSearch"),
+                    );
                     s.hotkeys = keys;
                     true
                 });

@@ -4,7 +4,13 @@
 use std::{cell::Cell, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::HWND,
-    UI::Input::Ime::{HIMC, ImmAssociateContext},
+    UI::Input::{
+        Ime::{
+            HIMC, ImmAssociateContext, ImmGetContext, ImmGetConversionStatus, ImmGetOpenStatus,
+            ImmReleaseContext, ImmSetConversionStatus, ImmSetOpenStatus,
+        },
+        KeyboardAndMouse::{ActivateKeyboardLayout, GetKeyboardLayout, HKL},
+    },
 };
 
 thread_local! {
@@ -28,4 +34,63 @@ pub fn set_direct(edit: HWND, direct: bool) {
             }
         }
     });
+}
+
+pub(crate) struct InputMode {
+    layout: HKL,
+    open: bool,
+    conversion: Option<(u32, u32)>,
+}
+
+impl InputMode {
+    pub(crate) fn capture(edit: HWND) -> Self {
+        unsafe {
+            let layout = GetKeyboardLayout(0);
+            let context = ImmGetContext(edit);
+            let (mut conversion, mut sentence) = (0, 0);
+            let open = !context.is_null() && ImmGetOpenStatus(context) != 0;
+            let conversion = (!context.is_null()
+                && ImmGetConversionStatus(context, &mut conversion, &mut sentence) != 0)
+                .then_some((conversion, sentence));
+            if !context.is_null() {
+                ImmReleaseContext(edit, context);
+            }
+            Self {
+                layout,
+                open,
+                conversion,
+            }
+        }
+    }
+
+    pub(crate) fn start_in_english(edit: HWND) {
+        unsafe {
+            let context = ImmGetContext(edit);
+            if !context.is_null() {
+                // Leave the IME associated so its switching keys still work.
+                if ImmGetOpenStatus(context) != 0 {
+                    ImmSetOpenStatus(context, 0);
+                }
+                ImmReleaseContext(edit, context);
+            }
+        }
+    }
+
+    pub(crate) fn restore(self, edit: HWND) {
+        unsafe {
+            if !self.layout.is_null() && GetKeyboardLayout(0) != self.layout {
+                ActivateKeyboardLayout(self.layout, 0);
+            }
+            let context = ImmGetContext(edit);
+            if !context.is_null() {
+                if (ImmGetOpenStatus(context) != 0) != self.open {
+                    ImmSetOpenStatus(context, i32::from(self.open));
+                }
+                if let Some((conversion, sentence)) = self.conversion {
+                    ImmSetConversionStatus(context, conversion, sentence);
+                }
+                ImmReleaseContext(edit, context);
+            }
+        }
+    }
 }

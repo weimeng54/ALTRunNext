@@ -33,7 +33,7 @@ use search::{
     choose_number, move_selection, rebuild_index, recent, refresh, reset_search, update_selection,
 };
 mod input;
-use input::{cancel_parameter, edit_proc, edit_text, search_hint, update_search_ime};
+use input::{edit_proc, edit_text, search_hint, update_search_ime};
 mod panel;
 mod result_names;
 use panel::{
@@ -78,6 +78,7 @@ const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
 const STATE_ERROR: u32 = WM_APP + 17;
 const SEARCH_IME_UPDATE: u32 = WM_APP + 18;
+const PARAMETER_OPEN: u32 = WM_APP + 19;
 const TITLE_STRIP: i32 = 29;
 // SS_CENTER from WinUser.h; not projected by the selected windows-sys features.
 const TITLE: usize = 1000;
@@ -112,8 +113,6 @@ struct State {
     default_list_ready: bool,
     last_key: u16,
     context: altrun_probe::launch::LaunchContext,
-    successful: Option<(String, String, Option<String>)>,
-    history_position: usize,
     entries: Vec<Entry>,
     index: SearchIndex,
     hits: Vec<usize>,
@@ -137,10 +136,8 @@ struct State {
     border: HPEN,
     empty: HWND,
     enabled: bool,
-    parameter_entry: Option<usize>,
-    saved_query: String,
     error: bool,
-    launching: Option<u64>,
+    launching: Option<execution::LaunchAttempt>,
     launch_results: std::sync::mpsc::Receiver<Result<(), String>>,
     background: HBRUSH,
     selected_brush: HBRUSH,

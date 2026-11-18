@@ -12,6 +12,12 @@ use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
+
+mod parameter;
+pub(crate) use parameter::Options as ParameterOptions;
+
+const SS_NOPREFIX: u32 = 0x80;
+
 struct Input {
     dpi: i32,
     caption: HFONT,
@@ -26,6 +32,8 @@ struct Input {
     paper: HBRUSH,
     report: Option<Report>,
     preview: bool,
+    parameter: Option<parameter::Prompt>,
+    launched: bool,
 }
 
 pub struct Report {
@@ -50,6 +58,7 @@ struct Options<'a> {
     action: Option<&'a str>,
     alternate: Option<&'a str>,
     preview: Option<PreviewLabels<'a>>,
+    parameter: Option<ParameterOptions>,
 }
 
 unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -144,7 +153,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 } else {
                     (theme::surface(), (*state).background)
                 };
-                SetTextColor(w as HDC, theme::text());
+                let error = (*state)
+                    .parameter
+                    .as_ref()
+                    .is_some_and(|prompt| control == prompt.error);
+                SetTextColor(w as HDC, if error { theme::error() } else { theme::text() });
                 SetBkColor(w as HDC, color);
                 return brush as isize;
             },
@@ -169,22 +182,108 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         if msg == WM_COMMAND && w & 65535 == 1 {
             unsafe {
                 let edit = (*state).edit;
-                let mut b = vec![0u16; GetWindowTextLengthW(edit) as usize + 1];
-                let n = GetWindowTextW(edit, b.as_mut_ptr(), b.len() as i32);
-                (*state).value = Some(String::from_utf16_lossy(&b[..n.max(0) as usize]));
+                let value = if edit.is_null() {
+                    String::new()
+                } else {
+                    let mut b = vec![0u16; GetWindowTextLengthW(edit) as usize + 1];
+                    let n = GetWindowTextW(edit, b.as_mut_ptr(), b.len() as i32);
+                    String::from_utf16_lossy(&b[..n.max(0) as usize])
+                };
+                if let Some(prompt) = (*state).parameter.as_mut() {
+                    if (*state).composing || prompt.pending.is_some() {
+                        return 0;
+                    }
+                    if let Some(submit) = prompt.options.submit.take() {
+                        prompt.pending = Some(value.clone());
+                        let error = prompt.error;
+                        SetWindowTextW(error, [0_u16].as_ptr());
+                        SendMessageW(edit, EM_SETREADONLY, 1, 0);
+                        EnableWindow(GetDlgItem(hwnd, 1), 0);
+                        submit(hwnd, value);
+                        (*state).parameter.as_mut().unwrap().options.submit = Some(submit);
+                        return 0;
+                    }
+                }
+                (*state).value = Some(value);
             }
         }
         unsafe {
             (*state).alternate = msg == WM_COMMAND && w & 65535 == 3;
             (*state).done = true;
-            DestroyWindow(hwnd);
+            close(hwnd, state);
         }
         return 0;
     }
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
-pub fn ask(owner: HWND, title: &str) -> Option<String> {
-    open(owner, title, None, None, Options::default()).0
+unsafe fn close(hwnd: HWND, state: *mut Input) {
+    unsafe {
+        if let Some(mode) = (*state)
+            .parameter
+            .as_mut()
+            .and_then(|prompt| prompt.original_mode.take())
+        {
+            mode.restore((*state).edit);
+        }
+        DestroyWindow(hwnd);
+    }
+}
+
+pub(crate) fn ask_parameter(
+    owner: HWND,
+    title: &str,
+    parameter: ParameterOptions,
+) -> Option<String> {
+    open(
+        owner,
+        title,
+        None,
+        None,
+        Options {
+            parameter: Some(parameter),
+            ..Options::default()
+        },
+    )
+    .0
+}
+
+pub(crate) fn activate_parameter(hwnd: HWND) {
+    unsafe {
+        SetForegroundWindow(hwnd);
+        SetFocus(GetDlgItem(hwnd, 10));
+    }
+}
+
+pub(crate) fn finish_parameter(hwnd: HWND, result: Result<(), String>) {
+    unsafe {
+        // The launcher drops the handle when its modal loop exits.
+        let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Input;
+        if state.is_null() || (*state).done {
+            return;
+        }
+        let Some(prompt) = (*state).parameter.as_mut() else {
+            return;
+        };
+        let Some(value) = prompt.pending.take() else {
+            return;
+        };
+        match result {
+            Ok(()) => {
+                (*state).value = Some(value);
+                (*state).launched = true;
+                (*state).done = true;
+                close(hwnd, state);
+            }
+            Err(message) => {
+                let error = prompt.error;
+                let edit = (*state).edit;
+                SetWindowTextW(error, ui(&message).as_ptr());
+                SendMessageW(edit, EM_SETREADONLY, 0, 0);
+                EnableWindow(GetDlgItem(hwnd, 1), 1);
+                SetFocus(edit);
+            }
+        }
+    }
 }
 
 pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
@@ -245,7 +344,7 @@ pub fn choose(owner: HWND, title: &str, message: &str, action: &str, alternate: 
         Options {
             action: Some(action),
             alternate: Some(alternate),
-            preview: None,
+            ..Options::default()
         },
     ) {
         (Some(_), _) => Choice::Primary,
@@ -320,6 +419,7 @@ fn open(
             action,
             alternate,
             preview,
+            parameter,
         } = options;
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide(if message.is_some() {
@@ -335,6 +435,9 @@ fn open(
         let paper = CreateSolidBrush(theme::paper());
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         RegisterClassW(&wc);
+        let inline_error = parameter
+            .as_ref()
+            .is_some_and(|prompt| prompt.submit.is_some());
         let state = Box::into_raw(Box::new(Input {
             dpi: 96,
             caption: null_mut(),
@@ -349,11 +452,18 @@ fn open(
             paper,
             report,
             preview: preview.is_some(),
+            parameter: parameter.map(parameter::Prompt::new),
+            launched: false,
         }));
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            ui(title).as_ptr(),
+            wide(&if message.is_none() {
+                title.to_owned()
+            } else {
+                crate::localization::tr(title)
+            })
+            .as_ptr(),
             (if preview.is_some() {
                 WS_POPUP
             } else {
@@ -418,6 +528,8 @@ fn open(
             (278, 203, 230)
         } else if message.is_some() {
             (135, 55, 88)
+        } else if inline_error {
+            (152, 30, 108)
         } else {
             (110, 28, 66)
         };
@@ -500,6 +612,24 @@ fn open(
             crate::ui::buffer_edit_selection(content);
         }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
+        if inline_error {
+            let error = CreateWindowExW(
+                0,
+                wide("STATIC").as_ptr(),
+                std::ptr::null(),
+                WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+                scaled(16, dpi),
+                y(54),
+                scaled(width - 32, dpi),
+                scaled(47, dpi),
+                hwnd,
+                12usize as HMENU,
+                instance,
+                null_mut(),
+            );
+            SendMessageW(error, WM_SETFONT, font as usize, 0);
+            (*state).parameter.as_mut().unwrap().error = error;
+        }
         if long {
             let inset = scaled(8, dpi) as isize;
             SendMessageW(
@@ -644,9 +774,22 @@ fn open(
                 focus = button;
             }
         }
+        if (*state).parameter.is_some() {
+            let mode = crate::search_ime::InputMode::capture(content);
+            (*state).parameter.as_mut().unwrap().original_mode = Some(mode);
+        }
         let modal_owner = super::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetFocus(focus);
+        if let Some(prompt) = (*state).parameter.as_ref() {
+            let (english, opened) = (prompt.options.english, prompt.options.opened);
+            if english {
+                crate::search_ime::InputMode::start_in_english(content);
+            }
+            if let Some(opened) = opened {
+                opened(hwnd);
+            }
+        }
         loop {
             if (*state).done {
                 break;
@@ -659,6 +802,9 @@ fn open(
                 }
                 break;
             }
+            if !(*state).composing && parameter::history_key(state, hwnd, content, &msg) {
+                continue;
+            }
             if msg.message == WM_KEYDOWN
                 && (msg.hwnd == hwnd || IsChild(hwnd, msg.hwnd) != 0)
                 && matches!(msg.wParam as u16, VK_RETURN | VK_ESCAPE)
@@ -669,7 +815,7 @@ fn open(
                 }
                 if msg.wParam as u16 == VK_ESCAPE {
                     SendMessageW(hwnd, WM_COMMAND, 2, 0);
-                } else {
+                } else if (*state).parameter.is_none() || msg.lParam & (1 << 30) == 0 {
                     super::accept_key(hwnd, 1, &[2, 3, 4]);
                 }
                 continue;
@@ -680,9 +826,10 @@ fn open(
             }
         }
         if IsWindow(hwnd) != 0 {
-            DestroyWindow(hwnd);
+            (*state).done = true;
+            close(hwnd, state);
         }
-        modal_owner.restore(true);
+        modal_owner.restore(!(*state).launched);
         DeleteObject(font);
         if !(*state).caption.is_null() {
             DeleteObject((*state).caption);

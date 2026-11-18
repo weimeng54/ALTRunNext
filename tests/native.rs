@@ -137,6 +137,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
         marker.display()
     );
     let mut fixture = std::fs::read_to_string(&data).unwrap();
+    fixture.push_str("r\t运行\t{%p}\t0\traw\n");
     fixture.push_str(&success_command);
     for i in 0..11 {
         fixture.push_str(&format!("z{i}\tExtra command {i}\t__missing__.exe\t0\n"));
@@ -191,7 +192,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             assert_ne!(IsWindowVisible(hwnd), 0, "drag must defer auto-hide");
             SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
             assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 18);
             SendMessageW(edit, WM_SETTEXT, 0, wide("*").as_ptr() as isize);
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
             SendMessageW(edit, WM_SETTEXT, 0, wide("z").as_ptr() as isize);
@@ -203,7 +204,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             assert_eq!(SendMessageW(list, LB_GETCURSEL, 0, 0), 0);
             assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 0);
             SendMessageW(edit, WM_SETTEXT, 0, [0_u16].as_ptr() as isize);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 18);
             let row_height = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) as u32;
             let click = (((row_height + row_height / 2) << 16) | 5) as isize;
             SendMessageW(list, WM_LBUTTONDOWN, 1, click);
@@ -224,47 +225,88 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
             assert_ne!(IsWindowVisible(hwnd), 0, "IME Enter must not launch");
             SendMessageW(edit, WM_IME_ENDCOMPOSITION, 0, 0);
-            SendMessageW(edit, WM_SETTEXT, 0, wide("a").as_ptr() as isize);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("r").as_ptr() as isize);
+            let original_count = SendMessageW(list, LB_GETCOUNT, 0, 0);
+            let original_row = SendMessageW(list, LB_GETCURSEL, 0, 0);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
-            assert_eq!(
-                SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0),
-                0,
-                "parameter mode accepts a separate value"
-            );
-            assert_ne!(IsWindowVisible(hwnd), 0);
-            native_snapshot::save(hwnd, &format!("parameter-{scale}"));
-            assert_eq!(
-                IsWindowEnabled(list),
-                0,
-                "parameter mode must lock the displayed execution target"
-            );
-            // Ignore list notifications already queued when parameter entry began.
+            let prompt_deadline = Instant::now() + Duration::from_secs(8);
+            let prompt = loop {
+                let prompt = FindWindowW(
+                    wide("ALTRun.Native.ParameterDialog").as_ptr(),
+                    wide("运行").as_ptr(),
+                );
+                if !prompt.is_null() && IsWindowVisible(prompt) != 0 {
+                    break prompt;
+                }
+                assert!(
+                    Instant::now() < prompt_deadline,
+                    "parameter prompt did not appear"
+                );
+                thread::sleep(Duration::from_millis(15));
+            };
+            let parameter = GetDlgItem(prompt, 10);
+            assert_ne!(parameter, edit);
+            assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 1);
+            assert_eq!(IsWindowEnabled(hwnd), 0);
+            let output = GetDlgItem(prompt, 12);
+            SendMessageW(parameter, WM_IME_STARTCOMPOSITION, 0, 0);
+            PostMessageW(parameter, WM_KEYDOWN, 13, 0);
+            let ok = GetDlgItem(prompt, 1);
+            PostMessageW(ok, BM_SETSTATE, 1, 0);
+            let ime_deadline = Instant::now() + Duration::from_secs(5);
+            while SendMessageW(ok, BM_GETSTATE, 0, 0) & 4 == 0 {
+                assert!(IsWindow(prompt) != 0 && Instant::now() < ime_deadline);
+                thread::sleep(Duration::from_millis(15));
+            }
+            assert_eq!(SendMessageW(output, WM_GETTEXTLENGTH, 0, 0), 0);
+            SendMessageW(ok, BM_SETSTATE, 0, 0);
+            SendMessageW(parameter, WM_IME_ENDCOMPOSITION, 0, 0);
+            SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
+            assert_ne!(GetGUIThreadInfo(tid, &mut info), 0);
+            assert_eq!(info.hwndFocus, parameter);
+            assert_ne!(IsWindowVisible(prompt), 0);
             SendMessageW(
-                hwnd,
-                WM_COMMAND,
-                1002 | ((LBN_DBLCLK as usize) << 16),
-                list as isize,
-            );
-            assert_ne!(IsWindowVisible(hwnd), 0);
-            SendMessageW(edit, WM_KEYDOWN, 27, 0);
-            assert_ne!(
-                IsWindowEnabled(list),
+                parameter,
+                WM_SETTEXT,
                 0,
-                "cancelling parameters restores list navigation"
+                wide("__altrun_missing_run_test__.exe").as_ptr() as isize,
             );
+            PostMessageW(parameter, WM_KEYDOWN, 13, 0);
+            let failure_deadline = Instant::now() + Duration::from_secs(8);
+            while SendMessageW(output, WM_GETTEXTLENGTH, 0, 0) == 0 {
+                assert!(IsWindow(prompt) != 0 && Instant::now() < failure_deadline);
+                thread::sleep(Duration::from_millis(15));
+            }
+            let mut value = [0_u16; 64];
+            let length = SendMessageW(
+                parameter,
+                WM_GETTEXT,
+                value.len(),
+                value.as_mut_ptr() as isize,
+            );
+            assert_eq!(
+                String::from_utf16_lossy(&value[..length as usize]),
+                "__altrun_missing_run_test__.exe"
+            );
+            native_snapshot::save(prompt, &format!("parameter-{scale}"));
+            PostMessageW(parameter, WM_KEYDOWN, 27, 0);
+            let cancel_deadline = Instant::now() + Duration::from_secs(5);
+            while IsWindowEnabled(hwnd) == 0 {
+                assert!(Instant::now() < cancel_deadline);
+                thread::sleep(Duration::from_millis(15));
+            }
+            assert_eq!(IsWindow(prompt), 0);
             let mut restored = [0_u16; 32];
             SendMessageW(edit, WM_GETTEXT, 32, restored.as_mut_ptr() as isize);
-            assert_eq!(String::from_utf16_lossy(&restored[..1]), "a");
-            SendMessageW(edit, WM_KEYDOWN, 13, 0);
-            SendMessageW(edit, WM_SETTEXT, 0, wide("unfinished").as_ptr() as isize);
-            assert_eq!(IsWindowEnabled(list), 0);
+            assert_eq!(String::from_utf16_lossy(&restored[..1]), "r");
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), original_count);
+            assert_eq!(SendMessageW(list, LB_GETCURSEL, 0, 0), original_row);
             SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
             assert_eq!(IsWindowVisible(hwnd), 0);
             SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
             assert_ne!(IsWindowVisible(hwnd), 0);
-            assert_ne!(IsWindowEnabled(list), 0);
             assert_eq!(SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0), 0);
-            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 17);
+            assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 18);
             assert_ne!(
                 SendMessageW(GetDlgItem(hwnd, 1003), WM_GETTEXTLENGTH, 0, 0),
                 0
@@ -338,10 +380,32 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             );
             native_snapshot::save(hwnd, &format!("empty-{scale}"));
             let _ = std::fs::remove_file(&marker);
-            SendMessageW(edit, WM_SETTEXT, 0, wide("self").as_ptr() as isize);
+            SendMessageW(edit, WM_SETTEXT, 0, wide("r").as_ptr() as isize);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
+            let prompt_deadline = Instant::now() + Duration::from_secs(8);
+            loop {
+                let prompt = FindWindowW(
+                    wide("ALTRun.Native.ParameterDialog").as_ptr(),
+                    wide("运行").as_ptr(),
+                );
+                if !prompt.is_null() && IsWindowVisible(prompt) != 0 {
+                    let edit = GetDlgItem(prompt, 10);
+                    let command = format!(
+                        r#""{}" /D /C echo ok>"{}""#,
+                        shell.display(),
+                        marker.display()
+                    );
+                    SendMessageW(edit, WM_SETTEXT, 0, wide(&command).as_ptr() as isize);
+                    PostMessageW(edit, WM_KEYDOWN, 13, 0);
+                    break;
+                }
+                assert!(Instant::now() < prompt_deadline);
+                thread::sleep(Duration::from_millis(15));
+            }
             let launch_deadline = Instant::now() + Duration::from_secs(10);
-            while std::fs::read_to_string(&marker).unwrap_or_default().trim() != "ok" {
+            while std::fs::read_to_string(&marker).unwrap_or_default().trim() != "ok"
+                || IsWindowVisible(hwnd) != 0
+            {
                 assert!(
                     Instant::now() < launch_deadline,
                     "selected command did not run"

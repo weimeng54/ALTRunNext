@@ -8,11 +8,15 @@
 
 ### 修复 / Fixed
 
+- 修复「运行」启动项无法执行输入的命令。需要输入参数的启动项使用独立弹窗，取消后回到原搜索结果。\
+  Fixed the Run item failing to execute the entered command. Launch items that need input now open a separate prompt. Cancel returns to the original results.
 - 修复在命令、目标路径等输入框中拖选长文本时，文字和选区短暂消失的问题。\
   Fixed text and selection briefly disappearing when dragging across long commands and paths in edit fields.
 
 ### 变更 / Changed
 
+- 新生成的启动项列表预置「运行」（`r`）。参数弹窗沿用搜索框的英文输入设置。\
+  New launch item lists include Run (`r`). The parameter prompt uses the same English input preference as the search field.
 - Windows 可执行文件的详细信息显示产品名 ALTRunNext、发布者 weimeng54 和版权。\
   Windows executable details now show the ALTRunNext product name, publisher weimeng54, and copyright.
 

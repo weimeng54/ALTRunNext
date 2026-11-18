@@ -185,14 +185,8 @@ fn target_parts(command: &str, base: Option<&Path>) -> Result<(String, String), 
     Ok((file.to_owned(), parameters.to_owned()))
 }
 
-pub(super) fn resolve_base(
-    command: &str,
-    parameter: Option<&str>,
-    base: Option<&Path>,
-) -> Result<LaunchRequest, String> {
-    if command.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
-        || parameter.is_some_and(|p| p.chars().any(|c| matches!(c, '\0' | '\r' | '\n')))
-    {
+pub(super) fn resolve_command(command: &str, base: Option<&Path>) -> Result<LaunchRequest, String> {
+    if command.contains(['\0', '\r', '\n']) {
         return Err("ui.the_command_or_arguments_contain_invalid_control".into());
     }
     let command = command.trim();
@@ -200,7 +194,22 @@ pub(super) fn resolve_base(
         return Err("ui.the_command_is_empty".into());
     }
     let (file, parameters) = target_parts(command, base)?;
-    if file.is_empty() || (!is_web_address(command) && file.contains("%p")) {
+    if file.is_empty() {
+        return Err("ui.the_command_is_empty".into());
+    }
+    Ok(LaunchRequest { file, parameters })
+}
+
+pub(super) fn resolve_base(
+    command: &str,
+    parameter: Option<&str>,
+    base: Option<&Path>,
+) -> Result<LaunchRequest, String> {
+    if parameter.is_some_and(|p| p.contains(['\0', '\r', '\n'])) {
+        return Err("ui.the_command_or_arguments_contain_invalid_control".into());
+    }
+    let LaunchRequest { file, parameters } = resolve_command(command, base)?;
+    if !is_web_address(command.trim()) && file.contains("%p") {
         return Err("ui.an_argument_cannot_replace_the_program_path".into());
     }
     let substitute = |text: &str| -> Result<String, String> {

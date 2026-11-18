@@ -31,7 +31,7 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
         let has_selection = STATE.with(|c| {
             let state = c.borrow();
             let s = state.as_ref().unwrap();
-            s.hits.get(s.selected).is_some() && s.parameter_entry.is_none() && allow_selection
+            s.hits.get(s.selected).is_some() && !execution::parameter_open() && allow_selection
         });
         for &(id, label) in items {
             if id == 0 {
@@ -67,7 +67,7 @@ pub(super) fn edit_selected_command() {
     let id = STATE.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
-        if s.parameter_entry.is_some() {
+        if execution::parameter_open() {
             return None;
         }
         s.hits

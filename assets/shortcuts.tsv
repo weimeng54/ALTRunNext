@@ -14,3 +14,4 @@ downloads	ui.downloads_2	shell:Downloads	0	none
 docs	ui.documents	shell:Personal	0	none
 recent	ui.recent_files	shell:Recent	0	none
 recycle	ui.recycle_bin	shell:RecycleBinFolder	0	none
+r	ui.run_command	{%p}	0	raw

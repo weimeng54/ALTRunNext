@@ -40,9 +40,6 @@ pub(super) fn update_selection() {
 }
 
 pub(super) fn refresh() {
-    if STATE.with(|c| c.borrow().as_ref().unwrap().parameter_entry.is_some()) {
-        return;
-    }
     let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
     let query = unsafe {
         let mut buffer = vec![0_u16; GetWindowTextLengthW(edit) as usize + 1];
@@ -88,9 +85,6 @@ fn promote_preference(s: &State, hits: &mut [usize]) {
 }
 
 pub(super) fn move_selection(delta: isize) {
-    if STATE.with(|c| c.borrow().as_ref().unwrap().parameter_entry.is_some()) {
-        return;
-    }
     let (list, selected) = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
@@ -104,45 +98,23 @@ pub(super) fn move_selection(delta: isize) {
 }
 
 pub(super) fn reset_search() {
-    let (edit, list, was_parameter, show_operations, needs_refresh) = STATE.with(|c| {
+    let (edit, needs_refresh) = STATE.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();
-        let was_parameter = s.parameter_entry.take().is_some();
-        s.saved_query.clear();
-        s.history_position = usize::MAX;
         s.last_key = 0;
         s.composing = false;
         (
             s.edit,
-            s.list,
-            was_parameter,
-            s.preferences.flag("ShowOperationHint"),
-            was_parameter
-                || !s.default_list_ready
-                || s.selected != 0
-                || s.launching.is_some()
-                || s.error,
+            !s.default_list_ready || s.selected != 0 || s.launching.is_some() || s.error,
         )
     });
     unsafe {
-        if was_parameter {
-            EnableWindow(list, 1);
-            SendMessageW(
-                edit,
-                EM_SETCUEBANNER,
-                0,
-                search_hint(show_operations).as_ptr() as LPARAM,
-            );
-        }
         if GetWindowTextLengthW(edit) != 0 {
             // The single-line edit sends EN_CHANGE synchronously.
             SetWindowTextW(edit, [0_u16].as_ptr());
         } else if needs_refresh {
             refresh();
         }
-    }
-    if was_parameter {
-        update_search_ime(true);
     }
 }
 
@@ -178,9 +150,6 @@ pub(super) fn choose_number(digit: usize) {
     let chosen = STATE.with(|c| {
         let mut s = c.borrow_mut();
         let s = s.as_mut().unwrap();
-        if s.parameter_entry.is_some() {
-            return false;
-        }
         let index = (digit + 9) % 10;
         if index < s.hits.len() {
             s.selected = index;

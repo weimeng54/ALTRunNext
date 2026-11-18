@@ -3,6 +3,45 @@
 
 use altrun_probe::launch::{LaunchRequest, resolve};
 
+#[test]
+fn run_entries_resolve_the_confirmed_line_as_a_command() {
+    use altrun_probe::launch::{LaunchContext, resolve_entry};
+    use altrun_probe::library::ParamType;
+
+    let mut entry = altrun_probe::parse_entries("r\tRun\t{%p}\t0\traw\n")
+        .unwrap()
+        .remove(0);
+    for (template, kind) in [("{%p}", ParamType::Raw), ("%p", ParamType::Auto)] {
+        entry.command = template.into();
+        entry.param_type = kind;
+        let resolve = |text| resolve_entry(&entry, text, &LaunchContext::default());
+        assert_eq!(resolve(Some("mspaint")).unwrap().0, request("mspaint", ""));
+        let target = r"D:\Program Files\应用\app.exe";
+        let arguments = r#"--open "中文 文档.txt" %p"#;
+        let line = format!("{target} {arguments}");
+        assert_eq!(resolve(Some(&line)).unwrap().0, request(target, arguments));
+        assert!(resolve(Some("  ")).is_err());
+        assert!(resolve(Some("app.exe\0other.exe")).is_err());
+        assert!(resolve(None).is_err());
+    }
+    entry.command = "notepad.exe {%p}".into();
+    entry.param_type = ParamType::Raw;
+    assert_eq!(
+        resolve_entry(&entry, Some("mspaint"), &LaunchContext::default())
+            .unwrap()
+            .0,
+        request("notepad.exe", "mspaint")
+    );
+    entry.command = "https://example.com/?q={%p}".into();
+    entry.param_type = ParamType::Utf8Url;
+    assert_eq!(
+        resolve_entry(&entry, Some("中文"), &LaunchContext::default())
+            .unwrap()
+            .0,
+        request("https://example.com/?q=%E4%B8%AD%E6%96%87", "")
+    );
+}
+
 fn request(file: &str, parameters: &str) -> LaunchRequest {
     LaunchRequest {
         file: file.into(),

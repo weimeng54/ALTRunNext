@@ -294,8 +294,6 @@ pub(crate) fn run() -> Result<(), String> {
                     allow_dynamic_target,
                     ..Default::default()
                 },
-                successful: None,
-                history_position: usize::MAX,
                 entries,
                 index,
                 hits: Vec::new(),
@@ -322,8 +320,6 @@ pub(crate) fn run() -> Result<(), String> {
                     && (args.iter().any(|a| a == "--enable-launch")
                         || (!cfg!(debug_assertions)
                             && !args.iter().any(|a| a == "--allow-safe-notepad"))),
-                parameter_entry: None,
-                saved_query: String::new(),
                 error: false,
                 launching: None,
                 launch_results,

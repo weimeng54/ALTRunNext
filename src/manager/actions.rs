@@ -181,17 +181,17 @@ fn test_selected(hwnd: HWND) {
     if context.base_directory.is_empty() {
         context.base_directory = base.to_string_lossy().into_owned();
     }
-    let needs_input = entry.param_type.needs_input(&entry.command)
-        && (entry.open_target.is_some()
-            || altrun_probe::launch::has_parameter(&entry.command)
-            || !altrun_probe::launch::has_context(&entry.command));
-    let parameter = if needs_input {
-        let Some(value) = crate::ui::dialogs::input::ask(
+    let parameter = if altrun_probe::launch::requires_input(&entry) {
+        use crate::ui::dialogs::input::{ParameterOptions, ask_parameter};
+        let Some(value) = ask_parameter(
             hwnd,
-            &crate::localization::message(
-                "ui.name_enter_a_test_parameter",
-                &[("name", &entry.name)],
-            ),
+            &entry.name,
+            ParameterOptions {
+                english: TEST_ENGLISH.load(Ordering::Relaxed),
+                history: Vec::new(),
+                opened: None,
+                submit: None,
+            },
         ) else {
             return;
         };

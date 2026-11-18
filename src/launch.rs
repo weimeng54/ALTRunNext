@@ -64,7 +64,28 @@ pub fn resolve_entry(
     parameter: Option<&str>,
     context: &LaunchContext,
 ) -> Result<(LaunchRequest, ShowMode, Option<String>), String> {
-    use crate::library::OpenTarget;
+    use crate::library::{EntryKind, OpenTarget, ParamType};
+    if entry.kind == EntryKind::Command
+        && entry.open_target.is_none()
+        && matches!(entry.param_type, ParamType::Raw | ParamType::Auto)
+        && matches!(entry.command.trim(), "{%p}" | "%p")
+    {
+        let command = parameter
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("ui.enter_a_parameter")?;
+        let directory = (!entry.working_directory.trim().is_empty()
+            || context.base_is_working_directory)
+            .then(|| {
+                effective_directory(&entry.working_directory, Path::new(&context.base_directory))
+            })
+            .transpose()?;
+        let request = parser::resolve_command(command, directory.as_deref())?;
+        return Ok((
+            request,
+            ShowMode::Normal,
+            directory.map(|path| path.to_string_lossy().into_owned()),
+        ));
+    }
     let Some(target) = &entry.open_target else {
         return resolve_context(
             &entry.command,
@@ -130,4 +151,11 @@ pub fn resolve_entry(
         ShowMode::Normal,
         directory,
     ))
+}
+
+pub fn requires_input(entry: &crate::Entry) -> bool {
+    entry.param_type.needs_input(&entry.command)
+        && (entry.open_target.is_some()
+            || has_parameter(&entry.command)
+            || !has_context(&entry.command))
 }

@@ -34,12 +34,24 @@ pub(super) unsafe extern "system" fn window_proc(
     {
         return 0;
     }
+    if execution::parameter_open() {
+        match msg {
+            WM_HOTKEY | SHOW => {
+                execution::focus_parameter();
+                return 0;
+            }
+            WM_COMMAND | WM_CONTEXTMENU | TRAY => return 0,
+            _ => {}
+        }
+    }
     match msg {
         WM_COPYDATA => match crate::instance::decode(l) {
             Ok(paths) => {
                 if !paths.is_empty() {
                     crate::manager::enqueue(paths, None);
-                    open_manager_window(false);
+                    if !execution::defer_intake() {
+                        open_manager_window(false);
+                    }
                 } else {
                     unsafe {
                         PostMessageW(hwnd, SHOW, 0, 0);
@@ -52,7 +64,9 @@ pub(super) unsafe extern "system" fn window_proc(
         WM_DROPFILES => {
             let paths = crate::windows::file_picker::drop_paths(w as _);
             crate::manager::enqueue(paths, None);
-            open_manager_window(false);
+            if !execution::defer_intake() {
+                open_manager_window(false);
+            }
             0
         }
         WM_HOTKEY | SHOW => {
@@ -123,7 +137,7 @@ pub(super) unsafe extern "system" fn window_proc(
                 let selected = STATE.with(|c| {
                     let mut state = c.borrow_mut();
                     let s = state.as_mut().unwrap();
-                    if hit >> 16 != 0 || s.parameter_entry.is_some() || row >= s.hits.len() {
+                    if hit >> 16 != 0 || row >= s.hits.len() {
                         return false;
                     }
                     s.selected = row;
@@ -153,45 +167,11 @@ pub(super) unsafe extern "system" fn window_proc(
             0
         }
         LAUNCH_DONE => {
-            let completed = STATE.with(|c| {
-                let mut state = c.borrow_mut();
-                let s = state.as_mut().unwrap();
-                let result = s.launch_results.try_recv().ok()?;
-                let current = s.launching.take() == Some(s.generation);
-                Some((result, current, s.successful.take()))
-            });
-            let Some((result, current, launched)) = completed else {
-                return 0;
-            };
-            match result {
-                Err(message) => {
-                    trace_event("launch_failed");
-                    if current {
-                        show_inline_error(&message);
-                    }
-                }
-                Ok(()) => {
-                    trace_event("launch_succeeded");
-                    STATE.with(|c| {
-                        let mut s = c.borrow_mut();
-                        let s = s.as_mut().unwrap();
-                        if let Some((id, query, param)) = launched {
-                            let change = UsageChange::Launch {
-                                id: id.clone(),
-                                query,
-                                parameter: param,
-                                limit: s.preferences.number("ParamHistoryLimit") as usize,
-                            };
-                            change.clone().apply(&mut s.usage);
-                            s.usage_writer.publish(change);
-                            super::search::update_frequency(s, &id);
-                        }
-                    });
-                    if current {
-                        cancel_parameter();
-                    }
-                }
-            }
+            execution::finish_launch();
+            0
+        }
+        PARAMETER_OPEN => {
+            execution::open_parameter(hwnd);
             0
         }
         crate::settings::UPDATED => {
@@ -324,7 +304,9 @@ pub(super) unsafe extern "system" fn window_proc(
         WM_TIMER if w == AUTO_HIDE => {
             unsafe {
                 KillTimer(hwnd, AUTO_HIDE);
-                if !CONFIRMING_DELETE.get() && !STATE.with(|c| c.borrow().as_ref().unwrap().moving)
+                if !CONFIRMING_DELETE.get()
+                    && !execution::parameter_open()
+                    && !STATE.with(|c| c.borrow().as_ref().unwrap().moving)
                 {
                     ShowWindow(hwnd, SW_HIDE);
                 }
@@ -334,6 +316,7 @@ pub(super) unsafe extern "system" fn window_proc(
         WM_ACTIVATE if w & 65535 == WA_INACTIVE as usize => {
             update_search_ime(false);
             if !CONFIRMING_DELETE.get()
+                && !execution::parameter_open()
                 && STATE.with(|c| {
                     c.borrow()
                         .as_ref()
@@ -370,9 +353,11 @@ pub(super) unsafe extern "system" fn window_proc(
             0
         }
         crate::manager::UPDATED => {
+            if execution::parameter_open() {
+                return 0;
+            }
             let entries = STATE.with(|c| c.borrow_mut().as_mut().unwrap().library_updates.take());
             if let Some(entries) = entries {
-                cancel_parameter();
                 STATE.with(|c| {
                     let mut state = c.borrow_mut();
                     let s = state.as_mut().unwrap();
@@ -637,9 +622,6 @@ fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
     }
     let id = w & 0xffff;
     let code = (w >> 16) & 0xffff;
-    if id == ID_LIST && STATE.with(|c| c.borrow().as_ref().unwrap().parameter_entry.is_some()) {
-        return 0;
-    }
     if id == ID_EDIT && code == EN_CHANGE as usize {
         let (previous, previous_selected, key, edit, number, composing) = STATE.with(|c| {
             let mut s = c.borrow_mut();
@@ -647,8 +629,7 @@ fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
             let key = std::mem::take(&mut s.last_key);
             let number = s.preferences.flag("NumberKey");
             (
-                if s.parameter_entry.is_none()
-                    && !s.composing
+                if !s.composing
                     && (key == VK_SPACE || (number && matches!(key, 0x30..=0x39 | 0x60..=0x69)))
                 {
                     s.hits.clone()
@@ -667,7 +648,7 @@ fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
         let none = STATE.with(|c| {
             let s = c.borrow();
             let s = s.as_ref().unwrap();
-            s.hits.is_empty() && s.parameter_entry.is_none()
+            s.hits.is_empty()
         });
         if none && !composing && !previous.is_empty() {
             let digit = match key {
@@ -776,8 +757,12 @@ pub(super) fn open_manager() {
 }
 
 pub(super) fn open_manager_window(show: bool) {
-    let context = STATE.with(|c| c.borrow().as_ref().unwrap().context.clone());
-    crate::manager::configure_context(context);
+    let (context, english) = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (s.context.clone(), s.preferences.flag("EnglishSearch"))
+    });
+    crate::manager::configure_context(context, english);
     let geometry = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
