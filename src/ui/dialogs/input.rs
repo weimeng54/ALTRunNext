@@ -497,7 +497,7 @@ fn open(
                 SetWindowLongPtrW(content, GWLP_WNDPROC, edit_procedure as *const () as isize);
         }
         if message.is_none() || long {
-            crate::ui::style_plain_edit(content);
+            crate::ui::buffer_edit_selection(content);
         }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
         if long {

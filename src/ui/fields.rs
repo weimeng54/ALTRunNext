@@ -9,7 +9,7 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     UI::{
         Controls::*,
-        Input::KeyboardAndMouse::GetFocus,
+        Input::KeyboardAndMouse::{GetCapture, GetFocus},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -169,7 +169,7 @@ fn set_edit_style(hwnd: HWND, style: EditStyle) {
     }
 }
 
-pub fn style_plain_edit(hwnd: HWND) {
+pub fn buffer_edit_selection(hwnd: HWND) {
     unsafe { SetWindowSubclass(hwnd, Some(plain_edit_proc), 1, 0) };
 }
 
@@ -182,8 +182,8 @@ unsafe extern "system" fn plain_edit_proc(
     _: usize,
 ) -> LRESULT {
     match msg {
-        WM_ERASEBKGND => 1,
-        WM_PAINT if w == 0 => paint_edit(hwnd, |_| {}),
+        WM_ERASEBKGND if unsafe { GetCapture() } == hwnd => 1,
+        WM_PAINT if w == 0 && unsafe { GetCapture() } == hwnd => paint_edit(hwnd, |_| {}),
         _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
     }
 }

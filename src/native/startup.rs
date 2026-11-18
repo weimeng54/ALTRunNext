@@ -219,7 +219,7 @@ pub(crate) fn run() -> Result<(), String> {
         );
         for edit in [command, inline_error] {
             if !edit.is_null() {
-                crate::ui::style_plain_edit(edit);
+                crate::ui::buffer_edit_selection(edit);
             }
         }
         ShowWindow(inline_error, SW_HIDE);
@@ -264,7 +264,7 @@ pub(crate) fn run() -> Result<(), String> {
             });
         LAUNCH_SENDER.with(|s| *s.borrow_mut() = Some(launch_sender));
         let old_edit = SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as isize);
-        crate::ui::style_plain_edit(edit);
+        crate::ui::buffer_edit_selection(edit);
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
