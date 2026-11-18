@@ -6,7 +6,12 @@ use std::{
     path::{Path, PathBuf},
     ptr::null_mut,
 };
-use windows_sys::Win32::{Foundation::*, System::Registry::*, UI::Shell::*};
+use windows_sys::Win32::{
+    Foundation::*,
+    Globalization::{CSTR_EQUAL, CompareStringOrdinal},
+    System::Registry::*,
+    UI::Shell::*,
+};
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
@@ -167,10 +172,6 @@ impl Integration {
         format!("--enable-launch --data \"{}\" --add", self.data.display())
     }
 
-    fn link_icon(&self) -> String {
-        format!("{},0", self.executable.display())
-    }
-
     fn link_state(&self) -> Result<LinkState, String> {
         if !self
             .send_to
@@ -179,18 +180,19 @@ impl Integration {
         {
             return Ok(LinkState::Other);
         }
-        let script = format!(
-            "$ErrorActionPreference='Stop';$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut({});if($s.Arguments -ne {}){{exit 3}};if($s.TargetPath -ne {} -or $s.IconLocation -ne {}){{exit 4}}",
-            ps_quote(&self.send_to.to_string_lossy()),
-            ps_quote(&self.link_arguments()),
-            ps_quote(&self.executable.to_string_lossy()),
-            ps_quote(&self.link_icon()),
-        );
-        match run_script(&script)?.code() {
-            Some(0) => Ok(LinkState::Current),
-            Some(3) => Ok(LinkState::Other),
-            Some(4) => Ok(LinkState::PreviousExecutable),
-            _ => Err("ui.could_not_read_the_send_to_shortcut".into()),
+        let link = crate::shell_link::read(&self.send_to)
+            .ok_or("ui.could_not_read_the_send_to_shortcut")?;
+        if !same_link_text(&link.arguments, &self.link_arguments()) {
+            return Ok(LinkState::Other);
+        }
+        let executable = self.executable.to_string_lossy();
+        let current_icon = link
+            .icon
+            .is_some_and(|(path, index)| index == 0 && same_link_text(&path, &executable));
+        if current_icon && same_link_text(&link.path, &executable) {
+            Ok(LinkState::Current)
+        } else {
+            Ok(LinkState::PreviousExecutable)
         }
     }
 
@@ -209,26 +211,15 @@ impl Integration {
         if let Some(directory) = self.send_to.parent() {
             std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
         }
-        let script = format!(
-            "$ErrorActionPreference='Stop';$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut({});$s.TargetPath={};$s.Arguments={};$s.IconLocation={};$s.WorkingDirectory={};$s.Save()",
-            ps_quote(&self.send_to.to_string_lossy()),
-            ps_quote(&self.executable.to_string_lossy()),
-            ps_quote(&self.link_arguments()),
-            ps_quote(&self.link_icon()),
-            ps_quote(
-                &self
-                    .data
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .to_string_lossy()
-            )
-        );
-        if run_script(&script)?.success() && self.send_to.is_file() {
-            notify_send_to(&self.send_to, SHCNE_CREATE as i32);
-            Ok(())
-        } else {
-            Err("ui.could_not_create_the_send_to_shortcut".into())
-        }
+        crate::shell_link::write(
+            &self.send_to,
+            &self.executable,
+            &self.link_arguments(),
+            self.data.parent().unwrap_or(Path::new(".")),
+        )
+        .ok_or("ui.could_not_create_the_send_to_shortcut")?;
+        notify_send_to(&self.send_to, SHCNE_CREATE as i32);
+        Ok(())
     }
 
     pub fn apply(&self, startup: bool, send_to: bool) -> Result<(), String> {
@@ -281,53 +272,11 @@ fn notify_send_to(path: &Path, event: i32) {
     }
 }
 
-fn ps_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
-}
-
-fn run_script(script: &str) -> Result<std::process::ExitStatus, String> {
-    let bytes = script
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>();
-    let encoded = base64(&bytes);
-    use std::os::windows::process::CommandExt;
-    let system = std::env::var_os("SystemRoot").ok_or("ui.systemroot_is_missing")?;
-    std::process::Command::new(
-        PathBuf::from(system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"),
-    )
-    .args([
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-EncodedCommand",
-        &encoded,
-    ])
-    .creation_flags(0x08000000)
-    .stdout(std::process::Stdio::null())
-    .stderr(std::process::Stdio::null())
-    .status()
-    .map_err(|e| e.to_string())
-}
-fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::new();
-    for chunk in bytes.chunks(3) {
-        let a = chunk[0] as usize;
-        let b = chunk.get(1).copied().unwrap_or(0) as usize;
-        let c = chunk.get(2).copied().unwrap_or(0) as usize;
-        for value in [
-            TABLE[a >> 2],
-            TABLE[((a & 3) << 4) | (b >> 4)],
-            if chunk.len() > 1 {
-                TABLE[((b & 15) << 2) | (c >> 6)]
-            } else {
-                b'='
-            },
-            if chunk.len() > 2 { TABLE[c & 63] } else { b'=' },
-        ] {
-            result.push(value as char);
-        }
+fn same_link_text(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
     }
-    result
+    let left = wide(left);
+    let right = wide(right);
+    unsafe { CompareStringOrdinal(left.as_ptr(), -1, right.as_ptr(), -1, 1) == CSTR_EQUAL }
 }

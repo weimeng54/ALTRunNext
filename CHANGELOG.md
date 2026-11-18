@@ -8,6 +8,8 @@
 
 ### 修复 / Fixed
 
+- 加快设置保存，直接通过 Windows 读取和更新「发送到」快捷方式。\
+  Sped up saving settings by reading and updating the Send to shortcut through Windows directly.
 - 修复「运行」启动项无法执行输入的命令。需要输入参数的启动项使用独立弹窗，取消后回到原搜索结果。\
   Fixed the Run item failing to execute the entered command. Launch items that need input now open a separate prompt. Cancel returns to the original results.
 - 修复在命令、目标路径等输入框中拖选长文本时，文字和选区短暂消失的问题。\

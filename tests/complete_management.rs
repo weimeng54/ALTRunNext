@@ -176,7 +176,7 @@ fn integration_status_and_rollback_use_isolated_namespaces() {
         .join("target/integration-test");
     std::fs::create_dir_all(&root).unwrap();
     let name = format!("fixture-{}", std::process::id());
-    let integration = Integration {
+    let mut integration = Integration {
         registry: format!(r"Software\ALTRunModern\Tests\{name}"),
         name: name.clone(),
         send_to: root.join(format!("{name}.lnk")),
@@ -192,9 +192,23 @@ fn integration_status_and_rollback_use_isolated_namespaces() {
     integration.apply(false, true).unwrap();
     integration.apply(false, true).unwrap();
     assert_eq!(integration.status().unwrap(), (false, true));
+    let moved = root.join(format!("{name} 新位置.exe"));
+    std::fs::copy(&integration.executable, &moved).unwrap();
+    integration.executable = moved;
+    integration.apply(false, true).unwrap();
+    let link = altrun_probe::management::from_path(&integration.send_to).unwrap();
+    assert_eq!(std::path::Path::new(&link.command), integration.executable);
+    assert_eq!(
+        link.open_target,
+        Some(altrun_probe::library::OpenTarget::LinkArguments(format!(
+            "--enable-launch --data \"{}\" --add",
+            integration.data.display()
+        )))
+    );
     integration.apply(false, false).unwrap();
     integration.apply(false, false).unwrap();
     assert_eq!(integration.status().unwrap(), (false, false));
+    std::fs::remove_file(integration.executable).unwrap();
 }
 
 #[test]
