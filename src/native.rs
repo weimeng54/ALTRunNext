@@ -49,8 +49,7 @@ use tray::{
 };
 mod execution;
 use execution::{
-    capture_context, delete_selected_command, launch_selected, selected_action, trace_event,
-    working_directory,
+    capture_context, delete_selected_command, launch_selected, selected_action, working_directory,
 };
 
 const ID_EDIT: usize = 1001;

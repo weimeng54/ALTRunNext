@@ -69,7 +69,7 @@ pub(super) unsafe extern "system" fn edit_proc(
                     0
                 }
         });
-        if (control || alt) {
+        if control || alt {
             let digit = match w as u16 {
                 0x30..=0x39 => Some(w - 0x30),
                 0x60..=0x69 => Some(w - 0x60),

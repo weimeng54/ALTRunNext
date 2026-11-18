@@ -8,9 +8,13 @@ fn run_entries_resolve_the_confirmed_line_as_a_command() {
     use altrun_probe::launch::{LaunchContext, resolve_entry};
     use altrun_probe::library::ParamType;
 
-    let mut entry = altrun_probe::parse_entries("r\tRun\t{%p}\t0\traw\n")
-        .unwrap()
-        .remove(0);
+    let imported = altrun_probe::library::decode_shortcut_import(
+        "F12 | No_Encoding | r | 运行 | {%p}\r\n".as_bytes(),
+    )
+    .unwrap();
+    let mut entry = imported.entries.into_iter().next().unwrap();
+    assert_eq!(entry.param_type, ParamType::Raw);
+    assert!(altrun_probe::launch::requires_input(&entry));
     for (template, kind) in [("{%p}", ParamType::Raw), ("%p", ParamType::Auto)] {
         entry.command = template.into();
         entry.param_type = kind;

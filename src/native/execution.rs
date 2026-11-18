@@ -292,7 +292,7 @@ pub(super) fn selected_action(copy: bool) {
     }
 }
 
-pub(super) fn trace_event(event: &'static str) {
+fn trace_event(event: &'static str) {
     let path = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
