@@ -181,10 +181,33 @@ unsafe extern "system" fn plain_edit_proc(
     _: usize,
     _: usize,
 ) -> LRESULT {
+    if let Some(result) = deferred_edit_drag(hwnd, msg, w, l) {
+        return result;
+    }
     match msg {
         WM_ERASEBKGND if unsafe { GetCapture() } == hwnd => 1,
         WM_PAINT if w == 0 && unsafe { GetCapture() } == hwnd => paint_edit(hwnd, |_| {}),
         _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
+    }
+}
+
+fn deferred_edit_drag(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
+    if !matches!(msg, WM_MOUSEMOVE | WM_TIMER) {
+        return None;
+    }
+    unsafe {
+        if GetCapture() != hwnd || GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE == 0 {
+            return None;
+        }
+        // EDIT can draw directly while extending a selection or scrolling at the
+        // edge. Preserve its native selection logic and present via WM_PAINT.
+        DefSubclassProc(hwnd, WM_SETREDRAW, 0, 0);
+        let result = DefSubclassProc(hwnd, msg, w, l);
+        if IsWindow(hwnd) != 0 {
+            DefSubclassProc(hwnd, WM_SETREDRAW, 1, 0);
+            InvalidateRect(hwnd, std::ptr::null(), 0);
+        }
+        Some(result)
     }
 }
 
@@ -360,6 +383,9 @@ unsafe extern "system" fn edit_proc(
         }
         if msg == WM_PAINT && w == 0 {
             return paint_edit(hwnd, draw_cue);
+        }
+        if let Some(result) = deferred_edit_drag(hwnd, msg, w, l) {
+            return result;
         }
         let result = DefSubclassProc(hwnd, msg, w, l);
         if matches!(msg, WM_PAINT | WM_PRINTCLIENT) {

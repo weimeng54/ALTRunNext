@@ -142,6 +142,36 @@ pub fn check_edit_selection(dialog: HWND, id: i32) {
         SendMessageW(edit, EM_SETSEL, 0, 0);
     }
 }
+pub fn check_edit_drag_past_right_edge(edit: HWND) {
+    unsafe {
+        let original = text(edit);
+        let mut bounds = RECT::default();
+        assert_ne!(GetClientRect(edit, &mut bounds), 0);
+        let y = ((bounds.bottom / 2) as u16 as u32) << 16;
+        let left = (y | 3) as LPARAM;
+        let right = (y | (bounds.right + 14) as u16 as u32) as LPARAM;
+
+        SendMessageW(edit, EM_SETSEL, 0, 0);
+        SendMessageW(edit, EM_SCROLLCARET, 0, 0);
+        SendMessageW(edit, WM_LBUTTONDOWN, 1, left);
+        for _ in 0..24 {
+            SendMessageW(edit, WM_MOUSEMOVE, 1, right);
+            UpdateWindow(edit);
+            assert_ne!(IsWindowVisible(edit), 0);
+        }
+        SendMessageW(edit, WM_LBUTTONUP, 0, right);
+        let selected = SendMessageW(edit, EM_GETSEL, 0, 0) as u32;
+        assert!(selected >> 16 > selected & 0xffff);
+        assert!(
+            SendMessageW(edit, EM_CHARFROMPOS, 0, left) as u16 > 0,
+            "dragging past the right edge must scroll the command"
+        );
+        assert_eq!(text(edit), original, "dragging changed the command");
+        SendMessageW(edit, EM_SETSEL, 0, 0);
+        SendMessageW(edit, EM_SCROLLCARET, 0, 0);
+    }
+}
+
 pub fn shell() -> std::path::PathBuf {
     altrun_probe::safe_notepad_path()
         .unwrap()

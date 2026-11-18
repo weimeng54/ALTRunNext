@@ -8,8 +8,8 @@
 
 ### 修复 / Fixed
 
-- 减少在命令、目标路径和其他输入框里拖选文字时的绘制闪烁。\
-  Reduced repaint flicker when selecting text in command, target path, and other edit fields.
+- 修复在命令、目标路径等输入框中拖选长文本时，文字和选区短暂消失的问题。\
+  Fixed text and selection briefly disappearing when dragging across long commands and paths in edit fields.
 
 ### 变更 / Changed
 
