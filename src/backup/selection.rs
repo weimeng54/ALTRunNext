@@ -105,13 +105,20 @@ impl RestoreSelection {
     }
 }
 
-fn merge_history(mut current: Usage, saved: Usage, entries: &[Entry], replace: bool) -> Usage {
+fn merge_history(mut current: Usage, mut saved: Usage, entries: &[Entry], replace: bool) -> Usage {
     let ids: HashSet<_> = entries.iter().map(|entry| entry.id.as_str()).collect();
+    let mut global = saved.parameters.remove("*").unwrap_or_default();
+    saved.parameters.retain(|id, _| ids.contains(id.as_str()));
     if replace {
         current.counts.clear();
         current.parameters.clear();
         current.favourites.clear();
         current.recent.clear();
+        let matching: HashSet<_> = saved.parameters.values().flatten().collect();
+        global.retain(|value| matching.contains(value));
+        if !global.is_empty() {
+            current.parameters.insert("*".into(), global);
+        }
     }
     current.counts.extend(
         saved
@@ -119,12 +126,7 @@ fn merge_history(mut current: Usage, saved: Usage, entries: &[Entry], replace: b
             .into_iter()
             .filter(|(id, _)| ids.contains(id.as_str())),
     );
-    current.parameters.extend(
-        saved
-            .parameters
-            .into_iter()
-            .filter(|(id, _)| ids.contains(id.as_str()) || (replace && id == "*")),
-    );
+    current.parameters.extend(saved.parameters);
     current.favourites.extend(
         saved
             .favourites
@@ -141,4 +143,40 @@ fn merge_history(mut current: Usage, saved: Usage, entries: &[Entry], replace: b
         .take(10)
         .collect();
     current
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_uses_stable_ids_and_keeps_local_window_state() {
+        let entries = crate::parse_entries(
+            "calc\tCalculator\tcalc.exe\t0\tnone\tcalc-id\nnp\tNotepad\tnotepad.exe\t0\tnone\tnp-id",
+        ).unwrap();
+        let mut local = Usage::default();
+        local.record("calc-id", "cl", None, 50);
+        local.positions.insert("launcher".into(), (10, 20, 30, 40));
+        let mut archived = Usage::default();
+        archived.record("other-id", "cl", Some("skipped"), 50);
+        archived.record("np-id", "np", Some("Chinese document.txt"), 50);
+        archived
+            .positions
+            .insert("launcher".into(), (400, 800, 600, 300));
+
+        let merged = merge_history(local.clone(), archived.clone(), &entries, false);
+        assert_eq!(merged.counts.len(), 2);
+        assert_eq!(merged.recent, ["np-id", "calc-id"]);
+        assert_eq!(merged.favourites["cl"], "calc-id");
+        assert_eq!(merged.parameters["np-id"], ["Chinese document.txt"]);
+        assert!(!merged.parameters.contains_key("other-id"));
+        assert!(!merged.parameters.contains_key("*"));
+        assert_eq!(merged.positions, local.positions);
+
+        let replaced = merge_history(local.clone(), archived, &entries[1..], true);
+        assert_eq!(replaced.recent, ["np-id"]);
+        assert_eq!(replaced.counts.len(), 1);
+        assert_eq!(replaced.parameters["*"], ["Chinese document.txt"]);
+        assert_eq!(replaced.positions, local.positions);
+    }
 }

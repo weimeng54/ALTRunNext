@@ -290,6 +290,7 @@ fn apply_restore(
         let updates = [items, settings, history];
         for (i, bytes) in updates.iter().enumerate() {
             if let Some(bytes) = bytes {
+                super::validate_size(&target(data, i), bytes.len(), super::entry_limit(FILES[i]))?;
                 write_file(&dir.join(format!("next-{i}")), |f| f.write_all(bytes))?;
             }
         }

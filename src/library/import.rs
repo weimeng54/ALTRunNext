@@ -2,11 +2,12 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::{EntryKind, ParamType, decode, derived_id, validate};
+use crate::Entry;
+use std::{collections::HashSet, path::Path};
 
 /// Identifies skipped rows in append order. An empty reason means the row can be added.
-pub fn append_conflicts(current: &[crate::Entry], incoming: &[crate::Entry]) -> Vec<&'static str> {
-    use std::collections::HashSet;
-    let key = |entry: &crate::Entry| entry.alias.trim().to_lowercase();
+pub fn append_conflicts(current: &[Entry], incoming: &[Entry]) -> Vec<&'static str> {
+    let key = |entry: &Entry| entry.alias.trim().to_lowercase();
     let mut ids: HashSet<_> = current.iter().map(|entry| entry.id.as_str()).collect();
     let mut aliases: HashSet<_> = current.iter().map(key).collect();
     incoming
@@ -24,9 +25,6 @@ pub fn append_conflicts(current: &[crate::Entry], incoming: &[crate::Entry]) -> 
         })
         .collect()
 }
-use crate::Entry;
-use std::path::Path;
-
 pub struct ShortcutImport {
     pub entries: Vec<Entry>,
     pub ignored_lines: usize,

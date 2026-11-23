@@ -307,9 +307,23 @@ fn media_name(status: Media, path: &str) -> Option<String> {
         .map(|name| name.to_string_lossy().into_owned())
 }
 
+fn entry_limit(entry: &str) -> usize {
+    LIMITS.iter().find(|&&(name, _)| name == entry).unwrap().1
+}
+
+fn validate_size(path: &Path, size: usize, limit: usize) -> Result<(), String> {
+    if size > limit {
+        Err(crate::localization::message(
+            "backup.too_large",
+            &[("file", &path.to_string_lossy())],
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn file(path: &Path, entry: &str) -> Result<Option<Vec<u8>>, String> {
-    let limit = LIMITS.iter().find(|&&(name, _)| name == entry).unwrap().1;
-    read_bounded(path, limit)
+    read_bounded(path, entry_limit(entry))
 }
 
 fn required(path: &Path, entry: &str) -> Result<Vec<u8>, String> {
@@ -329,12 +343,7 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, String> {
     file.take((limit + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(io_error)?;
-    if bytes.len() > limit {
-        return Err(crate::localization::message(
-            "backup.too_large",
-            &[("file", &path.to_string_lossy())],
-        ));
-    }
+    validate_size(path, bytes.len(), limit)?;
     Ok(Some(bytes))
 }
 

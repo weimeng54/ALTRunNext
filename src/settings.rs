@@ -24,7 +24,7 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Controls::{Dialogs::*, *},
+        Controls::*,
         Input::KeyboardAndMouse::*,
         Shell::{DefSubclassProc, SetWindowSubclass, ShellExecuteW},
         WindowsAndMessaging::*,

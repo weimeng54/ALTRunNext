@@ -1,20 +1,16 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use super::{Contents, Entry, RestoreSelection};
+use super::{Contents, RestoreSelection};
 use crate::{
     localization::{message, tr},
     theme,
     ui::{
         self,
-        dialogs::{
-            ModalOwner, accept_key,
-            input::{PreviewLabels, Report, confirm_preview},
-        },
+        dialogs::{ModalOwner, accept_key},
         make_font, scaled, wide,
     },
 };
-use altrun_probe::backup::RestoreItems;
 use std::{cell::Cell, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::*,
@@ -22,6 +18,11 @@ use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
+
+mod paint;
+mod selection;
+use paint::{draw_frame, draw_option};
+use selection::{details, read, refresh};
 
 const WIDTH: i32 = 620;
 const CARD_TOP: i32 = 95;
@@ -42,12 +43,12 @@ const FOOTER: i32 = 61;
 const CAPTION: i32 = ui::geometry::CAPTION;
 const STATIC_LINE: u32 = ui::STATIC_CENTER_IMAGE | 0x80;
 
-pub(super) struct Options<'a> {
+pub(super) struct Options {
     pub heading: String,
     pub available: Contents,
     pub current: usize,
-    pub incoming: &'a [Entry],
-    pub conflicts: Vec<&'static str>,
+    pub incoming: usize,
+    pub conflicts: Vec<(String, &'static str)>,
     pub media: [(&'static str, String); 2],
 }
 
@@ -67,120 +68,6 @@ fn rect(dpi: i32, x: i32, y: i32, width: i32, height: i32) -> RECT {
         top: scaled(y, dpi),
         right: scaled(x + width, dpi),
         bottom: scaled(y + height, dpi),
-    }
-}
-
-fn draw_frame(state: &Window<'_>, dc: HDC) {
-    let bounds = |y, height| rect(state.dpi, 0, y, WIDTH, height);
-    ui::fill(dc, &bounds(0, state.height), theme::surface());
-    for (y, height) in [(0, CAPTION), (state.height - FOOTER, FOOTER)] {
-        ui::fill(dc, &bounds(y, height), theme::chrome());
-    }
-    for y in [CAPTION, state.height - FOOTER] {
-        ui::fill(dc, &bounds(y, 1), theme::divider());
-    }
-    ui::rounded(
-        dc,
-        rect(
-            state.dpi,
-            20,
-            CARD_TOP,
-            WIDTH - 40,
-            state.first_row + ROW * 2,
-        ),
-        scaled(10, state.dpi),
-        theme::paper(),
-        theme::divider(),
-    );
-    for y in [CARD_TOP + state.first_row, CARD_TOP + state.first_row + ROW] {
-        ui::fill(dc, &rect(state.dpi, 21, y, WIDTH - 42, 1), theme::divider());
-    }
-    ui::panel_caption(dc, state.dpi, state.fonts[1], state.title);
-}
-
-fn draw_option(state: &Window<'_>, info: &NMCUSTOMDRAW) {
-    unsafe {
-        let child = info.hdr.hwndFrom;
-        let radio = matches!(info.hdr.idFrom, APPEND | REPLACE);
-        let marked = SendMessageW(child, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
-        let active = info.uItemState & CDIS_DISABLED == 0;
-        let focused = info.uItemState & CDIS_FOCUS != 0;
-        let backdrop = theme::paper();
-        let fill = if marked && active && !radio {
-            theme::accent()
-        } else {
-            backdrop
-        };
-        let border = if marked || focused {
-            theme::accent()
-        } else {
-            theme::border()
-        };
-        let px = |v| scaled(v, state.dpi);
-        ui::fill(info.hdc, &info.rc, backdrop);
-        let top = (info.rc.bottom + info.rc.top - px(17)) / 2;
-        let box_rect = RECT {
-            left: 0,
-            top,
-            right: px(17),
-            bottom: top + px(17),
-        };
-        ui::rounded(
-            info.hdc,
-            box_rect,
-            px(if radio { 17 } else { 5 }),
-            fill,
-            border,
-        );
-        if marked && radio {
-            let dot = RECT {
-                left: px(4),
-                right: px(13),
-                top: top + px(4),
-                bottom: top + px(13),
-            };
-            ui::rounded(info.hdc, dot, px(9), border, border);
-        } else if marked && active {
-            let mark = [
-                POINT {
-                    x: px(4),
-                    y: top + px(8),
-                },
-                POINT {
-                    x: px(7),
-                    y: top + px(11),
-                },
-                POINT {
-                    x: px(13),
-                    y: top + px(5),
-                },
-            ];
-            let pen = CreatePen(PS_SOLID, px(2).max(1), theme::on_accent());
-            let previous = SelectObject(info.hdc, pen);
-            Polyline(info.hdc, mark.as_ptr(), mark.len() as i32);
-            SelectObject(info.hdc, previous);
-            DeleteObject(pen);
-        }
-        let font = SelectObject(info.hdc, state.fonts[usize::from(!radio)]);
-        let label = RECT {
-            left: px(27),
-            ..info.rc
-        };
-        ui::line_text(
-            info.hdc,
-            label,
-            &ui::window_text(child),
-            if active {
-                theme::text()
-            } else {
-                theme::muted()
-            },
-            0,
-        );
-        SelectObject(info.hdc, font);
-        if focused {
-            DrawFocusRect(info.hdc, &label);
-        }
     }
 }
 
@@ -280,11 +167,11 @@ pub(super) fn create(owner: HWND, item_count: usize) -> Option<RestoreSelection>
     open(owner, item_count, None)
 }
 
-pub(super) fn restore(owner: HWND, options: Options<'_>) -> Option<RestoreSelection> {
-    open(owner, options.incoming.len(), Some(options))
+pub(super) fn restore(owner: HWND, options: Options) -> Option<RestoreSelection> {
+    open(owner, options.incoming, Some(options))
 }
 
-fn open(owner: HWND, item_count: usize, options: Option<Options<'_>>) -> Option<RestoreSelection> {
+fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<RestoreSelection> {
     let restore = options.is_some();
     let available = options
         .as_ref()
@@ -505,133 +392,7 @@ fn open(owner: HWND, item_count: usize, options: Option<Options<'_>>) -> Option<
     }
 }
 
-fn read(hwnd: HWND) -> RestoreSelection {
-    let checked = |id| unsafe { IsDlgButtonChecked(hwnd, id as i32) == BST_CHECKED };
-    RestoreSelection {
-        contents: Contents {
-            items: checked(ITEMS),
-            settings: checked(SETTINGS),
-            history: checked(HISTORY),
-        },
-        items: if checked(REPLACE) {
-            RestoreItems::Replace
-        } else {
-            RestoreItems::Append
-        },
-    }
-}
-
-fn refresh(hwnd: HWND, options: Option<&Options<'_>>) {
-    let selection = read(hwnd);
-    let Contents {
-        items,
-        settings,
-        history,
-    } = selection.contents;
-    let replace = selection.items == RestoreItems::Replace;
-    let mut effective_items = items;
-    let mut note = tr("backup.zip_note");
-    let set = |id, text: &str| unsafe {
-        SetWindowTextW(GetDlgItem(hwnd, id as i32), wide(text).as_ptr());
-    };
-    let enable = |id, active| unsafe {
-        EnableWindow(GetDlgItem(hwnd, id as i32), i32::from(active));
-    };
-    if let Some(options) = options {
-        let added = options
-            .conflicts
-            .iter()
-            .filter(|reason| reason.is_empty())
-            .count();
-        let skipped = options.incoming.len() - added;
-        effective_items = items && (replace || added != 0);
-        if !options.incoming.is_empty() {
-            let summary = if !items {
-                message(
-                    "backup.items_available",
-                    &[
-                        ("count", &options.incoming.len().to_string()),
-                        ("existing", &options.current.to_string()),
-                    ],
-                )
-            } else if replace {
-                message(
-                    "backup.items_replace",
-                    &[
-                        ("count", &options.incoming.len().to_string()),
-                        ("existing", &options.current.to_string()),
-                    ],
-                )
-            } else {
-                message(
-                    "backup.items_append",
-                    &[
-                        ("count", &added.to_string()),
-                        ("skipped", &skipped.to_string()),
-                    ],
-                )
-            };
-            set(ITEM_INFO, &summary);
-            enable(APPEND, items);
-            enable(REPLACE, items);
-        }
-        enable(DETAILS, settings || (items && !replace && skipped != 0));
-        note = if settings {
-            format!(
-                "{} {}",
-                tr("backup.restore_note"),
-                tr("backup.keep_integrations")
-            )
-        } else {
-            tr("backup.restore_note")
-        };
-    }
-    enable(SUBMIT, effective_items || settings || history);
-    set(NOTE, &note);
-    let count = usize::from(items) + usize::from(settings) + usize::from(history);
-    set(
-        TOTAL,
-        &message("backup.selected", &[("count", &count.to_string())]),
-    );
-}
-
-fn details(hwnd: HWND, opts: &Options<'_>) {
-    let selection = read(hwnd);
-    let mut rows = Vec::new();
-    if selection.contents.settings {
-        rows.extend(
-            opts.media
-                .iter()
-                .map(|(label, value)| (tr(label), value.clone())),
-        );
-    }
-    if selection.contents.items && selection.items == RestoreItems::Append {
-        rows.extend(
-            opts.incoming
-                .iter()
-                .zip(&opts.conflicts)
-                .filter(|(_, reason)| !reason.is_empty())
-                .map(|(entry, reason)| (entry.alias.clone(), tr(reason))),
-        );
-    }
-    if !rows.is_empty() {
-        confirm_preview(
-            hwnd,
-            "backup.details",
-            Report {
-                summary: tr("backup.preview_details"),
-                rows,
-            },
-            PreviewLabels {
-                columns: ["backup.content", "backup.restore_result"],
-                note: "",
-            },
-            "ui.close",
-        );
-    }
-}
-
-fn run(hwnd: HWND, state: &Window<'_>, options: Option<&Options<'_>>) -> Option<RestoreSelection> {
+fn run(hwnd: HWND, state: &Window<'_>, options: Option<&Options>) -> Option<RestoreSelection> {
     unsafe {
         refresh(hwnd, options);
         ShowWindow(hwnd, SW_SHOW);

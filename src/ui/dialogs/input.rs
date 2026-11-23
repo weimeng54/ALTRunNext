@@ -705,24 +705,24 @@ fn open(
                 );
             }
             ui::style_vertical_scrollbar(table, 12, dpi);
-            if let Some(preview) = &preview {
-                if !preview.note.is_empty() {
-                    let note = CreateWindowExW(
-                        0,
-                        wide("STATIC").as_ptr(),
-                        ui(preview.note).as_ptr(),
-                        WS_CHILD | WS_VISIBLE,
-                        scaled(16, dpi),
-                        y(note_top),
-                        scaled(width - 32, dpi),
-                        scaled(note_height, dpi),
-                        hwnd,
-                        null_mut(),
-                        instance,
-                        null_mut(),
-                    );
-                    SendMessageW(note, WM_SETFONT, font as usize, 0);
-                }
+            if let Some(preview) = &preview
+                && !preview.note.is_empty()
+            {
+                let note = CreateWindowExW(
+                    0,
+                    wide("STATIC").as_ptr(),
+                    ui(preview.note).as_ptr(),
+                    WS_CHILD | WS_VISIBLE,
+                    scaled(16, dpi),
+                    y(note_top),
+                    scaled(width - 32, dpi),
+                    scaled(note_height, dpi),
+                    hwnd,
+                    null_mut(),
+                    instance,
+                    null_mut(),
+                );
+                SendMessageW(note, WM_SETFONT, font as usize, 0);
             }
         }
         let mut focus = content;

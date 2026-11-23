@@ -12,7 +12,7 @@ mod dialog;
 
 enum Complete {
     Create(usize),
-    Preview(Box<Backup>, PathBuf, Vec<Entry>),
+    Preview(Box<RestorePreview>),
     Saved,
     Restored,
     Failed {
@@ -21,6 +21,12 @@ enum Complete {
         pending: bool,
     },
     Cancelled,
+}
+
+struct RestorePreview {
+    backup: Backup,
+    current: Vec<Entry>,
+    options: dialog::Options,
 }
 
 thread_local! {
@@ -159,14 +165,9 @@ fn begin(hwnd: HWND, restore: bool) -> bool {
     };
     work(hwnd, move || {
         let result = match source {
-            Some(path) => Backup::load_restore_source(&path).and_then(|backup| {
-                let current = if backup.contents().items || backup.contents().history {
-                    Backup::saved_launch_items(&data)?
-                } else {
-                    Vec::new()
-                };
-                Ok(Complete::Preview(Box::new(backup), path, current))
-            }),
+            Some(path) => {
+                load_preview(&data, &path).map(|preview| Complete::Preview(Box::new(preview)))
+            }
             None => Backup::saved_launch_items(&data).map(|items| Complete::Create(items.len())),
         };
         match result {
@@ -257,7 +258,17 @@ fn create(hwnd: HWND, count: usize) {
     });
 }
 
-fn preview(hwnd: HWND, backup: Backup, source: PathBuf, current: Vec<Entry>) {
+fn load_preview(
+    data: &std::path::Path,
+    source: &std::path::Path,
+) -> Result<RestorePreview, String> {
+    let backup = Backup::load_restore_source(source)?;
+    let contents = backup.contents();
+    let current = if contents.items || contents.history {
+        Backup::saved_launch_items(data)?
+    } else {
+        Vec::new()
+    };
     let header = source
         .file_name()
         .unwrap_or(source.as_os_str())
@@ -271,22 +282,22 @@ fn preview(hwnd: HWND, backup: Backup, source: PathBuf, current: Vec<Entry>) {
             localization::message("backup.created", &[("date", &date(backup.created()))],)
         )
     };
-    let incoming = match backup.launch_items() {
-        Ok(items) => items,
-        Err(error) => {
-            failed(hwnd, &error, true, false);
-            return;
-        }
-    };
+    let incoming = backup.launch_items()?;
+    let item_count = incoming.len();
+    let conflicts = altrun_probe::library::append_conflicts(&current, &incoming);
     let options = dialog::Options {
         heading,
         available: Contents {
-            items: !incoming.is_empty(),
-            ..backup.contents()
+            items: item_count != 0,
+            ..contents
         },
         current: current.len(),
-        incoming: &incoming,
-        conflicts: altrun_probe::library::append_conflicts(&current, &incoming),
+        incoming: item_count,
+        conflicts: incoming
+            .into_iter()
+            .zip(conflicts)
+            .filter_map(|(entry, reason)| (!reason.is_empty()).then_some((entry.alias, reason)))
+            .collect(),
         media: [
             (
                 "backup.background",
@@ -302,6 +313,19 @@ fn preview(hwnd: HWND, backup: Backup, source: PathBuf, current: Vec<Entry>) {
             ),
         ],
     };
+    Ok(RestorePreview {
+        backup,
+        current,
+        options,
+    })
+}
+
+fn preview(hwnd: HWND, preview: RestorePreview) {
+    let RestorePreview {
+        backup,
+        current,
+        options,
+    } = preview;
     let Some(selection) = dialog::restore(hwnd, options) else {
         status("");
         return;
@@ -401,7 +425,7 @@ pub(super) fn complete(hwnd: HWND) {
     }
     match result {
         Some(Complete::Create(count)) => create(hwnd, count),
-        Some(Complete::Preview(backup, source, current)) => preview(hwnd, *backup, source, current),
+        Some(Complete::Preview(source)) => preview(hwnd, *source),
         Some(Complete::Saved) => status("backup.saved"),
         Some(Complete::Restored) => {
             let (_, settings, launcher) = context();
