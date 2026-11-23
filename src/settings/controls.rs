@@ -91,9 +91,9 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             "STATIC",
             "",
             OWNER_STATIC,
-            366,
+            398,
             layout::FOOTER_BUTTON_Y,
-            488,
+            456,
             layout::FOOTER_BUTTON_HEIGHT,
             STATUS,
         );
@@ -334,7 +334,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         let fields = create_fields(&control, dpi, hotkey_font, filename_font);
         for (label, id, x, width) in [
             ("ui.reset_defaults", 2311, 17, 132),
-            ("backup.section", BACKUP_MENU, 157, 200),
+            ("backup.section", BACKUP_MENU, 157, 232),
             ("ui.close", 2314, 862, 85),
             ("ui.save_and_apply", 2310, 955, 130),
         ] {

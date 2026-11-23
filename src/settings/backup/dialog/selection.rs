@@ -91,8 +91,8 @@ pub(super) fn refresh(hwnd: HWND, options: Option<&Options>) {
         note = if settings {
             format!(
                 "{} {}",
-                tr("backup.restore_note"),
-                tr("backup.keep_integrations")
+                tr("backup.replace_settings"),
+                tr("backup.restore_note")
             )
         } else {
             tr("backup.restore_note")
@@ -134,7 +134,11 @@ pub(super) fn details(hwnd: HWND, opts: &Options) {
             },
             PreviewLabels {
                 columns: ["backup.content", "backup.restore_result"],
-                note: "",
+                note: if selection.contents.settings {
+                    "backup.keep_integrations"
+                } else {
+                    ""
+                },
             },
             "ui.close",
         );

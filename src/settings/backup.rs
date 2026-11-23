@@ -126,9 +126,10 @@ pub(super) fn menu(hwnd: HWND) {
             return;
         }
         let style = ui::menu_style::PopupStyle::new(dpi, font);
-        style.add(menu, CREATE_BACKUP, "backup.create", 205, false, false);
-        style.add(menu, 0, "", 205, false, true);
-        style.add(menu, RESTORE_BACKUP, "backup.restore", 205, false, false);
+        let width = 285;
+        style.add(menu, CREATE_BACKUP, "backup.create", width, false, false);
+        style.add(menu, 0, "", width, false, true);
+        style.add(menu, RESTORE_BACKUP, "backup.restore", width, false, false);
         style.background(menu);
         let mut rect = RECT::default();
         GetWindowRect(GetDlgItem(hwnd, BACKUP_MENU as i32), &mut rect);
