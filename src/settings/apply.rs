@@ -68,39 +68,3 @@ pub(super) fn apply() {
         PostMessageW(owner as HWND, UPDATED, 0, 0);
     }
 }
-
-pub(super) fn choose_file(save: bool) -> Option<PathBuf> {
-    unsafe {
-        let mut b = vec![0u16; 32768];
-        let mut d: OPENFILENAMEW = std::mem::zeroed();
-        d.lStructSize = std::mem::size_of_val(&d) as u32;
-        d.hwndOwner = WINDOW.load(Ordering::Acquire) as HWND;
-        d.lpstrFile = b.as_mut_ptr();
-        d.nMaxFile = b.len() as u32;
-        let filter = wide(&format!(
-            "{}\0*.ini\0{}\0*.*\0",
-            localization::tr("ui.settings_files"),
-            localization::tr("ui.all_files"),
-        ));
-        d.lpstrFilter = filter.as_ptr();
-        d.Flags = OFN_EXPLORER
-            | OFN_NOCHANGEDIR
-            | if save {
-                OFN_OVERWRITEPROMPT
-            } else {
-                OFN_FILEMUSTEXIST
-            };
-        let ok = if save {
-            GetSaveFileNameW(&mut d)
-        } else {
-            GetOpenFileNameW(&mut d)
-        };
-        if ok == 0 {
-            None
-        } else {
-            Some(PathBuf::from(String::from_utf16_lossy(
-                &b[..b.iter().position(|c| *c == 0).unwrap_or(b.len())],
-            )))
-        }
-    }
-}

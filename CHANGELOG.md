@@ -8,6 +8,8 @@
 
 ### 变更 / Changed
 
+- 设置底栏统一提供「备份与恢复」。可分别选择启动项、程序设置和使用记录，恢复启动项默认追加并跳过冲突，也可替换当前清单。此前导出的 ALTRunNext 设置文件可从同一入口恢复。\
+  Settings has a single Backup and restore menu. Choose launch items, program settings, or usage history. Restoring launch items appends and skips conflicts by default, with a replace option. Previously exported ALTRunNext settings files can be restored from the same menu.
 - 启动面板左上角显示新的蓝色图标，托盘、程序文件和设置页也采用同一图标。\
   The launcher title shows the new blue icon, which also appears in the tray, executable, and settings.
 

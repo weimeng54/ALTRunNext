@@ -135,11 +135,11 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     }
     let original = std::fs::read(data).unwrap();
     command(launcher, 18005);
-    let settings = ready_window(pid, "ALTRun.Native.Settings", 2365);
+    let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);
     check_settings_layout(settings, theme, scale);
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
-    let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
     native_snapshot::save(preview, &format!("031-backup-{theme}-{scale}"));
     eprintln!("Confirming the backup preview");
     press(preview, VK_RETURN);
@@ -147,11 +147,11 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     choose_file(pid, &archive);
     wait(|| altrun_probe::backup::Backup::load(&archive).is_ok_and(|backup| backup.count() == 5));
     wait(|| unsafe {
-        windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(child(settings, 2366)) != 0
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(child(settings, 2312)) != 0
     });
     begin(settings, 2366);
     choose_file(pid, &archive);
-    let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
     native_snapshot::save(preview, &format!("031-restore-{theme}-{scale}"));
     press(preview, VK_ESCAPE);
     wait(|| unsafe { IsWindow(preview) == 0 });
@@ -212,10 +212,13 @@ fn check_restore_and_restart(running: &mut Running, launcher: HWND, data: &Path)
     changed.extend_from_slice(b"extra\tExtra launch item\texplorer.exe\t0\n");
     std::fs::write(data, changed).unwrap();
     command(launcher, 18005);
-    let settings = ready_window(pid, "ALTRun.Native.Settings", 2366);
+    let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);
     begin(settings, 2366);
     choose_file(pid, &data.with_file_name("synthetic-dark-200.zip"));
-    let preview = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
+    unsafe {
+        SendMessageW(child(preview, 14), BM_CLICK, 0, 0);
+    }
     press(preview, VK_RETURN);
     wait(|| running.0.try_wait().unwrap().is_some());
     assert!(running.0.wait().unwrap().success());

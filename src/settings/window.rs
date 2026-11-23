@@ -44,9 +44,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
         }
         WM_DRAWITEM if l != 0 => {
-            draw(unsafe { &*(l as *const DRAWITEMSTRUCT) });
+            let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
+            if !ui::menu_style::draw(item) {
+                draw(item);
+            }
             1
         }
+        WM_MEASUREITEM if l != 0 => isize::from(ui::menu_style::measure(unsafe {
+            &mut *(l as *mut MEASUREITEMSTRUCT)
+        })),
         WM_NOTIFY if l != 0 => {
             let header = unsafe { &*(l as *const NMHDR) };
             if header.idFrom == EMAIL_LINK && matches!(header.code, NM_CLICK | NM_RETURN) {

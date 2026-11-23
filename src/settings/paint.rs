@@ -203,6 +203,9 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                 dpi,
                 theme::muted(),
             );
+        } else if id == BACKUP_MENU {
+            let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
+            ui::menu_button(item, dpi);
         } else {
             let background = if (2310..=2314).contains(&id) {
                 theme::chrome()

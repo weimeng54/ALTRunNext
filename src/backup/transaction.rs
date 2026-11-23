@@ -1,7 +1,8 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use super::{Backup, io_error};
+use super::{Backup, Contents, RestoreSelection, io_error};
+use crate::Entry;
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
@@ -213,6 +214,28 @@ pub fn recovery_pending(data: &Path) -> bool {
 }
 
 pub fn apply(data: &Path, backup: Backup, integrations: (bool, bool)) -> Result<PathBuf, String> {
+    if backup.contents() != Contents::ALL {
+        return Err(super::invalid());
+    }
+    apply_restore(data, backup, integrations, None)
+}
+
+pub fn apply_selected(
+    data: &Path,
+    backup: Backup,
+    integrations: (bool, bool),
+    selection: RestoreSelection,
+    expected: &[Entry],
+) -> Result<PathBuf, String> {
+    apply_restore(data, backup, integrations, Some((selection, expected)))
+}
+
+fn apply_restore(
+    data: &Path,
+    backup: Backup,
+    integrations: (bool, bool),
+    selected: Option<(RestoreSelection, &[Entry])>,
+) -> Result<PathBuf, String> {
     let dir = journal(data);
     // Handle an interrupted restore before creating another journal.
     recover(data)?;
@@ -224,38 +247,53 @@ pub fn apply(data: &Path, backup: Backup, integrations: (bool, bool)) -> Result<
     let media_name = format!("altrun-media-{}", crate::library::new_id());
     let result = (|| {
         let originals = checkpoint(&dir, data)?;
+        let [items, history] = if let Some((selection, expected)) = selected {
+            selection.prepare(
+                &backup,
+                expected,
+                originals[0].as_deref().unwrap_or_default(),
+                originals[2].as_deref().unwrap_or_default(),
+            )?
+        } else {
+            [Some(backup.shortcuts), Some(backup.history)]
+        };
         // The automatic backup and the journal refer to the very same saved bytes.
-        Backup::from_profile(data, originals)?.write(&current_zip)?;
+        Backup::from_profile(data, originals, Contents::ALL)?.write(&current_zip)?;
         write_file(&dir.join("media"), |file| {
             file.write_all(media_name.as_bytes())
         })?;
-        let mut settings = backup.settings;
-        settings.set("AutoRun", if integrations.0 { "1" } else { "0" })?;
-        settings.set("AddToSendTo", if integrations.1 { "1" } else { "0" })?;
-        if backup.background.is_some() {
-            let path = Path::new(&media_name).join(super::BACKGROUND);
-            settings.set("BGFileName", &path.to_string_lossy())?;
+        let (settings, bg, sound) = if selected.is_none_or(|(s, _)| s.contents.settings) {
+            let mut settings = backup.settings;
+            settings.set("AutoRun", if integrations.0 { "1" } else { "0" })?;
+            settings.set("AddToSendTo", if integrations.1 { "1" } else { "0" })?;
+            if backup.background.is_some() {
+                let path = Path::new(&media_name).join(super::BACKGROUND);
+                settings.set("BGFileName", &path.to_string_lossy())?;
+            } else {
+                settings.set("BGFileName", "")?;
+                settings.set("ShowSkin", "0")?;
+            }
+            let popup = if backup.sound.is_some() {
+                Path::new(&media_name).join(super::SOUND)
+            } else {
+                crate::preferences::DEFAULT_POPUP_SOUND.into()
+            };
+            settings.set("PopupFileName", &popup.to_string_lossy())?;
+            (
+                Some(settings.text().into_bytes()),
+                backup.background,
+                backup.sound,
+            )
         } else {
-            settings.set("BGFileName", "")?;
-            settings.set("ShowSkin", "0")?;
-        }
-        let popup = if backup.sound.is_some() {
-            Path::new(&media_name).join(super::SOUND)
-        } else {
-            crate::preferences::DEFAULT_POPUP_SOUND.into()
+            (None, None, None)
         };
-        settings.set("PopupFileName", &popup.to_string_lossy())?;
-        let text = settings.text();
-        let updates = [
-            backup.shortcuts.as_slice(),
-            text.as_bytes(),
-            backup.history.as_slice(),
-        ];
-        for (i, bytes) in updates.into_iter().enumerate() {
-            write_file(&dir.join(format!("next-{i}")), |f| f.write_all(bytes))?;
+        let updates = [items, settings, history];
+        for (i, bytes) in updates.iter().enumerate() {
+            if let Some(bytes) = bytes {
+                write_file(&dir.join(format!("next-{i}")), |f| f.write_all(bytes))?;
+            }
         }
         write_atomic(&ready_marker(&dir), |_| Ok(()))?;
-        let (bg, sound) = (backup.background, backup.sound);
         if bg.is_some() || sound.is_some() {
             let destination = data.with_file_name(&media_name);
             fs::create_dir(&destination).map_err(io_error)?;
@@ -279,8 +317,10 @@ pub fn apply(data: &Path, backup: Backup, integrations: (bool, bool)) -> Result<
             if actual != old {
                 return Err("backup.changed_since_prepare".into());
             }
-            write_atomic(&dir.join(format!("pending-{i}")), |_| Ok(()))?;
-            move_into_place(&live, &dir.join(format!("next-{i}"))).map_err(io_error)?;
+            if updates[i].is_some() {
+                write_atomic(&dir.join(format!("pending-{i}")), |_| Ok(()))?;
+                move_into_place(&live, &dir.join(format!("next-{i}"))).map_err(io_error)?;
+            }
         }
         write_atomic(&dir.join("committed"), |_| Ok(()))
     })();

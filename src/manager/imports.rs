@@ -6,7 +6,6 @@ mod dialog;
 use super::{EDITOR, show_selected_in_list, status};
 use crate::{localization, ui, windows::file_picker::pick_path_filtered};
 use altrun_probe::{Entry, browser_bookmarks, library};
-use std::collections::HashSet;
 use windows_sys::Win32::Foundation::HWND;
 
 enum Preview {
@@ -34,24 +33,12 @@ struct Accepted {
 
 impl Preview {
     fn launch(current: &[Entry], import: library::ShortcutImport) -> Self {
-        let mut ids: HashSet<_> = current.iter().map(|entry| entry.id.clone()).collect();
-        let mut aliases: HashSet<_> = current.iter().map(alias_key).collect();
+        let conflicts = library::append_conflicts(current, &import.entries);
         let rows = import
             .entries
             .into_iter()
-            .map(|entry| {
-                let alias = alias_key(&entry);
-                let conflict = if ids.contains(&entry.id) {
-                    "ui.import_conflict_id"
-                } else if aliases.contains(&alias) {
-                    "ui.import_conflict_alias"
-                } else {
-                    ids.insert(entry.id.clone());
-                    aliases.insert(alias);
-                    ""
-                };
-                Incoming { entry, conflict }
-            })
+            .zip(conflicts)
+            .map(|(entry, conflict)| Incoming { entry, conflict })
             .collect();
         Self::LaunchItems {
             existing: current.len(),
@@ -60,10 +47,6 @@ impl Preview {
             ignored: import.ignored_lines,
         }
     }
-}
-
-fn alias_key(entry: &Entry) -> String {
-    entry.alias.trim().to_lowercase()
 }
 
 fn draft() -> Vec<Entry> {

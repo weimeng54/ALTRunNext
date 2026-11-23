@@ -2,13 +2,17 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::*;
-use crate::ui::dialogs::input::{
-    Choice, PreviewLabels, Report, choose, confirm_details, confirm_preview,
+use crate::ui::dialogs::input::{Choice, choose, confirm_details};
+use altrun_probe::{
+    Entry,
+    backup::{Backup, Contents, Media, RestoreSelection},
 };
-use altrun_probe::backup::{Backup, Media};
+
+mod dialog;
 
 enum Complete {
-    Preview(Box<Backup>, bool, Option<PathBuf>),
+    Create(usize),
+    Preview(Box<Backup>, PathBuf, Vec<Entry>),
     Saved,
     Restored,
     Failed {
@@ -69,10 +73,7 @@ fn work(hwnd: HWND, job: impl FnOnce() -> Complete + Send + 'static) {
     let (sender, receiver) = mpsc::channel();
     let language = localization::current();
     WORK.with(|work| *work.borrow_mut() = Some(receiver));
-    unsafe {
-        EnableWindow(GetDlgItem(hwnd, CREATE_BACKUP as i32), 0);
-        EnableWindow(GetDlgItem(hwnd, RESTORE_BACKUP as i32), 0);
-    }
+    unsafe { EnableWindow(GetDlgItem(hwnd, BACKUP_MENU as i32), 0) };
     let result = std::thread::Builder::new().spawn(move || {
         localization::install_snapshot(language);
         let _ = sender.send(job());
@@ -82,11 +83,7 @@ fn work(hwnd: HWND, job: impl FnOnce() -> Complete + Send + 'static) {
     });
     if let Err(error) = result {
         WORK.with(|work| work.borrow_mut().take());
-        for id in [CREATE_BACKUP, RESTORE_BACKUP] {
-            unsafe {
-                EnableWindow(GetDlgItem(hwnd, id as i32), 1);
-            }
-        }
+        unsafe { EnableWindow(GetDlgItem(hwnd, BACKUP_MENU as i32), 1) };
         status(&error.to_string());
     }
 }
@@ -94,14 +91,55 @@ fn work(hwnd: HWND, job: impl FnOnce() -> Complete + Send + 'static) {
 fn selection(hwnd: HWND, save: bool) -> Option<PathBuf> {
     use crate::windows::file_picker::{pick_path_filtered, save_file};
 
-    let descriptor = wide(&format!(
-        "{}\0*.zip\0",
-        localization::tr("backup.zip_filter")
-    ));
     if save {
-        save_file(hwnd, &descriptor, "ALTRunNext-backup.zip", "zip")
+        let filter = wide(&format!(
+            "{}\0*.zip\0",
+            localization::tr("backup.zip_filter")
+        ));
+        save_file(hwnd, &filter, "ALTRunNext-backup.zip", "zip")
     } else {
-        pick_path_filtered(hwnd, false, false, Some(&descriptor))
+        let filter = wide(&format!(
+            "{}\0*.zip;*.ini\0{}\0*.*\0",
+            localization::tr("backup.restore_filter"),
+            localization::tr("ui.all_files"),
+        ));
+        pick_path_filtered(hwnd, false, false, Some(&filter))
+    }
+}
+
+pub(super) fn menu(hwnd: HWND) {
+    stop_capture();
+    let (dpi, font) = EDITOR.with(|editor| {
+        let editor = editor.borrow();
+        let editor = editor.as_ref().unwrap();
+        (editor.dpi, editor.font)
+    });
+    let id = unsafe {
+        let menu = CreatePopupMenu();
+        if menu.is_null() {
+            return;
+        }
+        let style = ui::menu_style::PopupStyle::new(dpi, font);
+        style.add(menu, CREATE_BACKUP, "backup.create", 205, false, false);
+        style.add(menu, 0, "", 205, false, true);
+        style.add(menu, RESTORE_BACKUP, "backup.restore", 205, false, false);
+        style.background(menu);
+        let mut rect = RECT::default();
+        GetWindowRect(GetDlgItem(hwnd, BACKUP_MENU as i32), &mut rect);
+        let id = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_BOTTOMALIGN,
+            rect.left,
+            rect.top,
+            0,
+            hwnd,
+            std::ptr::null(),
+        ) as usize;
+        DestroyMenu(menu);
+        id
+    };
+    if matches!(id, CREATE_BACKUP | RESTORE_BACKUP) {
+        open(hwnd, id == RESTORE_BACKUP);
     }
 }
 
@@ -110,7 +148,7 @@ pub(super) fn open(hwnd: HWND, restore: bool) {
 }
 
 fn begin(hwnd: HWND, restore: bool) -> bool {
-    let (data, settings, launcher) = context();
+    let (data, _, _) = context();
     let source = if restore {
         let Some(path) = selection(hwnd, false) else {
             return false;
@@ -120,12 +158,19 @@ fn begin(hwnd: HWND, restore: bool) -> bool {
         None
     };
     work(hwnd, move || {
-        let result = match &source {
-            Some(path) => Backup::load(path),
-            None => flush(&settings, launcher, false).and_then(|()| Backup::capture(&data)),
+        let result = match source {
+            Some(path) => Backup::load_restore_source(&path).and_then(|backup| {
+                let current = if backup.contents().items || backup.contents().history {
+                    Backup::saved_launch_items(&data)?
+                } else {
+                    Vec::new()
+                };
+                Ok(Complete::Preview(Box::new(backup), path, current))
+            }),
+            None => Backup::saved_launch_items(&data).map(|items| Complete::Create(items.len())),
         };
         match result {
-            Ok(backup) => Complete::Preview(Box::new(backup), restore, source),
+            Ok(result) => result,
             Err(error) => Complete::Failed {
                 error,
                 restore,
@@ -136,17 +181,14 @@ fn begin(hwnd: HWND, restore: bool) -> bool {
     true
 }
 
-fn media(value: Media, filename: Option<&str>, default: &str) -> String {
-    if value == Media::Included
-        && let Some(filename) = filename
-    {
-        return filename.to_owned();
+fn media(value: Media, filename: Option<&str>, missing: &str) -> String {
+    match value {
+        Media::Default => localization::tr("backup.default"),
+        Media::Missing => localization::tr(missing),
+        Media::Included => {
+            filename.map_or_else(|| localization::tr("backup.included"), str::to_owned)
+        }
     }
-    localization::tr(match value {
-        Media::Default => "backup.default",
-        Media::Missing => default,
-        Media::Included => "backup.included",
-    })
 }
 
 fn date(unix: u64) -> String {
@@ -172,102 +214,103 @@ fn date(unix: u64) -> String {
     )
 }
 
-fn preview(hwnd: HWND, backup: Backup, restore: bool, source: Option<PathBuf>) {
-    let summary = if let Some(source) = source {
-        let header = source
-            .file_name()
-            .unwrap_or(source.as_os_str())
-            .to_string_lossy();
-        format!(
-            "{} · {}\n{}",
-            header,
-            localization::message("backup.created", &[("date", &date(backup.created()))]),
-            localization::tr("backup.restore_note")
-        )
-    } else {
-        localization::tr("backup.saved_data")
-    };
-    let (title, action) = if restore {
-        ("backup.preview_restore", "backup.confirm_restore")
-    } else {
-        ("backup.preview_create", "backup.confirm_create")
-    };
-    let rows = vec![
-        (
-            localization::tr("backup.launch_items"),
-            localization::message(
-                "backup.items_count",
-                &[("count", &backup.count().to_string())],
-            ),
-        ),
-        (
-            localization::tr("backup.settings"),
-            localization::tr("backup.included"),
-        ),
-        (
-            localization::tr("backup.history"),
-            localization::tr("backup.history_contents"),
-        ),
-        (
-            localization::tr("backup.background"),
-            media(
-                backup.background(),
-                backup.background_name(),
-                "backup.background_missing",
-            ),
-        ),
-        (
-            localization::tr("backup.sound"),
-            media(backup.sound(), backup.sound_name(), "backup.sound_missing"),
-        ),
-    ];
-    let (column, note) = if restore {
-        ("backup.restore_result", "backup.keep_integrations")
-    } else {
-        ("backup.contents", "")
-    };
-    if !confirm_preview(
-        hwnd,
-        title,
-        Report { summary, rows },
-        PreviewLabels {
-            columns: ["backup.content", column],
-            note,
-        },
-        action,
-    ) {
+fn create(hwnd: HWND, count: usize) {
+    let Some(choice) = dialog::create(hwnd, count) else {
         status("");
         return;
-    }
+    };
+    let Some(dest) = selection(hwnd, true) else {
+        status("");
+        return;
+    };
     let (data, settings, launcher) = context();
-    if !restore {
-        let Some(dest) = selection(hwnd, true) else {
-            status("");
-            return;
-        };
-        let protected = [
-            data.clone(),
-            data.with_extension("settings.ini"),
-            data.with_extension("state.tsv"),
-        ];
-        if protected.contains(&dest)
-            || !dest
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    if !dest
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
+        failed(hwnd, "backup.choose_other_file", false, false);
+        return;
+    }
+    work(hwnd, move || {
+        let result = if dest == data
+            || std::fs::canonicalize(&dest)
+                .ok()
+                .is_some_and(|path| Some(path) == std::fs::canonicalize(&data).ok())
         {
-            failed(hwnd, "backup.choose_other_file", false, false);
-            return;
-        }
-        work(hwnd, move || match backup.write(&dest) {
+            Err("backup.choose_other_file".into())
+        } else {
+            let captured = || Backup::capture_selected(&data, choice.contents)?.write(&dest);
+            if choice.contents.history {
+                flush(&settings, launcher, false).and_then(|()| captured())
+            } else {
+                captured()
+            }
+        };
+        match result {
             Ok(()) => Complete::Saved,
             Err(error) => Complete::Failed {
                 error,
                 restore: false,
                 pending: false,
             },
-        });
+        }
+    });
+}
+
+fn preview(hwnd: HWND, backup: Backup, source: PathBuf, current: Vec<Entry>) {
+    let header = source
+        .file_name()
+        .unwrap_or(source.as_os_str())
+        .to_string_lossy();
+    let heading = if backup.created() == 0 {
+        header.into_owned()
+    } else {
+        format!(
+            "{} · {}",
+            header,
+            localization::message("backup.created", &[("date", &date(backup.created()))],)
+        )
+    };
+    let incoming = match backup.launch_items() {
+        Ok(items) => items,
+        Err(error) => {
+            failed(hwnd, &error, true, false);
+            return;
+        }
+    };
+    let options = dialog::Options {
+        heading,
+        available: Contents {
+            items: !incoming.is_empty(),
+            ..backup.contents()
+        },
+        current: current.len(),
+        incoming: &incoming,
+        conflicts: altrun_probe::library::append_conflicts(&current, &incoming),
+        media: [
+            (
+                "backup.background",
+                media(
+                    backup.background(),
+                    backup.background_name(),
+                    "backup.background_missing",
+                ),
+            ),
+            (
+                "backup.sound",
+                media(backup.sound(), backup.sound_name(), "backup.sound_missing"),
+            ),
+        ],
+    };
+    let Some(selection) = dialog::restore(hwnd, options) else {
+        status("");
         return;
-    }
+    };
+    restore(hwnd, backup, current, selection);
+}
+
+fn restore(hwnd: HWND, backup: Backup, current: Vec<Entry>, selection: RestoreSelection) {
+    let (data, settings, launcher) = context();
     if form_is_dirty() {
         match choose(
             hwnd,
@@ -294,8 +337,13 @@ fn preview(hwnd: HWND, backup: Backup, restore: bool, source: Option<PathBuf>) {
             if !crate::manager::prepare_for_restore()? {
                 return Ok(None);
             }
-            let state = altrun_probe::integration::Integration::for_data(&data)?.status()?;
-            altrun_probe::backup::apply(&data, backup, state).map(Some)
+            let state = if selection.contents.settings {
+                altrun_probe::integration::Integration::for_data(&data)?.status()?
+            } else {
+                (false, false)
+            };
+            altrun_probe::backup::apply_selected(&data, backup, state, selection, &current)
+                .map(Some)
         });
         match result {
             Ok(Some(_)) => Complete::Restored,
@@ -349,11 +397,11 @@ pub(super) fn complete(hwnd: HWND) {
             .and_then(|work| work.try_recv().ok())
     });
     unsafe {
-        EnableWindow(GetDlgItem(hwnd, CREATE_BACKUP as i32), 1);
-        EnableWindow(GetDlgItem(hwnd, RESTORE_BACKUP as i32), 1);
+        EnableWindow(GetDlgItem(hwnd, BACKUP_MENU as i32), 1);
     }
     match result {
-        Some(Complete::Preview(backup, restore, source)) => preview(hwnd, *backup, restore, source),
+        Some(Complete::Create(count)) => create(hwnd, count),
+        Some(Complete::Preview(backup, source, current)) => preview(hwnd, *backup, source, current),
         Some(Complete::Saved) => status("backup.saved"),
         Some(Complete::Restored) => {
             let (_, settings, launcher) = context();

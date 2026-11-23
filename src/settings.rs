@@ -54,7 +54,7 @@ use appearance::{
     update_preview,
 };
 mod apply;
-use apply::{apply, choose_file};
+use apply::apply;
 mod backup;
 mod layout;
 mod paint;
@@ -95,6 +95,7 @@ const OPEN_RELEASES: usize = 2361;
 const OPEN_SOURCE: usize = 2362;
 const OPEN_ISSUES: usize = 2363;
 const ABOUT_SECONDARY: usize = 2364;
+const BACKUP_MENU: usize = 2312;
 const CREATE_BACKUP: usize = 2365;
 const RESTORE_BACKUP: usize = 2366;
 const BACKUP_RESULT: u32 = WM_APP + 20;

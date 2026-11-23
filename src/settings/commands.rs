@@ -212,50 +212,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                 status("ui.defaults_loaded_save_to_apply_them");
             }
         }
-        2312 => {
-            stop_capture();
-            if let Some(path) = choose_file(false) {
-                let result = std::fs::read(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|b| {
-                        altrun_probe::library::decode(&b).map_err(|_| {
-                            altrun_probe::preferences::SETTINGS_IMPORT_FORMAT_ERROR.to_owned()
-                        })
-                    })
-                    .and_then(|t| Preferences::import(&t));
-                match result {
-                    Ok(mut prefs) => {
-                        prefs.set("AutoRun", "0").unwrap();
-                        prefs.set("AddToSendTo", "0").unwrap();
-                        load_form(&prefs);
-                        update_preview();
-                        sync_save_button(hwnd);
-                        status("ui.settings_imported_review_system_integration_options_and");
-                    }
-                    Err(e) => status(&e),
-                }
-            }
-        }
-        2313 => {
-            stop_capture();
-            if let Some(prefs) = validated_form()
-                && let Some(path) = choose_file(true)
-            {
-                let source = EDITOR.with(|c| c.borrow().as_ref().unwrap().file.path.clone());
-                if path == source
-                    || std::fs::canonicalize(&path)
-                        .ok()
-                        .is_some_and(|p| Some(p) == std::fs::canonicalize(&source).ok())
-                {
-                    status("ui.choose_a_different_file_for_export");
-                    return 0;
-                }
-                match TextFile::open(&path).and_then(|(mut file, _)| file.save(&prefs.text())) {
-                    Ok(()) => status("ui.settings_exported"),
-                    Err(e) => status(&e),
-                }
-            }
-        }
+        BACKUP_MENU => backup::menu(hwnd),
         2314 | TITLE_CLOSE => unsafe {
             SendMessageW(hwnd, WM_CLOSE, 0, 0);
         },

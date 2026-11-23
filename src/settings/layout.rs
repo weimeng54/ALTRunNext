@@ -48,12 +48,6 @@ pub const CARDS: &[Card] = &[
     card(0, "ui.sound", BoxRect::new(CONTENT, 448, 422, 93), &[44]),
     card(0, "ui.language", BoxRect::new(652, 448, 421, 45), &[]),
     card(
-        0,
-        "backup.section",
-        BoxRect::new(CONTENT, 581, 859, 52),
-        &[],
-    ),
-    card(
         1,
         "ui.global_hotkeys",
         BoxRect::new(CONTENT, 180, 859, 144),

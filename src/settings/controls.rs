@@ -91,9 +91,9 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             "STATIC",
             "",
             OWNER_STATIC,
-            449,
+            366,
             layout::FOOTER_BUTTON_Y,
-            405,
+            488,
             layout::FOOTER_BUTTON_HEIGHT,
             STATUS,
         );
@@ -271,8 +271,6 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
             (FONT_FAMILY, "", 310, 191, 180, 34, 4),
             (MORE_COLORS, "ui.other_colors", 215, 517, 288, 40, 4),
-            (CREATE_BACKUP, "backup.create", 229, 590, 175, 34, 0),
-            (RESTORE_BACKUP, "backup.restore", 415, 590, 187, 34, 0),
         ] {
             let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
             if (SEGMENT..SEGMENT + 5).contains(&id) {
@@ -336,8 +334,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         let fields = create_fields(&control, dpi, hotkey_font, filename_font);
         for (label, id, x, width) in [
             ("ui.reset_defaults", 2311, 17, 132),
-            ("ui.import_settings", 2312, 157, 136),
-            ("ui.export_settings", 2313, 301, 136),
+            ("backup.section", BACKUP_MENU, 157, 200),
             ("ui.close", 2314, 862, 85),
             ("ui.save_and_apply", 2310, 955, 130),
         ] {

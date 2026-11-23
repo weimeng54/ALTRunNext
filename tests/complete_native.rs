@@ -158,7 +158,7 @@ fn click_tab_and_wait_for_pixels(hwnd: HWND, page: usize, field: &str, screensho
             SendMessageW(tabs, LB_GETITEMRECT, page, &mut row as *mut RECT as isize),
             -1
         );
-        let footer = [2311, 2312, 2313, 2314, 2310].map(|id| GetDlgItem(hwnd, id));
+        let footer = [2311, 2312, 2314, 2310].map(|id| GetDlgItem(hwnd, id));
         let marker = 0x00fe01f7;
         for button in footer {
             RedrawWindow(

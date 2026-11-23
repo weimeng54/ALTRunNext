@@ -6,7 +6,7 @@ mod import;
 mod snapshot;
 
 pub use format::{decode, parse_entries, serialize};
-pub use import::{ShortcutImport, decode_shortcut_import, import_shortcuts};
+pub use import::{ShortcutImport, append_conflicts, decode_shortcut_import, import_shortcuts};
 pub use snapshot::Snapshot;
 pub(crate) use snapshot::replace;
 

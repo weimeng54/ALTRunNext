@@ -503,7 +503,8 @@ fn open(
         };
         let table_top = 16 + summary_height + 30;
         let row_height = 32;
-        let table_height = report.map_or(0, |r| r.rows.len() as i32 * row_height);
+        let visible_rows = report.map_or(0, |r| r.rows.len().min(7) as i32);
+        let table_height = visible_rows * row_height;
         let note_top = table_top + table_height + 14;
         let note_height = if preview.as_ref().is_some_and(|p| !p.note.is_empty()) {
             38
@@ -665,11 +666,7 @@ fn open(
                 );
                 SendMessageW(header, WM_SETFONT, font as usize, 0);
             }
-            let table_style = if preview.is_some() {
-                LBS_NOSEL as u32
-            } else {
-                WS_TABSTOP | WS_VSCROLL
-            };
+            let table_style = WS_TABSTOP | WS_VSCROLL;
             let table = CreateWindowExW(
                 0,
                 wide("LISTBOX").as_ptr(),
@@ -683,7 +680,7 @@ fn open(
                 y(if preview.is_some() { table_top } else { 132 }),
                 scaled(width - 32, dpi),
                 if preview.is_some() {
-                    report.rows.len() as i32 * scaled(row_height, dpi)
+                    visible_rows * scaled(row_height, dpi)
                 } else {
                     7 * scaled(29, dpi)
                 },
@@ -707,6 +704,7 @@ fn open(
                     wide(&format!("{alias} · {name}")).as_ptr() as LPARAM,
                 );
             }
+            ui::style_vertical_scrollbar(table, 12, dpi);
             if let Some(preview) = &preview {
                 if !preview.note.is_empty() {
                     let note = CreateWindowExW(
@@ -725,8 +723,6 @@ fn open(
                     );
                     SendMessageW(note, WM_SETFONT, font as usize, 0);
                 }
-            } else {
-                ui::style_vertical_scrollbar(table, 12, dpi);
             }
         }
         let mut focus = content;
@@ -737,6 +733,8 @@ fn open(
                     (alternate, 3, 234, 180),
                     ("ui.cancel", 2, 140, 84),
                 ]
+            } else if action == Some("ui.close") {
+                &[("ui.close", 1, 500, 84)]
             } else if let Some(action) = action {
                 &[(action, 1, 404, 180), ("ui.cancel", 2, 310, 84)]
             } else if has_rows {

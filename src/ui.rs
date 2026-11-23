@@ -6,6 +6,7 @@ mod buttons;
 pub(crate) mod dialogs;
 mod fields;
 pub(crate) mod geometry;
+pub(crate) mod menu_style;
 mod painting;
 mod scrollbars;
 

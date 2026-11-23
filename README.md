@@ -22,7 +22,7 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 - 在「设置 → 常规」开启并保存「添加 ALTRunNext 到发送到菜单」。在资源管理器中右键单击目标，选择「显示更多选项 → 发送到 → ALTRunNext」，确认后保存。文件可以使用系统默认应用，也可以为该启动项指定打开程序。在设置里关闭此选项即可移除菜单入口。
 - 在管理窗口左侧搜索框按快捷项、名称或路径筛选。「工具 → 检查失效路径」可定位并修复找不到的本地目标。
 - 「工具 → 导入启动项」会识别 TSV 或原版 ALTRun 的 `ShortCutList.txt`，可追加或替换。「导入浏览器收藏夹」可从浏览器导出的 HTML 挑选网址。确认后点击「保存」应用。启动项导出为 TSV，设置的导入和导出使用 INI。
-- 「设置 → 常规 → 备份与恢复」可把已保存的启动项、设置、使用历史和自定义背景及声音打包为本地 ZIP。
+- 设置窗口底栏的「备份与恢复」可选择将已保存的启动项、程序设置（含自定义背景和提示音）或使用记录打包为本地 ZIP。恢复启动项默认追加并跳过冲突，也可选择替换当前清单。
 
 ### 界面语言
 
@@ -57,7 +57,7 @@ ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, t
 - In **Settings → General**, enable and save the Send To integration. In File Explorer, right-click a target and choose **Show more options → Send to → ALTRunNext**, then review and save the launch item. A file can open in the system default app or an app selected for that launch item. Turn off the setting to remove the menu entry.
 - Use the search field in the manager to filter by alias, name, or path. **Tools → Check missing paths** lets you locate and repair missing local targets.
 - **Tools → Import launch items** detects TSV or the original ALTRun `ShortCutList.txt` and offers to append or replace. **Import browser bookmarks** lets you select URLs from a browser-exported HTML file. Confirm the import and select **Save** to apply it. Exports use TSV for launch items and INI for settings.
-- **Settings → General → Backup and restore** creates a local ZIP with saved launch items, settings, usage history, and custom background and sound files.
+- **Backup and restore** in the Settings footer creates a local ZIP with your choice of saved launch items, program settings (including custom backgrounds and sounds), and usage history. Restoring launch items appends and skips conflicts by default, with an option to replace the list.
 
 ### Display language
 
