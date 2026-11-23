@@ -142,6 +142,22 @@ pub fn draw_app_icon(dc: HDC, bounds: RECT) {
     }
 }
 
+pub fn launcher_title(dc: HDC, mut bounds: RECT, title: &str, colour: u32, dpi: i32) {
+    let size = scaled(18, dpi);
+    let top = bounds.top + (bounds.bottom - bounds.top - size) / 2;
+    draw_app_icon(
+        dc,
+        RECT {
+            left: bounds.left,
+            top,
+            right: bounds.left + size,
+            bottom: top + size,
+        },
+    );
+    bounds.left += size + scaled(6, dpi);
+    line_text(dc, bounds, title, colour, 0);
+}
+
 pub fn panel_caption(dc: HDC, dpi: i32, font: HFONT, title: &str) {
     draw_app_icon(dc, BoxRect::new(16, 12, 18, 18).pixels(dpi));
     unsafe {

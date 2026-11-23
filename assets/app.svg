@@ -1,0 +1,7 @@
+<!-- Copyright (c) 2026 GPT-6.2 Sol -->
+<!-- Licensed under the MIT License. See LICENSE file in the project root for full license information. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>ALTRunNext</title>
+  <path fill="#35A7FF" d="M 6 29.1 Q 6 26 9.1 26 L 21.9 26 Q 25 26 25 29.1 L 25 38.9 Q 25 42 28.1 42 L 33.9 42 Q 37 42 37 45.1 L 37 52.9 Q 37 56 33.9 56 L 9.1 56 Q 6 56 6 52.9 Z"/>
+  <path fill="#266EFF" d="M 25 11.1 Q 25 8 28.1 8 L 54.9 8 Q 58 8 58 11.1 L 58 33.9 Q 58 37 54.9 37 L 43.1 37 Q 40 37 40 33.9 L 40 25.1 Q 40 22 36.9 22 L 28.1 22 Q 25 22 25 18.9 Z"/>
+</svg>

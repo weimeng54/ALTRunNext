@@ -386,7 +386,7 @@ pub(super) fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {
                 }
             }
             let font = SelectObject(dc, s.title_font);
-            crate::ui::line_text(dc, item.rcItem, &name, s.font_colours[0], 0);
+            crate::ui::launcher_title(dc, item.rcItem, &name, s.font_colours[0], s.dpi);
             SelectObject(dc, font);
         }
     });

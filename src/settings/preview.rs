@@ -239,12 +239,12 @@ impl Preview {
         let command_font = make_font(12, 400, "Consolas", dpi);
         unsafe {
             let old = SelectObject(dc, title_font);
-            ui::line_text(
+            ui::launcher_title(
                 dc,
                 area(12, 1, bounds.w - 24, 33),
                 &crate::localization::tr(title),
                 theme::font_colour(&self.prefs.get("TitleFont")),
-                0,
+                dpi,
             );
             SelectObject(dc, row_font);
             let mut y = 39 + input_height;

@@ -36,7 +36,7 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
 ```
 
-修改图标后，可用安装了 Pillow 的 Python 运行 `python tools/build-app-icon.py`，重新生成 `assets/app.ico`。
+图标源文件是 `assets/app.svg`。修改后安装 `resvg-py==0.5.0`，运行 `python tools/build-app-icon.py` 重新生成多尺寸 `assets/app.ico`。可加 `--png app.png` 导出 256 像素 PNG。常规编译直接使用仓库中的 ICO。
 
 作者 [weimeng54](https://github.com/weimeng54) · [联系邮箱](mailto:weimeng54@qq.com) · [反馈问题](https://github.com/weimeng54/ALTRunNext/issues)
 
@@ -71,7 +71,7 @@ On Windows, install Rust with the MSVC toolchain, Visual Studio Build Tools with
 cargo build --release --locked --target x86_64-pc-windows-msvc --bin ALTRunNext
 ```
 
-After editing the icon, run `python tools/build-app-icon.py` with Pillow installed to regenerate `assets/app.ico`.
+The icon source is `assets/app.svg`. After editing it, install `resvg-py==0.5.0` and run `python tools/build-app-icon.py` to rebuild the multi-size `assets/app.ico`. Pass `--png app.png` to also export a 256 px PNG. Regular builds use the checked-in ICO.
 
 Maintained by [weimeng54](https://github.com/weimeng54) · [Email](mailto:weimeng54@qq.com) · [Report an issue](https://github.com/weimeng54/ALTRunNext/issues)
 

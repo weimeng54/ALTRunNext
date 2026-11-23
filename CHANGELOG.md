@@ -6,6 +6,11 @@
 
 ## [未发布 / Unreleased]
 
+### 变更 / Changed
+
+- 启动面板左上角显示新的蓝色图标，托盘、程序文件和设置页也采用同一图标。\
+  The launcher title shows the new blue icon, which also appears in the tray, executable, and settings.
+
 ## [0.4.5] - 2026-11-18
 
 ### 修复 / Fixed
