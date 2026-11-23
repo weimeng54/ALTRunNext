@@ -6,6 +6,8 @@
 
 ## [未发布 / Unreleased]
 
+## [0.4.6] - 2026-11-23
+
 ### 变更 / Changed
 
 - 设置底栏统一提供「备份与恢复」。可分别选择启动项、程序设置和使用记录，恢复启动项默认追加并跳过冲突，也可替换当前清单。此前导出的 ALTRunNext 设置文件可从同一入口恢复。\
@@ -160,7 +162,8 @@
 - 首次启动跟随 Windows 显示语言。内置英文和简体中文，便携包附带日语、韩语、法语、德语和西班牙语，并支持外置语言包。\
   The app follows the Windows display language on first launch. English and Simplified Chinese are built in. The portable ZIP includes Japanese, Korean, French, German, and Spanish, and the app supports external language packs.
 
-[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.5...main
+[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.6...main
+[0.4.6]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.2...v0.4.3
