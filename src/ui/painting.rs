@@ -64,7 +64,7 @@ pub(crate) fn result_dividers(
     has_next: bool,
 ) {
     let options = theme::result_dividers();
-    if !options.vertical && !(options.horizontal && has_next) {
+    if !(options.vertical || options.horizontal && has_next) {
         return;
     }
     let background = if selected {
@@ -80,9 +80,9 @@ pub(crate) fn result_dividers(
                 theme::divider()
             };
         }
-        let channel = |shift| {
-            let base = (background >> shift) & 255;
-            let ink = (options.colour.unwrap_or(default) >> shift) & 255;
+        let channel = |shift: u32| {
+            let base = (background >> shift) & 255u32;
+            let ink = (options.colour.unwrap_or(default) >> shift) & 255u32;
             (base * (100 - weight) + ink * weight + 50) / 100
         };
         theme::rgb(channel(0), channel(8), channel(16))

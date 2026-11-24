@@ -6,7 +6,7 @@ use crate::{
     theme,
     ui::{self, scaled},
 };
-use windows_sys::Win32::{Foundation::RECT, Graphics::Gdi::*, UI::Controls::NMCUSTOMDRAW};
+use windows_sys::Win32::{Graphics::Gdi::*, UI::Controls::NMCUSTOMDRAW};
 
 pub(super) fn draw_frame(state: &Window<'_>, dc: HDC) {
     let bounds = |y, height| rect(state.dpi, 0, y, WIDTH, height);
