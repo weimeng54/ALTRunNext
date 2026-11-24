@@ -354,11 +354,16 @@ pub(super) fn sync_kind_layout() {
         return;
     };
     unsafe {
+        let admin_top = if parameter_visible || document {
+            419
+        } else {
+            343
+        };
         SetWindowPos(
             GetDlgItem(hwnd, RUN_AS_ADMIN as i32),
             null_mut(),
             scaled(FIELD_LEFT, dpi),
-            scaled(if parameter_visible || document { 419 } else { 343 }, dpi),
+            scaled(admin_top, dpi),
             0,
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,

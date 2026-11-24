@@ -41,7 +41,11 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
             } else {
                 let unavailable = (matches!(
                     id,
-                    ID_RUN_AS_ADMIN | ID_COPY | ID_EDIT_COMMAND | ID_DELETE_COMMAND | ID_OPEN_FOLDER
+                    ID_RUN_AS_ADMIN
+                        | ID_COPY
+                        | ID_EDIT_COMMAND
+                        | ID_DELETE_COMMAND
+                        | ID_OPEN_FOLDER
                 ) && !has_selection)
                     || (id == ID_DELETE_COMMAND && crate::manager::is_open());
                 let flags = MF_STRING | if unavailable { MF_GRAYED } else { 0 };

@@ -37,6 +37,7 @@ const OPEN_LABEL: usize = 3109;
 const CLOSE: usize = 3110;
 const RUN_AS_ADMIN: usize = 3111;
 const OPEN_VALUE: usize = 3112;
+const STATIC_END_ELLIPSIS: u32 = 0x0000_4000; // SS_ENDELLIPSIS from WinUser.h.
 
 thread_local! { static OPEN: Cell<bool> = const { Cell::new(false) }; }
 
@@ -544,7 +545,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             "",
             OPEN_VALUE,
             (layout.value_left, options_top + 3, layout.value_width, 35),
-            SS_ENDELLIPSIS as u32 | label_style,
+            STATIC_END_ELLIPSIS | label_style,
         );
         let program_x = width - MARGIN - 10 - layout.program_width;
         button(
@@ -588,7 +589,11 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         EnableWindow(test, i32::from(launch_enabled));
         let save_x = width - MARGIN - layout.save_width;
         button("ui.cancel", CANCEL, (save_x - 98, height - 48, 86, 36));
-        button("ui.add_shortcut", SAVE, (save_x, height - 48, layout.save_width, 36));
+        button(
+            "ui.add_shortcut",
+            SAVE,
+            (save_x, height - 48, layout.save_width, 36),
+        );
         sync(hwnd, &mut state);
         let modal_owner = ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
