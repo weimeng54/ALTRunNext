@@ -74,6 +74,10 @@ pub(super) fn delete_selected_command(hwnd: HWND) {
 }
 
 pub(super) fn launch_selected() {
+    launch_selected_with(false);
+}
+
+pub(super) fn launch_selected_with(run_as_admin: bool) {
     let (enabled, allow, busy, entry, hwnd, query) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -91,8 +95,9 @@ pub(super) fn launch_selected() {
     if busy || parameter_open() {
         return;
     }
-    let Some(entry) = entry else {
-        if enabled
+    let Some(mut entry) = entry else {
+        if !run_as_admin
+            && enabled
             && !query.is_empty()
             && unsafe {
                 MessageBoxW(
@@ -108,7 +113,11 @@ pub(super) fn launch_selected() {
         }
         return;
     };
+    entry.run_as_admin |= run_as_admin;
     if !enabled {
+        if entry.run_as_admin {
+            return;
+        }
         if allow
             && entry.command == "notepad.exe"
             && let Ok(path) = altrun_probe::safe_notepad_path()
@@ -156,10 +165,7 @@ fn start_launch(entry: Entry, query: String, parameter: Option<String>, prompt: 
         {
             context.clipboard = clipboard_text();
         }
-        let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
-            .and_then(|(request, mode, directory)| {
-                execute_request_with(&request, mode, directory.as_deref())
-            });
+        let result = execute_entry(&entry, parameter.as_deref(), &context);
         let _ = result_sender.send(result);
         unsafe {
             PostMessageW(owner as HWND, LAUNCH_DONE, 0, 0);

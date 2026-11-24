@@ -11,12 +11,17 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
         .filter(|(_, line)| !line.trim().is_empty())
         .map(|(i, line)| {
             let fields: Vec<_> = line.split('\t').collect();
-            if !(4..=11).contains(&fields.len()) || fields[0].is_empty() {
+            if !(4..=12).contains(&fields.len()) || fields[0].is_empty() {
                 return Err(format!("Invalid dataset row {}", i + 1));
             }
             if !matches!(fields.get(8).copied().unwrap_or("1"), "0" | "1") {
                 return Err(format!("Invalid enabled flag at row {}", i + 1));
             }
+            let run_as_admin = match fields.get(11).copied() {
+                None | Some("0") => false,
+                Some("1") => true,
+                _ => return Err(format!("Invalid administrator flag at row {}", i + 1)),
+            };
             Ok(Entry {
                 alias: fields[0].into(),
                 name: fields[1].into(),
@@ -31,6 +36,7 @@ pub fn parse_entries(input: &str) -> Result<Vec<Entry>, String> {
                     .map(normalize_id)
                     .unwrap_or_else(|| derived_id(fields[0], fields[1], fields[2], i)),
                 working_directory: fields.get(6).unwrap_or(&"").to_string(),
+                run_as_admin,
                 open_target: OpenTarget::parse(
                     fields.get(9).copied().unwrap_or(""),
                     fields.get(10).copied().unwrap_or(""),
@@ -102,6 +108,11 @@ pub fn serialize(entries: &[Entry]) -> Result<String, String> {
         if let Some(target) = &e.open_target {
             let (kind, program) = target.fields();
             output.push_str(&format!("\t{kind}\t{program}"));
+        } else if e.run_as_admin {
+            output.push_str("\t\t");
+        }
+        if e.run_as_admin {
+            output.push_str("\t1");
         }
         output.push('\n');
     }

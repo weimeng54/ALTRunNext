@@ -209,14 +209,8 @@ fn test_selected(hwnd: HWND) {
         {
             context.clipboard = crate::windows::clipboard::clipboard_text();
         }
-        let result = altrun_probe::launch::resolve_entry(&entry, parameter.as_deref(), &context)
-            .and_then(|(request, mode, directory)| {
-                crate::windows::shell_execute::execute_request_with(
-                    &request,
-                    mode,
-                    directory.as_deref(),
-                )
-            });
+        let result =
+            crate::windows::shell_execute::execute_entry(&entry, parameter.as_deref(), &context);
         if let Err(error) = result {
             crate::ui::show_error(&error);
         }
@@ -266,7 +260,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
         refresh_list_rows();
     } else if [ALIAS, NAME, COMMAND].contains(&id) && notification == EN_CHANGE as usize
         || id == KIND && notification == CBN_SELCHANGE as usize
-        || id == ASK_PARAMETER && notification == BN_CLICKED as usize
+        || matches!(id, ASK_PARAMETER | RUN_AS_ADMIN) && notification == BN_CLICKED as usize
     {
         update_draft(id);
     } else if notification == BN_CLICKED as usize {
@@ -290,6 +284,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
                         id: library::new_id(),
                         working_directory: String::new(),
                         open_target: None,
+                        run_as_admin: false,
                         kind: library::EntryKind::Command,
                     });
                     s.selected = s.draft.len() - 1;

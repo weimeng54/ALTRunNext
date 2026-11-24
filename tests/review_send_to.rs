@@ -137,6 +137,10 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         assert_surface(dialog, 25 | (30 << 8) | (37 << 16));
         check_edit_selection(dialog, 3103);
         native_snapshot::save(dialog, "send-to-dark-link");
+        let admin = GetDlgItem(dialog, 3111);
+        assert_eq!(SendMessageW(admin, BM_GETCHECK, 0, 0), 0);
+        SendMessageW(admin, BM_SETCHECK, 1, 0);
+        command(dialog, 3111);
         let list = GetDlgItem(dialog, 3104);
         SendMessageW(list, LB_SETCURSEL, 1, 0);
         SendMessageW(
@@ -149,6 +153,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         assert_eq!(text(GetDlgItem(dialog, 3102)), "Actual Document.txt");
         assert_eq!(text(GetDlgItem(dialog, 3103)), document.to_str().unwrap());
         assert_ne!(IsWindowVisible(GetDlgItem(dialog, 3105)), 0);
+        assert_eq!(SendMessageW(admin, BM_GETCHECK, 0, 0), 0);
         command(dialog, 1);
     }
     wait(|| unsafe { IsWindow(dialog) == 0 });
@@ -157,5 +162,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         altrun_probe::launch::resolve_entry(&entries[3], None, &Default::default()).unwrap();
     assert_eq!(request.file, executable.to_str().unwrap());
     assert_eq!(request.parameters, "--name \"two words\" %p");
+    assert!(entries[3].run_as_admin);
+    assert!(!entries[4].run_as_admin);
     assert_eq!(entries[4].command, document.to_str().unwrap());
 }

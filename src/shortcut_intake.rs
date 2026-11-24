@@ -20,6 +20,9 @@ use windows_sys::Win32::{
     },
 };
 
+mod layout;
+use layout::{FOOTER, Layout, MARGIN};
+
 const SAVE: usize = 1;
 const CANCEL: usize = 2;
 const ALIAS: usize = 3101;
@@ -32,6 +35,8 @@ const TEST: usize = 3107;
 const STATUS: usize = 3108;
 const OPEN_LABEL: usize = 3109;
 const CLOSE: usize = 3110;
+const RUN_AS_ADMIN: usize = 3111;
+const OPEN_VALUE: usize = 3112;
 
 thread_local! { static OPEN: Cell<bool> = const { Cell::new(false) }; }
 
@@ -41,7 +46,7 @@ struct Dialog {
     selected: usize,
     updating: bool,
     dpi: i32,
-    height: i32,
+    layout: Layout,
     caption: HFONT,
     launch_enabled: bool,
     save: Save,
@@ -87,19 +92,29 @@ fn sync(hwnd: HWND, state: *mut Dialog) {
                     || crate::localization::tr("ui.system_default"),
                     str::to_owned,
                 );
-                label(
-                    hwnd,
-                    OPEN_LABEL,
-                    &format!("{}  ·  {caption}", crate::localization::tr("ui.open_with")),
-                );
+                label(hwnd, OPEN_VALUE, &caption);
                 EnableWindow(get(hwnd, DEFAULT), i32::from(name.is_some()));
                 true
             }
             _ => false,
         };
-        for id in [OPEN_LABEL, PROGRAM, DEFAULT] {
+        for id in [OPEN_LABEL, OPEN_VALUE, PROGRAM, DEFAULT] {
             ShowWindow(get(hwnd, id), if document { SW_SHOWNA } else { SW_HIDE });
         }
+        let layout = (*state).layout;
+        let dpi = (*state).dpi;
+        let admin = get(hwnd, RUN_AS_ADMIN);
+        SetWindowPos(
+            admin,
+            null_mut(),
+            scaled(MARGIN + 4, dpi),
+            scaled(layout.admin_top(document), dpi),
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        SendMessageW(admin, BM_SETCHECK, usize::from(entry.run_as_admin), 0);
+        InvalidateRect(hwnd, &layout.options_bounds(dpi, true), 0);
         (*state).updating = false;
         InvalidateRect(get(hwnd, ROWS), std::ptr::null(), 0);
     }
@@ -216,19 +231,27 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                         ..rect
                     },
                     RECT {
-                        top: px((*state).height - 59),
+                        top: px((*state).layout.height - FOOTER),
                         ..rect
                     },
                 ] {
                     ui::fill(dc, &bar, theme::chrome());
                 }
+                let selected = &(&(*state).entries)[(*state).selected];
+                (*state).layout.paint_options(
+                    dc,
+                    (*state).dpi,
+                    matches!(selected.open_target, Some(OpenTarget::Document(_))),
+                );
                 ui::panel_caption(dc, (*state).dpi, (*state).caption, "ui.add_shortcut");
                 EndPaint(hwnd, &paint);
                 return 0;
             }
             WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC | WM_CTLCOLORLISTBOX => {
                 let id = GetDlgCtrlID(l as HWND) as usize;
-                let background = if matches!(id, ALIAS | NAME | PATH | ROWS) {
+                let background = if matches!(id, OPEN_LABEL | OPEN_VALUE) {
+                    theme::control_surface()
+                } else if matches!(id, ALIAS | NAME | PATH | ROWS) {
                     theme::paper()
                 } else {
                     theme::surface()
@@ -253,7 +276,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                     ui::caption_close(item, (*state).dpi);
                 } else {
                     let background = if matches!(item.CtlID as usize, PROGRAM | DEFAULT) {
-                        theme::surface()
+                        theme::control_surface()
                     } else {
                         theme::chrome()
                     };
@@ -269,6 +292,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 }
                 match id {
                     ALIAS | NAME if notification == EN_CHANGE as usize => edit_row(hwnd, state),
+                    RUN_AS_ADMIN if notification == BN_CLICKED as usize => {
+                        let value = SendMessageW(get(hwnd, RUN_AS_ADMIN), BM_GETCHECK, 0, 0);
+                        (&mut (*state).entries)[(*state).selected].run_as_admin = value != 0;
+                        status(hwnd, "");
+                    }
                     ROWS if notification == LBN_SELCHANGE as usize => {
                         let row = SendMessageW(get(hwnd, ROWS), LB_GETCURSEL, 0, 0);
                         let entries = &(*state).entries;
@@ -302,19 +330,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                     TEST if (*state).launch_enabled => {
                         let entry = (&(*state).entries)[(*state).selected].clone();
                         let owner = hwnd as usize;
+                        let language = crate::localization::current();
                         std::thread::spawn(move || {
-                            let result = altrun_probe::launch::resolve_entry(
+                            crate::localization::install_snapshot(language);
+                            let result = crate::windows::shell_execute::execute_entry(
                                 &entry,
                                 None,
                                 &Default::default(),
-                            )
-                            .and_then(|(request, mode, directory)| {
-                                crate::windows::shell_execute::execute_request_with(
-                                    &request,
-                                    mode,
-                                    directory.as_deref(),
-                                )
-                            });
+                            );
                             if let Err(error) = result {
                                 let owner = owner as HWND;
                                 if IsWindow(owner) != 0 {
@@ -377,17 +400,25 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide("ALTRun.Native.AddShortcut");
         let batch = entries.len() > 1;
-        let (width, height, form) = if batch {
-            (840, 542, 246)
-        } else {
-            (700, 354, 58)
-        };
+        let layout = Layout::new(
+            batch,
+            entries
+                .iter()
+                .any(|entry| matches!(entry.open_target, Some(OpenTarget::Document(_)))),
+        );
+        let Layout {
+            width,
+            height,
+            field_top,
+            options_top,
+            ..
+        } = layout;
         let mut state = Dialog {
             entries,
             selected: 0,
             updating: true,
             dpi: 96,
-            height,
+            layout,
             caption: null_mut(),
             launch_enabled,
             save,
@@ -479,17 +510,19 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             ui::style_vertical_scrollbar(list, 12, dpi);
         }
         let label_style = ui::STATIC_CENTER_IMAGE;
-        for (caption, id, dy) in [
-            ("ui.alias", ALIAS, 0),
-            ("ui.name", NAME, 48),
-            ("ui.target_path", PATH, 96),
+        let full = width - 2 * MARGIN;
+        let half = (full - 12) / 2;
+        for (caption, id, x, y, w) in [
+            ("ui.alias", ALIAS, MARGIN, field_top, half),
+            ("ui.name", NAME, width - MARGIN - half, field_top, half),
+            ("ui.target_path", PATH, MARGIN, field_top + 67, full),
         ] {
-            control("STATIC", caption, 0, (22, form + dy, 113, 36), label_style);
+            control("STATIC", caption, 0, (x, y, w, 20), label_style);
             let style = WS_TABSTOP
                 | ES_AUTOHSCROLL as u32
                 | if id == PATH { ES_READONLY as u32 } else { 0 };
             ui::style_edit_with_colours(
-                control("EDIT", "", id, (140, form + dy, width - 162, 36), style),
+                control("EDIT", "", id, (x, y + 22, w, 34), style),
                 dpi,
                 || (theme::surface(), theme::paper()),
             );
@@ -498,26 +531,64 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             "STATIC",
             "ui.open_with",
             OPEN_LABEL,
-            (22, form + 154, width - 326, 36),
+            (
+                MARGIN + 13,
+                options_top + 3,
+                layout.value_left - MARGIN - 20,
+                35,
+            ),
             label_style,
         );
+        control(
+            "STATIC",
+            "",
+            OPEN_VALUE,
+            (layout.value_left, options_top + 3, layout.value_width, 35),
+            SS_ENDELLIPSIS as u32 | label_style,
+        );
+        let program_x = width - MARGIN - 10 - layout.program_width;
         button(
             "ui.use_system_default",
             DEFAULT,
-            (width - 299, form + 154, 132, 36),
+            (
+                program_x - 8 - layout.default_width,
+                options_top + 6,
+                layout.default_width,
+                29,
+            ),
         );
-        button("ui.choose_app", PROGRAM, (width - 156, form + 154, 134, 36));
+        button(
+            "ui.choose_app",
+            PROGRAM,
+            (program_x, options_top + 6, layout.program_width, 29),
+        );
+        ui::switch(
+            control(
+                "BUTTON",
+                "ui.run_as_administrator",
+                RUN_AS_ADMIN,
+                (
+                    MARGIN + 4,
+                    options_top + 3,
+                    layout.value_left + 40 - MARGIN,
+                    35,
+                ),
+                BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+            ),
+            dpi,
+        );
         control(
             "STATIC",
             "",
             STATUS,
-            (22, height - 99, width - 44, 34),
+            (MARGIN, height - FOOTER - 19, full, 18),
             label_style,
         );
         let test = button("ui.try_opening", TEST, (22, height - 48, 100, 36));
         EnableWindow(test, i32::from(launch_enabled));
-        button("ui.cancel", CANCEL, (width - 257, height - 48, 86, 36));
-        button("ui.add_shortcut", SAVE, (width - 159, height - 48, 137, 36));
+        let save_x = width - MARGIN - layout.save_width;
+        button("ui.cancel", CANCEL, (save_x - 98, height - 48, 86, 36));
+        button("ui.add_shortcut", SAVE, (save_x, height - 48, layout.save_width, 36));
         sync(hwnd, &mut state);
         let modal_owner = ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);

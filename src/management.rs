@@ -320,6 +320,7 @@ fn from_direct_path(path: &Path) -> Result<Entry, String> {
         } else {
             OpenTarget::Path
         }),
+        run_as_admin: false,
         kind: EntryKind::Command,
     })
 }

@@ -13,6 +13,7 @@ fn entry(alias: &str, frequency: i64) -> Entry {
         id: String::new(),
         working_directory: String::new(),
         open_target: None,
+        run_as_admin: false,
         kind: altrun_probe::library::EntryKind::Command,
     }
 }

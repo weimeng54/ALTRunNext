@@ -578,6 +578,10 @@ pub(super) unsafe extern "system" fn window_proc(
 }
 
 fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
+    if w & 65535 == ID_RUN_AS_ADMIN {
+        execution::launch_selected_with(true);
+        return 0;
+    }
     if w & 65535 == ID_EDIT_COMMAND {
         edit_selected_command();
         return 0;

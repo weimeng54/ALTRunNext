@@ -8,6 +8,20 @@ use altrun_probe::{
 };
 
 #[test]
+fn administrator_preference_round_trips_without_changing_ordinary_rows() {
+    let input = concat!(
+        "normal\tNormal\tnotepad.exe\t0\tnone\tnormal\t\tcommand\t1\n",
+        "admin\tAdmin\tcmd.exe\t0\tnone\tadmin\t\tcommand\t1\t\t\t1\n",
+        "doc\tDocument\tC:\\Demo\\tools.txt\t0\tnone\tdoc\t\tcommand\t1\tdocument\tC:\\Windows\\notepad.exe\t1\n",
+    );
+    let rows = parse_entries(input).unwrap();
+    assert_eq!(library::serialize(&rows).unwrap(), input);
+    assert!(!rows[0].run_as_admin);
+    assert!(rows[1].run_as_admin && rows[2].run_as_admin);
+    assert!(parse_entries(&input.replace("\t1\t\t\t1", "\t1\t\t\tinvalid")).is_err());
+}
+
+#[test]
 fn original_import_removes_only_redundant_target_quotes() {
     let input = concat!(
         "F12|no_encoding|app|示例|@- \"D:\\Program Files\\示例\\app.exe\" --open \"中文 文件.txt\"\n",

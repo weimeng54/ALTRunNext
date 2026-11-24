@@ -7,7 +7,7 @@ use crate::{
     ui::{CaptionIcon, ResultDividers, make_font, scaled, ui, wide},
     windows::{
         clipboard::{clipboard_text, copy_text},
-        shell_execute::{execute_request, execute_request_with},
+        shell_execute::{execute_entry, execute_request},
     },
 };
 use altrun_probe::usage::UsageChange;
@@ -78,6 +78,7 @@ const ID_OPEN_FOLDER: usize = 18011;
 const ID_SHOW: usize = 18012;
 const ID_EDIT_COMMAND: usize = 18013;
 const ID_DELETE_COMMAND: usize = 18014;
+const ID_RUN_AS_ADMIN: usize = 18015;
 const AUTO_HIDE: usize = 17030;
 const SKIN_DONE: u32 = WM_APP + 15;
 const STATE_ERROR: u32 = WM_APP + 17;

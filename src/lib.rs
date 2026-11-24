@@ -11,6 +11,7 @@ pub struct Entry {
     pub id: String,
     pub working_directory: String,
     pub open_target: Option<library::OpenTarget>,
+    pub run_as_admin: bool,
     pub kind: library::EntryKind,
 }
 

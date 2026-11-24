@@ -152,6 +152,7 @@ fn parse_original_shortcuts(text: &str) -> Result<ShortcutImport, String> {
             id: derived_id(alias, name, command, row),
             working_directory: String::new(),
             open_target: None,
+            run_as_admin: false,
             kind: EntryKind::Command,
         };
         validate(&entry).map_err(|error| {

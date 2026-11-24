@@ -109,6 +109,7 @@ const OPEN_WITH: usize = 2115;
 const OPEN_DEFAULT: usize = 2118;
 const OPEN_LABEL: usize = 2174;
 const CHOOSE_TARGET: usize = 2175;
+const RUN_AS_ADMIN: usize = 2176;
 const ASK_PARAMETER: usize = 2139;
 const ADD_FILE: usize = 2120;
 const ADD_FOLDER: usize = 2121;

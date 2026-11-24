@@ -70,6 +70,7 @@ pub(super) fn create(
                 CHOOSE_TARGET => (FIELD_RIGHT - 106, 238, 106, 36),
                 KIND => (FIELD_LEFT, 378, FIELD_WIDTH, 190),
                 ASK_PARAMETER => (FIELD_LEFT, 293, FIELD_WIDTH, 40),
+                RUN_AS_ADMIN => (FIELD_LEFT, 343, FIELD_WIDTH, 40),
                 OPEN_LABEL => (FIELD_LEFT, 296, FIELD_WIDTH, 21),
                 OPEN_WITH => (FIELD_LEFT, 322, FIELD_WIDTH - 144, 36),
                 OPEN_DEFAULT => (FIELD_RIGHT - 128, 322, 128, 36),
@@ -229,6 +230,17 @@ pub(super) fn create(
             ASK_PARAMETER,
         );
         crate::ui::switch(ask_parameter, dpi);
+        let run_as_admin = control(
+            "BUTTON",
+            "ui.run_as_administrator",
+            BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
+            0,
+            0,
+            0,
+            0,
+            RUN_AS_ADMIN,
+        );
+        crate::ui::switch(run_as_admin, dpi);
         control("STATIC", "ui.input_format", 0, 0, 0, 0, 0, 0);
         let kind = control(
             "COMBOBOX",
@@ -342,12 +354,22 @@ pub(super) fn sync_kind_layout() {
         return;
     };
     unsafe {
+        SetWindowPos(
+            GetDlgItem(hwnd, RUN_AS_ADMIN as i32),
+            null_mut(),
+            scaled(FIELD_LEFT, dpi),
+            scaled(if parameter_visible || document { 419 } else { 343 }, dpi),
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
         for (id, show) in [
             (ALIAS, true),
             (COMMAND, true),
             (CHOOSE_TARGET, true),
             (KIND, parameter_visible),
             (ASK_PARAMETER, parameter_supported),
+            (RUN_AS_ADMIN, true),
             (2170, true),
             (2171, true),
             (2172, true),

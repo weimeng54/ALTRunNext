@@ -6,6 +6,16 @@
 
 ## [未发布 / Unreleased]
 
+### 新增 / Added
+
+- 启动项可保存「以管理员身份运行」。启动面板右键菜单也可仅为本次启动请求管理员权限。\
+  Save administrator mode per launch item or request it for one launch from the launcher context menu.
+
+### 变更 / Changed
+
+- 「发送到」添加启动项弹窗更紧凑，快捷项与名称并排，目标路径保留整行空间。\
+  The Send to dialog places the alias and name side by side and gives the target path a full-width field.
+
 ## [0.4.7] - 2026-11-24
 
 ### 新增 / Added

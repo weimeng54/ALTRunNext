@@ -123,6 +123,11 @@ pub(super) fn sync_fields() {
             _ => None,
         });
         let hwnd = GetParent(command);
+        let admin = GetDlgItem(hwnd, RUN_AS_ADMIN as i32);
+        let checked = entry.as_ref().is_some_and(|entry| entry.run_as_admin);
+        if (SendMessageW(admin, BM_GETCHECK, 0, 0) != 0) != checked {
+            SendMessageW(admin, BM_SETCHECK, usize::from(checked), 0);
+        }
         let label = program.map_or_else(
             || crate::localization::tr("ui.choose_app"),
             |p| altrun_probe::local_target::program_name(p).to_owned(),
@@ -237,6 +242,10 @@ pub(super) fn update_draft(changed: usize) {
     };
     let asks_parameter =
         changed == ASK_PARAMETER && unsafe { SendMessageW(toggle, BM_GETCHECK, 0, 0) != 0 };
+    let run_as_admin = (changed == RUN_AS_ADMIN).then(|| unsafe {
+        let admin = GetDlgItem(GetParent(command), RUN_AS_ADMIN as i32);
+        SendMessageW(admin, BM_GETCHECK, 0, 0) != 0
+    });
     if changed == ASK_PARAMETER
         && !asks_parameter
         && EDITOR.with(|c| {
@@ -265,6 +274,9 @@ pub(super) fn update_draft(changed: usize) {
         entry.name = name;
         if entry.kind == library::EntryKind::Command {
             entry.alias = alias;
+            if let Some(run_as_admin) = run_as_admin {
+                entry.run_as_admin = run_as_admin;
+            }
             if entry.command != command_text {
                 entry.command = if entry.open_target.is_some() {
                     altrun_probe::local_target::plain_path(&command_text).to_owned()

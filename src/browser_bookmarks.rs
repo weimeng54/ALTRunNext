@@ -264,6 +264,7 @@ pub fn selected_entries(rows: &[PreviewRow], current: &[Entry]) -> Result<Vec<En
                 id: new_id(),
                 working_directory: String::new(),
                 open_target: Some(OpenTarget::WebUrl),
+                run_as_admin: false,
                 kind: EntryKind::Command,
             };
             crate::library::validate(&entry)?;
