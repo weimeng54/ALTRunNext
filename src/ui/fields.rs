@@ -58,9 +58,6 @@ pub fn combo(item: &DRAWITEMSTRUCT, dpi: i32) {
             0,
         );
         SelectObject(dc, old);
-        if item.itemState & ODS_FOCUS != 0 {
-            DrawFocusRect(dc, &rect);
-        }
     }
 }
 

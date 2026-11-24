@@ -340,18 +340,21 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 SendMessageW(target as _, WM_KEYDOWN, 13, 0);
             });
             let prompt_deadline = Instant::now() + Duration::from_secs(8);
+            let prompt_class = wide("ALTRun.Native.Confirmation");
             loop {
                 let mut prompt = FindWindowExW(
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
-                    wide("#32770").as_ptr(),
+                    prompt_class.as_ptr(),
                     std::ptr::null(),
                 );
                 let mut found = false;
                 while !prompt.is_null() {
                     let mut pid = 0;
                     GetWindowThreadProcessId(prompt, &mut pid);
-                    if pid == _child.0.id() {
+                    if pid == _child.0.id() && IsWindowVisible(prompt) != 0 {
+                        assert!(!GetDlgItem(prompt, IDOK).is_null());
+                        assert!(!GetDlgItem(prompt, IDCANCEL).is_null());
                         SendMessageW(prompt, WM_COMMAND, IDCANCEL as usize, 0);
                         found = true;
                         break;
@@ -359,7 +362,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                     prompt = FindWindowExW(
                         std::ptr::null_mut(),
                         prompt,
-                        wide("#32770").as_ptr(),
+                        prompt_class.as_ptr(),
                         std::ptr::null(),
                     );
                 }

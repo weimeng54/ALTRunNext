@@ -21,6 +21,9 @@
 - 参数弹窗使用统一的圆角输入框，程序的帮助、错误和确认弹框跟随当前主题。\
   Parameter prompts use the shared rounded input, and application help, error, and confirmation dialogs follow the active theme.
 
+- 下拉列表使用主题底色标记当前选项，去掉选项内的虚线框。\
+  Dropdowns highlight the current option with the theme selection color and remove the dotted outline inside the row.
+
 - 统一启动面板、管理窗口、导入和其他对话框的滚动条样式。鼠标移入滚动区域时，滑块加宽并显示淡色轨道。\
   Scrollbars throughout the app share the launcher’s style, with a wider thumb and a subtle track on hover.
 
