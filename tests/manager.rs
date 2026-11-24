@@ -576,16 +576,17 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
                 };
                 let point = ((y << 16) | x) as LPARAM;
                 SendMessageW(gutter, WM_LBUTTONDOWN, 1, point);
-                let end = (((bounds.bottom - 1) << 16) | (bounds.right - 1)) as LPARAM;
-                SendMessageW(gutter, WM_MOUSEMOVE, 1, end);
-                SendMessageW(gutter, WM_LBUTTONUP, 0, point);
                 let mut info = SCROLLINFO {
                     cbSize: size_of::<SCROLLINFO>() as u32,
                     fMask: SIF_POS,
                     ..Default::default()
                 };
                 assert_ne!(GetScrollInfo(list, axis, &mut info), 0);
-                assert!(info.nPos > 0, "the styled gutter must scroll the report");
+                SendMessageW(gutter, WM_LBUTTONUP, 0, point);
+                assert!(
+                    info.nPos > 0,
+                    "the styled gutter must scroll the report on axis {axis} at {theme} {scale}%"
+                );
             }
             SendMessageW(list, LVM_SCROLL, (-460_i32) as usize, 0);
             SendMessageW(list, LVM_ENSUREVISIBLE, 0, 0);
