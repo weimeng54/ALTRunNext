@@ -27,7 +27,11 @@ pub(in crate::ui) fn style_combo_scrollbar(combo: HWND, dpi: i32) {
         {
             // Prevent Windows' themed scrollbar animation from repainting over the track.
             let disable_theme = wide("");
-            SetWindowTheme(info.hwndList, disable_theme.as_ptr(), disable_theme.as_ptr());
+            SetWindowTheme(
+                info.hwndList,
+                disable_theme.as_ptr(),
+                disable_theme.as_ptr(),
+            );
         }
     }
 }
