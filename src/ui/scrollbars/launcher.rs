@@ -7,17 +7,61 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     UI::{
-        Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture},
+        Input::KeyboardAndMouse::{
+            GetCapture, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+        },
         Shell::DefSubclassProc,
         WindowsAndMessaging::*,
     },
 };
 
 const TRACK_INSET: i32 = 4;
-const TRACK_WIDTH: i32 = 3;
-const THUMB_WIDTH: i32 = 10;
-const MINIMUM_THUMB: i32 = 24;
+const TRACK_WIDTH: i32 = 14;
+const IDLE_THUMB_WIDTH: i32 = 8;
+const ACTIVE_THUMB_WIDTH: i32 = 11;
+const MINIMUM_THUMB: i32 = 28;
 const MINIMUM_TRAVEL: i32 = 8;
+
+enum Pointer {
+    Outside,
+    Hover,
+    Drag(i32),
+}
+
+impl Pointer {
+    fn read(hwnd: HWND) -> Self {
+        // The drag offset is nonnegative. Zero is the window's initial state.
+        match unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } {
+            0 => Self::Outside,
+            -1 => Self::Hover,
+            offset => Self::Drag((offset - 1) as i32),
+        }
+    }
+
+    fn apply(self, hwnd: HWND) {
+        let value = match self {
+            Self::Outside => 0,
+            Self::Hover => -1,
+            Self::Drag(offset) => offset as isize + 1,
+        };
+        unsafe {
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, value);
+            InvalidateRect(hwnd, std::ptr::null(), 0);
+        }
+    }
+
+    fn enter(hwnd: HWND) {
+        unsafe {
+            TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            });
+        }
+        Self::Hover.apply(hwnd);
+    }
+}
 
 struct Thumb {
     start: i32,
@@ -29,6 +73,12 @@ struct Thumb {
 }
 
 impl Thumb {
+    fn for_window(hwnd: HWND, list: HWND) -> Option<Self> {
+        let mut bounds = RECT::default();
+        unsafe { GetClientRect(hwnd, &mut bounds) };
+        Self::measure(list, bounds.bottom, window_dpi(list))
+    }
+
     fn measure(list: HWND, height: i32, dpi: i32) -> Option<Self> {
         let mut info = SCROLLINFO {
             cbSize: size_of::<SCROLLINFO>() as u32,
@@ -96,7 +146,26 @@ fn paint(hwnd: HWND, list: HWND, dc: HDC) {
     unsafe { GetClientRect(hwnd, &mut bounds) };
     fill(dc, &bounds, theme::paper());
     let dpi = window_dpi(list);
-    if let Some(thumb) = Thumb::measure(list, bounds.bottom, dpi) {
+    let Some(thumb) = Thumb::measure(list, bounds.bottom, dpi) else {
+        return;
+    };
+    let active = !matches!(Pointer::read(hwnd), Pointer::Outside);
+    let (idle_colour, active_colour, track_colour) = if theme::high_contrast() {
+        (theme::text(), theme::accent(), theme::selection())
+    } else if theme::is_dark() {
+        (
+            theme::rgb(116, 134, 154),
+            theme::rgb(159, 177, 198),
+            theme::rgb(35, 46, 58),
+        )
+    } else {
+        (
+            theme::rgb(132, 149, 168),
+            theme::rgb(93, 114, 138),
+            theme::rgb(237, 242, 247),
+        )
+    };
+    let (width, colour) = if active {
         let track = centered_bar(
             bounds,
             scaled(TRACK_WIDTH, dpi),
@@ -107,22 +176,20 @@ fn paint(hwnd: HWND, list: HWND, dc: HDC) {
             dc,
             track,
             track.right - track.left,
-            theme::divider(),
-            theme::divider(),
+            track_colour,
+            track_colour,
         );
-        let bar = centered_bar(
-            bounds,
-            scaled(THUMB_WIDTH, dpi),
-            thumb.top,
-            thumb.top + thumb.length,
-        );
-        let colour = if !theme::high_contrast() && unsafe { GetCapture() == hwnd } {
-            theme::accent()
-        } else {
-            theme::muted()
-        };
-        rounded(dc, bar, bar.right - bar.left, colour, colour);
-    }
+        (ACTIVE_THUMB_WIDTH, active_colour)
+    } else {
+        (IDLE_THUMB_WIDTH, idle_colour)
+    };
+    let bar = centered_bar(
+        bounds,
+        scaled(width, dpi),
+        thumb.top,
+        thumb.top + thumb.length,
+    );
+    rounded(dc, bar, bar.right - bar.left, colour, colour);
 }
 
 pub(super) unsafe extern "system" fn procedure(
@@ -149,41 +216,66 @@ pub(super) unsafe extern "system" fn procedure(
                 EndPaint(hwnd, &ps);
                 0
             }
-            WM_LBUTTONDOWN | WM_MOUSEMOVE => {
-                let dragging = GetCapture() == hwnd;
-                if msg == WM_LBUTTONDOWN || dragging {
-                    let mut bounds = RECT::default();
-                    GetClientRect(hwnd, &mut bounds);
-                    if let Some(thumb) = Thumb::measure(list, bounds.bottom, window_dpi(list)) {
-                        let y = (l >> 16) as i16 as i32;
-                        if msg == WM_LBUTTONDOWN {
-                            let on_thumb = (thumb.top..thumb.top + thumb.length).contains(&y);
-                            let grab = if on_thumb {
-                                y - thumb.top
-                            } else {
-                                thumb.length / 2
-                            };
-                            SetWindowLongPtrW(hwnd, GWLP_USERDATA, grab as isize);
-                            SetCapture(hwnd);
-                            if !on_thumb {
-                                thumb.scroll_to(list, y, grab);
-                            }
-                            InvalidateRect(hwnd, std::ptr::null(), 0);
-                        } else {
-                            thumb.scroll_to(list, y, GetWindowLongPtrW(hwnd, GWLP_USERDATA) as i32);
+            WM_MOUSEMOVE => {
+                match Pointer::read(hwnd) {
+                    Pointer::Outside => Pointer::enter(hwnd),
+                    Pointer::Hover => {}
+                    Pointer::Drag(grab) => {
+                        if let Some(thumb) = Thumb::for_window(hwnd, list) {
+                            thumb.scroll_to(list, (l >> 16) as i16 as i32, grab);
+                        }
+                    }
+                }
+                0
+            }
+            WM_MOUSELEAVE => {
+                if matches!(Pointer::read(hwnd), Pointer::Hover) {
+                    Pointer::Outside.apply(hwnd);
+                }
+                0
+            }
+            WM_LBUTTONDOWN => {
+                if let Some(thumb) = Thumb::for_window(hwnd, list) {
+                    let y = (l >> 16) as i16 as i32;
+                    let on_thumb = (thumb.top..thumb.top + thumb.length).contains(&y);
+                    let grab = if on_thumb {
+                        y - thumb.top
+                    } else {
+                        thumb.length / 2
+                    };
+                    SetCapture(hwnd);
+                    if GetCapture() == hwnd {
+                        Pointer::Drag(grab).apply(hwnd);
+                        if !on_thumb {
+                            thumb.scroll_to(list, y, grab);
                         }
                     }
                 }
                 0
             }
             WM_LBUTTONUP | WM_CANCELMODE | WM_SHOWWINDOW if msg != WM_SHOWWINDOW || w == 0 => {
+                if msg != WM_LBUTTONUP && !matches!(Pointer::read(hwnd), Pointer::Outside) {
+                    Pointer::Outside.apply(hwnd);
+                }
                 if GetCapture() == hwnd {
                     ReleaseCapture();
                 }
                 DefSubclassProc(hwnd, msg, w, l)
             }
             WM_CAPTURECHANGED => {
-                InvalidateRect(hwnd, std::ptr::null(), 0);
+                if matches!(Pointer::read(hwnd), Pointer::Drag(_)) {
+                    let mut cursor = POINT::default();
+                    let mut bounds = RECT::default();
+                    if l == 0
+                        && GetCursorPos(&mut cursor) != 0
+                        && GetWindowRect(hwnd, &mut bounds) != 0
+                        && PtInRect(&bounds, cursor) != 0
+                    {
+                        Pointer::enter(hwnd);
+                    } else {
+                        Pointer::Outside.apply(hwnd);
+                    }
+                }
                 0
             }
             WM_MOUSEWHEEL => SendMessageW(list, msg, w, l),
