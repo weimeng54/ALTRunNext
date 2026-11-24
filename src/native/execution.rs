@@ -99,14 +99,11 @@ pub(super) fn launch_selected_with(run_as_admin: bool) {
         if !run_as_admin
             && enabled
             && !query.is_empty()
-            && unsafe {
-                MessageBoxW(
-                    hwnd,
-                    ui("ui.no_matches_add_a_new_shortcut").as_ptr(),
-                    ui("ui.new_shortcut").as_ptr(),
-                    MB_OKCANCEL | MB_ICONQUESTION,
-                )
-            } == IDOK
+            && crate::ui::dialogs::input::confirm(
+                hwnd,
+                "ui.new_shortcut",
+                "ui.no_matches_add_a_new_shortcut",
+            )
         {
             crate::manager::enqueue(Vec::new(), Some((query, VK_INSERT)));
             open_manager();
@@ -267,6 +264,8 @@ pub(super) fn selected_action(copy: bool) {
                 show_inline_error(&e);
             }
         } else {
+            let language = crate::localization::current();
+            let palette = theme::Snapshot::capture();
             std::thread::spawn(move || {
                 let base = if entry.working_directory.is_empty() {
                     context.base_directory
@@ -291,7 +290,11 @@ pub(super) fn selected_action(copy: bool) {
                             parameters: String::new(),
                         });
                     }
-                    Err(e) => crate::ui::show_error(&e),
+                    Err(error) => {
+                        palette.install();
+                        crate::localization::install_snapshot(language);
+                        crate::ui::show_error(&error);
+                    }
                 }
             });
         }

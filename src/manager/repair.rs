@@ -261,14 +261,11 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                         match repair_path(hwnd, finding) {
                             Ok(true) => (*state).completion = Some("ui.repaired_path_save"),
                             Ok(false) => {}
-                            Err(err) => {
-                                MessageBoxW(
-                                    hwnd,
-                                    ui(&err).as_ptr(),
-                                    ui("ui.repair_missing_path").as_ptr(),
-                                    MB_OK | MB_ICONERROR,
-                                );
-                            }
+                            Err(err) => ui::dialogs::input::notice(
+                                hwnd,
+                                "ui.repair_missing_path",
+                                &err,
+                            ),
                         }
                         (*state).busy = false;
                         if (*state).completion.is_some() {

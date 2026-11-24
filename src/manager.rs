@@ -250,16 +250,17 @@ pub fn open(
         return;
     }
     let owner = parent as usize;
+    let palette = theme::Snapshot::capture();
+    let language = crate::localization::current();
     std::thread::spawn(move || {
+        palette.install();
+        crate::localization::install_snapshot(language);
         if let Err(error) = run(path, initial, owner, sender, launch_enabled, show) {
-            unsafe {
-                MessageBoxW(
-                    null_mut(),
-                    ui(&error).as_ptr(),
-                    ui("ui.could_not_open_the_shortcut_manager").as_ptr(),
-                    MB_OK | MB_ICONERROR,
-                );
-            }
+            crate::ui::dialogs::input::notice(
+                null_mut(),
+                "ui.could_not_open_the_shortcut_manager",
+                &error,
+            );
         }
         WINDOW.store(0, Ordering::Release);
         OPEN.store(false, Ordering::Release);

@@ -31,7 +31,7 @@ struct Input {
     background: HBRUSH,
     paper: HBRUSH,
     report: Option<Report>,
-    preview: bool,
+    custom_caption: bool,
     parameter: Option<parameter::Prompt>,
     launched: bool,
 }
@@ -59,6 +59,7 @@ struct Options<'a> {
     alternate: Option<&'a str>,
     preview: Option<PreviewLabels<'a>>,
     parameter: Option<ParameterOptions>,
+    notice: bool,
 }
 
 unsafe extern "system" fn edit_procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -92,7 +93,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
     let state = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Input;
     if !state.is_null() {
         match msg {
-            WM_NCHITTEST if unsafe { (*state).preview } => unsafe {
+            WM_NCHITTEST if unsafe { (*state).custom_caption } => unsafe {
                 let mut point = POINT {
                     x: l as i16 as i32,
                     y: (l >> 16) as i16 as i32,
@@ -109,7 +110,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     HTCLIENT as isize
                 };
             },
-            WM_PAINT if unsafe { (*state).preview } => unsafe {
+            WM_PAINT if unsafe { (*state).custom_caption } => unsafe {
                 let state = &*state;
                 let mut paint = PAINTSTRUCT::default();
                 let dc = BeginPaint(hwnd, &mut paint);
@@ -166,7 +167,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let state = unsafe { &*state };
                 if item.CtlType == ODT_LISTBOX {
                     draw_report_row(item, state);
-                } else if item.CtlID == 4 && state.preview {
+                } else if item.CtlID == 4 && state.custom_caption {
                     ui::caption_close(item, state.dpi);
                 } else {
                     ui::button_on(item, item.CtlID == 1, theme::surface(), state.dpi);
@@ -292,6 +293,19 @@ pub fn confirm(owner: HWND, title: &str, message: &str) -> bool {
         .is_some()
 }
 
+pub(crate) fn notice(owner: HWND, title: &str, message: &str) {
+    open(
+        owner,
+        title,
+        Some(message),
+        None,
+        Options {
+            notice: true,
+            ..Options::default()
+        },
+    );
+}
+
 pub fn report(owner: HWND, title: &str, report: Report) -> bool {
     open(owner, title, Some(""), Some(report), Options::default())
         .0
@@ -394,7 +408,7 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
             );
         }
         SelectObject(item.hDC, previous);
-        if state.preview {
+        if state.custom_caption {
             let line = RECT {
                 top: rect.bottom - 1,
                 ..rect
@@ -420,7 +434,15 @@ fn open(
             alternate,
             preview,
             parameter,
+            notice,
         } = options;
+        let custom_caption = preview.is_some() || notice;
+        let close_settings = title == "ui.close_settings";
+        let title = if message.is_some() {
+            crate::localization::tr(title)
+        } else {
+            title.to_owned()
+        };
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide(if message.is_some() {
             "ALTRun.Native.Confirmation"
@@ -441,7 +463,7 @@ fn open(
         let state = Box::into_raw(Box::new(Input {
             dpi: 96,
             caption: null_mut(),
-            title: title.to_owned(),
+            title: title.clone(),
             done: false,
             value: None,
             alternate: false,
@@ -451,20 +473,15 @@ fn open(
             background,
             paper,
             report,
-            preview: preview.is_some(),
+            custom_caption,
             parameter: parameter.map(parameter::Prompt::new),
             launched: false,
         }));
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            wide(&if message.is_none() {
-                title.to_owned()
-            } else {
-                crate::localization::tr(title)
-            })
-            .as_ptr(),
-            (if preview.is_some() {
+            wide(&title).as_ptr(),
+            (if custom_caption {
                 WS_POPUP
             } else {
                 WS_OVERLAPPED | WS_CAPTION
@@ -487,8 +504,14 @@ fn open(
             return (None, false);
         }
         theme::frame(hwnd);
-        let long =
-            message.is_some_and(|message| message.chars().count() > 84 || message.contains('\n'));
+        let localized_message = message.map(crate::localization::tr);
+        let long = if notice {
+            localized_message
+                .as_deref()
+                .is_some_and(|text| text.chars().count() > 72 || text.contains('\n'))
+        } else {
+            message.is_some_and(|text| text.chars().count() > 84 || text.contains('\n'))
+        };
         let report = (*state).report.as_ref();
         let has_rows = report.is_some_and(|r| !r.rows.is_empty());
         let width = if report.is_some() || action.is_some() {
@@ -509,9 +532,9 @@ fn open(
         let note_height = if preview.as_ref().is_some_and(|p| !p.note.is_empty()) {
             38
         } else {
-            0
+            SS_NOPREFIX
         };
-        let start_y = if preview.is_some() {
+        let start_y = if custom_caption {
             ui::geometry::CAPTION
         } else {
             0
@@ -532,13 +555,13 @@ fn open(
         } else if inline_error {
             (152, 30, 108)
         } else {
-            (110, 28, 66)
+            (110, 32, 66)
         };
         let dpi = crate::ui::geometry::fit(hwnd, width, height + start_y);
         (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
         let y = |coordinate| scaled(start_y + coordinate, dpi);
-        if preview.is_some() {
+        if custom_caption {
             (*state).caption = make_font(14, 600, "Microsoft YaHei UI", dpi);
             ui::round_panel(hwnd, scaled(width, dpi), scaled(height + start_y, dpi), dpi);
             let close = CreateWindowExW(
@@ -564,15 +587,12 @@ fn open(
                 | WS_CLIPSIBLINGS
                 | (ES_MULTILINE | ES_READONLY) as u32
         } else if message.is_none() {
-            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32
+            WS_TABSTOP | ES_AUTOHSCROLL as u32
         } else {
             0
         };
         let content_text = report
-            .map_or_else(
-                || crate::localization::tr(message.unwrap_or("")),
-                |r| r.summary.clone(),
-            )
+            .map_or_else(|| localized_message.unwrap_or_default(), |r| r.summary.clone())
             .replace("\r\n", "\n")
             .replace('\n', "\r\n");
         let content = CreateWindowExW(
@@ -609,10 +629,12 @@ fn open(
             (*state).old_edit =
                 SetWindowLongPtrW(content, GWLP_WNDPROC, edit_procedure as *const () as isize);
         }
-        if message.is_none() || long {
+        SendMessageW(content, WM_SETFONT, font as usize, 0);
+        if message.is_none() {
+            ui::style_edit_with_colours(content, dpi, || (theme::surface(), theme::paper()));
+        } else if long {
             crate::ui::buffer_edit_selection(content);
         }
-        SendMessageW(content, WM_SETFONT, font as usize, 0);
         if inline_error {
             let error = CreateWindowExW(
                 0,
@@ -727,7 +749,9 @@ fn open(
         }
         let mut focus = content;
         let actions: &[(&str, usize, i32, i32)] =
-            if let (Some(action), Some(alternate)) = (action, alternate) {
+            if notice {
+                &[("ui.ok", 1, width - 100, 84)]
+            } else if let (Some(action), Some(alternate)) = (action, alternate) {
                 &[
                     (action, 1, 424, 160),
                     (alternate, 3, 234, 180),
@@ -744,7 +768,7 @@ fn open(
                 ]
             } else if report.is_some() {
                 &[("ui.close", 1, 500, 84)]
-            } else if title == "ui.close_settings" {
+            } else if close_settings {
                 &[
                     ("ui.discard_and_close", 1, 156, 120),
                     ("ui.keep_editing", 2, 284, 120),

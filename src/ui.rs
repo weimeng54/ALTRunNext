@@ -25,7 +25,7 @@ pub(crate) use painting::{
 pub(crate) use scrollbars::{style_list_scrollbar, style_report_scrollbars, style_text_scrollbar};
 
 use std::ptr::null_mut;
-use windows_sys::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::Graphics::Gdi::*;
 
 pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
@@ -38,14 +38,7 @@ pub(crate) fn scaled(value: i32, dpi: i32) -> i32 {
 }
 
 pub fn show_error(message: &str) {
-    unsafe {
-        MessageBoxW(
-            null_mut(),
-            ui(message).as_ptr(),
-            wide("ALTRunNext").as_ptr(),
-            MB_OK | MB_ICONERROR,
-        );
-    }
+    dialogs::input::notice(null_mut(), "ALTRunNext", message);
 }
 
 pub(crate) fn make_font(size: i32, weight: i32, family: &str, dpi: i32) -> HFONT {

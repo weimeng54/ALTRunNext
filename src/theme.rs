@@ -50,6 +50,30 @@ pub fn border() -> u32 {
 }
 thread_local! {static KEYWORD:std::cell::Cell<u32>=const{std::cell::Cell::new(PAPER)};static CONTRAST:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 thread_local! {static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };}
+
+pub(crate) struct Snapshot {
+    palette: Palette,
+    dark: bool,
+    contrast: bool,
+}
+
+impl Snapshot {
+    pub(crate) fn capture() -> Self {
+        Self {
+            palette: PALETTE.with(std::cell::Cell::get),
+            dark: is_dark(),
+            contrast: high_contrast(),
+        }
+    }
+
+    pub(crate) fn install(self) {
+        PALETTE.with(|p| p.set(self.palette));
+        DARK.with(|dark| dark.set(self.dark));
+        CONTRAST.with(|contrast| contrast.set(self.contrast));
+        KEYWORD.with(|keyword| keyword.set(self.palette.paper));
+    }
+}
+
 pub fn keyword() -> u32 {
     KEYWORD.with(std::cell::Cell::get)
 }

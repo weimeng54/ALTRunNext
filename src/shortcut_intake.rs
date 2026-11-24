@@ -8,7 +8,7 @@ use crate::{
     windows::file_picker::pick_program,
 };
 use altrun_probe::{Entry, library::OpenTarget, local_target::program_name};
-use std::{cell::Cell, ptr::null_mut};
+use std::{cell::Cell, ptr::null_mut, sync::mpsc};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -37,6 +37,7 @@ const OPEN_LABEL: usize = 3109;
 const CLOSE: usize = 3110;
 const RUN_AS_ADMIN: usize = 3111;
 const OPEN_VALUE: usize = 3112;
+const TEST_RESULT: u32 = WM_APP + 1;
 const STATIC_END_ELLIPSIS: u32 = 0x0000_4000; // SS_ENDELLIPSIS from WinUser.h.
 
 thread_local! { static OPEN: Cell<bool> = const { Cell::new(false) }; }
@@ -50,6 +51,8 @@ struct Dialog {
     layout: Layout,
     caption: HFONT,
     launch_enabled: bool,
+    test_sender: mpsc::Sender<Result<(), String>>,
+    test_results: mpsc::Receiver<Result<(), String>>,
     save: Save,
 }
 
@@ -200,6 +203,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
             return DefWindowProcW(hwnd, message, w, l);
         }
         match message {
+            TEST_RESULT => {
+                if let Ok(result) = (*state).test_results.try_recv() {
+                    if let Err(error) = result {
+                        ui::dialogs::input::notice(hwnd, "ui.try_opening", &error);
+                    }
+                    EnableWindow(get(hwnd, TEST), 1);
+                }
+                return 0;
+            }
             WM_CLOSE => {
                 DestroyWindow(hwnd);
                 return 0;
@@ -328,10 +340,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                         sync(hwnd, state);
                         status(hwnd, "");
                     }
-                    TEST if (*state).launch_enabled => {
+                    TEST if (*state).launch_enabled && IsWindowEnabled(get(hwnd, TEST)) != 0 => {
                         let entry = (&(*state).entries)[(*state).selected].clone();
                         let owner = hwnd as usize;
+                        let sender = (*state).test_sender.clone();
                         let language = crate::localization::current();
+                        EnableWindow(get(hwnd, TEST), 0);
                         std::thread::spawn(move || {
                             crate::localization::install_snapshot(language);
                             let result = crate::windows::shell_execute::execute_entry(
@@ -339,16 +353,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                                 None,
                                 &Default::default(),
                             );
-                            if let Err(error) = result {
-                                let owner = owner as HWND;
-                                if IsWindow(owner) != 0 {
-                                    MessageBoxW(
-                                        owner,
-                                        ui(&error).as_ptr(),
-                                        ui("ui.try_opening").as_ptr(),
-                                        MB_OK | MB_ICONERROR,
-                                    );
-                                }
+                            if sender.send(result).is_ok() {
+                                PostMessageW(owner as HWND, TEST_RESULT, 0, 0);
                             }
                         });
                     }
@@ -414,6 +420,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             options_top,
             ..
         } = layout;
+        let (test_sender, test_results) = mpsc::channel();
         let mut state = Dialog {
             entries,
             selected: 0,
@@ -422,6 +429,8 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             layout,
             caption: null_mut(),
             launch_enabled,
+            test_sender,
+            test_results,
             save,
         };
         RegisterClassW(&WNDCLASSW {
@@ -450,7 +459,11 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         if hwnd.is_null() {
             UnregisterClassW(class.as_ptr(), instance);
             OPEN.with(|open| open.set(false));
-            crate::ui::show_error("ui.could_not_open_the_add_shortcut_window");
+            ui::dialogs::input::notice(
+                owner,
+                "ALTRunNext",
+                "ui.could_not_open_the_add_shortcut_window",
+            );
             return;
         }
         state.dpi = crate::ui::geometry::fit(hwnd, width, height);

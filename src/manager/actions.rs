@@ -201,6 +201,7 @@ fn test_selected(hwnd: HWND) {
     };
     status("ui.test_launch_requested", false);
     let language = crate::localization::current();
+    let palette = theme::Snapshot::capture();
     std::thread::spawn(move || {
         crate::localization::install_snapshot(language);
         if entry.open_target.is_none()
@@ -212,7 +213,8 @@ fn test_selected(hwnd: HWND) {
         let result =
             crate::windows::shell_execute::execute_entry(&entry, parameter.as_deref(), &context);
         if let Err(error) = result {
-            crate::ui::show_error(&error);
+            palette.install();
+            crate::ui::dialogs::input::notice(null_mut(), "ui.try_opening", &error);
         }
     });
 }

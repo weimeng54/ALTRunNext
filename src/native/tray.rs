@@ -168,18 +168,16 @@ pub(super) fn lifecycle(clean: bool) {
         (s.data_path.clone(), s.enabled, s.hwnd)
     });
     if clean {
-        if unsafe {
-            MessageBoxW(
-                hwnd,
-                ui("ui.turn_off_startup_remove_the_send_to").as_ptr(),
-                ui("ui.remove_windows_integrations").as_ptr(),
-                MB_OKCANCEL | MB_ICONQUESTION,
-            )
-        } != IDOK
-        {
+        if !crate::ui::dialogs::input::confirm(
+            hwnd,
+            "ui.remove_windows_integrations",
+            "ui.turn_off_startup_remove_the_send_to",
+        ) {
             return;
         }
         let owner = hwnd as usize;
+        let language = crate::localization::current();
+        let palette = theme::Snapshot::capture();
         std::thread::spawn(move || {
             match altrun_probe::integration::Integration::for_data(&path)
                 .and_then(|i| i.apply(false, false))
@@ -187,7 +185,11 @@ pub(super) fn lifecycle(clean: bool) {
                 Ok(()) => unsafe {
                     PostMessageW(owner as HWND, QUIT, 0, 0);
                 },
-                Err(e) => crate::ui::show_error(&e),
+                Err(error) => {
+                    palette.install();
+                    crate::localization::install_snapshot(language);
+                    crate::ui::show_error(&error);
+                }
             }
         });
         return;
@@ -207,7 +209,7 @@ pub(super) fn finish_restore() {
         (state.data_path.clone(), state.enabled, state.hwnd)
     });
     if start_replacement(&path, enabled).is_err() {
-        crate::ui::show_error("backup.restart_failed");
+        crate::ui::dialogs::input::notice(hwnd, "ALTRunNext", "backup.restart_failed");
     }
     unsafe {
         DestroyWindow(hwnd);

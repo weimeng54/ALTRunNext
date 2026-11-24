@@ -391,7 +391,11 @@ pub(super) fn run(
                             continue;
                         }
                         VK_F1 => {
-                            crate::ui::show_error("ui.select_a_shortcut_to_edit_tools_can");
+                            crate::ui::dialogs::input::notice(
+                                hwnd,
+                                "ui.manage_shortcuts",
+                                "ui.select_a_shortcut_to_edit_tools_can",
+                            );
                             continue;
                         }
                         VK_UP | VK_DOWN if control => {

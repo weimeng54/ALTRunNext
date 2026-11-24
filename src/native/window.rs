@@ -543,14 +543,11 @@ pub(super) unsafe extern "system" fn window_proc(
         QUIT => {
             if crate::manager::is_open() || crate::settings::is_open() {
                 crate::manager::focus();
-                unsafe {
-                    MessageBoxW(
-                        hwnd,
-                        ui("ui.save_or_close_the_shortcut_manager_before").as_ptr(),
-                        wide("ALTRunNext").as_ptr(),
-                        MB_OK | MB_ICONINFORMATION,
-                    );
-                }
+                crate::ui::dialogs::input::notice(
+                    hwnd,
+                    "ALTRunNext",
+                    "ui.save_or_close_the_shortcut_manager_before",
+                );
                 return 0;
             }
             unsafe {

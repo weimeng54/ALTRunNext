@@ -4,6 +4,7 @@
 use super::*;
 
 pub(crate) fn run() -> Result<(), String> {
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     crate::localization::refresh_packs();
     crate::localization::set_active("system");
     let args: Vec<_> = std::env::args().collect();
@@ -46,6 +47,7 @@ pub(crate) fn run() -> Result<(), String> {
     drop(settings_file);
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
     crate::localization::set_active(&preferences.get("Lang"));
+    theme::install(&preferences);
     let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
         altrun_probe::library::Snapshot::open(&data_path)?.entries
     } else {
@@ -91,9 +93,7 @@ pub(crate) fn run() -> Result<(), String> {
             }
         }
     });
-    theme::install(&preferences);
     unsafe {
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide("ALTRun.Native.PerformanceProbe");
         let background = CreateSolidBrush(theme::surface());

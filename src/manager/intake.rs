@@ -48,7 +48,7 @@ pub(super) fn apply_intake(hwnd: HWND) {
                 let launch_enabled = EDITOR.with(|c| c.borrow().as_ref().unwrap().launch_enabled);
                 crate::shortcut_intake::open(hwnd, entries, launch_enabled, save_intake);
             }
-            Err(error) => crate::ui::show_error(&error),
+            Err(error) => crate::ui::dialogs::input::notice(hwnd, "ALTRunNext", &error),
         }
     }
     let action = ACTION.lock().ok().and_then(|mut p| p.take());

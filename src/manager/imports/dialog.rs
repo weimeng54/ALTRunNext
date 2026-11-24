@@ -585,7 +585,7 @@ pub(super) fn open(
             }
             DeleteObject(dialog.surface);
             DeleteObject(dialog.paper);
-            ui::show_error("ui.import_preview_failed");
+            ui::dialogs::input::notice(owner, "ALTRunNext", "ui.import_preview_failed");
             return Outcome::Cancelled;
         }
         let dpi = ui::geometry::fit(hwnd, WIDTH, height);

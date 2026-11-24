@@ -252,16 +252,16 @@ pub(crate) fn open(
     std::thread::spawn(move || {
         let result = (|| -> Result<(), String> {
             localization::refresh_packs();
-            let (file, _) = TextFile::open(&path.with_extension("settings.ini"))?;
             let mut prefs = prefs;
             crate::localization::install(&prefs.get("Lang"));
+            theme::install_chrome(&prefs);
+            let (file, _) = TextFile::open(&path.with_extension("settings.ini"))?;
             if let Ok(integration) = altrun_probe::integration::Integration::for_data(&path)
                 && let Ok((startup, send_to)) = integration.status()
             {
                 let _ = prefs.set("AutoRun", if startup { "1" } else { "0" });
                 let _ = prefs.set("AddToSendTo", if send_to { "1" } else { "0" });
             }
-            theme::install_chrome(&prefs);
             let background = unsafe { CreateSolidBrush(crate::theme::surface()) };
             let paper = unsafe { CreateSolidBrush(crate::theme::paper()) };
             let rail = unsafe { CreateSolidBrush(theme::chrome()) };
