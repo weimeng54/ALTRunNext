@@ -1,12 +1,14 @@
 // Copyright (c) 2026 GPT-6.2 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use super::{Axis, appearance::Visual, scrollbar_info};
+use super::{Axis, appearance::Visual, scrollbar_info, wide};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     UI::{
-        Controls::{COMBOBOXINFO, GetComboBoxInfo, STATE_SYSTEM_PRESSED, WM_MOUSELEAVE},
+        Controls::{
+            COMBOBOXINFO, GetComboBoxInfo, STATE_SYSTEM_PRESSED, SetWindowTheme, WM_MOUSELEAVE,
+        },
         Input::KeyboardAndMouse::{TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent},
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -19,8 +21,13 @@ pub(in crate::ui) fn style_combo_scrollbar(combo: HWND, dpi: i32) {
         ..Default::default()
     };
     unsafe {
-        if GetComboBoxInfo(combo, &mut info) != 0 && !info.hwndList.is_null() {
-            SetWindowSubclass(info.hwndList, Some(procedure), dpi as usize, 0);
+        if GetComboBoxInfo(combo, &mut info) != 0
+            && !info.hwndList.is_null()
+            && SetWindowSubclass(info.hwndList, Some(procedure), dpi as usize, 0) != 0
+        {
+            // Prevent Windows' themed scrollbar animation from repainting over the track.
+            let disable_theme = wide("");
+            SetWindowTheme(info.hwndList, disable_theme.as_ptr(), disable_theme.as_ptr());
         }
     }
 }
@@ -83,10 +90,18 @@ unsafe extern "system" fn procedure(
         if changed {
             SetWindowSubclass(hwnd, Some(procedure), dpi, usize::from(active));
         }
-        if matches!(
-            msg,
-            WM_NCPAINT | WM_PAINT | WM_VSCROLL | WM_MOUSEWHEEL | WM_NCLBUTTONDOWN | WM_KEYDOWN
-        ) || (changed && IsWindowVisible(hwnd) != 0)
+        if IsWindowVisible(hwnd) != 0
+            && (changed
+                || matches!(
+                    msg,
+                    WM_NCPAINT
+                        | WM_PAINT
+                        | WM_VSCROLL
+                        | WM_MOUSEWHEEL
+                        | WM_NCLBUTTONDOWN
+                        | WM_NCMOUSEMOVE
+                        | WM_KEYDOWN
+                ))
         {
             let dc = GetWindowDC(hwnd);
             if !dc.is_null() {
