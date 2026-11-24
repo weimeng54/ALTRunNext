@@ -477,8 +477,13 @@ fn open(
             parameter: parameter.map(parameter::Prompt::new),
             launched: false,
         }));
+        let frame = if custom_caption {
+            0
+        } else {
+            WS_EX_DLGMODALFRAME
+        };
         let hwnd = CreateWindowExW(
-            WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
+            frame | WS_EX_CONTROLPARENT,
             class.as_ptr(),
             wide(&title).as_ptr(),
             (if custom_caption {
