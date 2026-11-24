@@ -489,6 +489,7 @@ pub(super) fn apply_appearance() {
         STATE.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
+            s.result_dividers = ResultDividers::from_preferences(&prefs);
             let background = CreateSolidBrush(theme::surface());
             for (slot, new) in [
                 (&mut s.background, background),

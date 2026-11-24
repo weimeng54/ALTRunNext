@@ -13,8 +13,8 @@
 
 ### 变更 / Changed
 
-- 启动结果默认显示竖向分隔线。设置中的启动面板预览初始显示完整的示例列表。\
-  Launch results show vertical dividers by default. The launcher preview in Settings initially shows the full sample list.
+- 启动结果默认显示竖向分隔线。设置中的启动面板预览初始显示多条示例结果。\
+  Launch results show vertical dividers by default. The launcher preview in Settings opens with several sample results.
 
 ### 修复 / Fixed
 

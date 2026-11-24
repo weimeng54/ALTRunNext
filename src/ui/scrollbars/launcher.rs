@@ -13,6 +13,12 @@ use windows_sys::Win32::{
     },
 };
 
+const TRACK_INSET: i32 = 4;
+const TRACK_WIDTH: i32 = 3;
+const THUMB_WIDTH: i32 = 10;
+const MINIMUM_THUMB: i32 = 24;
+const MINIMUM_TRAVEL: i32 = 8;
+
 struct Thumb {
     start: i32,
     top: i32,
@@ -38,9 +44,10 @@ impl Thumb {
             return None;
         }
         let last = (total - page).min(i64::from(i32::MAX)) as i32;
-        let start = scaled(4, dpi).min((height - 2) / 2);
+        let start = scaled(TRACK_INSET, dpi).min((height - 2) / 2);
         let usable = height - 2 * start;
-        let minimum = scaled(24, dpi).clamp(1, (usable - scaled(8, dpi)).max(1));
+        let minimum =
+            scaled(MINIMUM_THUMB, dpi).clamp(1, (usable - scaled(MINIMUM_TRAVEL, dpi)).max(1));
         let length = ((i64::from(usable) * page / total) as i32).clamp(minimum, usable - 1);
         let travel = usable - length;
         let current =
@@ -59,7 +66,12 @@ impl Thumb {
     }
 
     fn scroll_to(&self, list: HWND, y: i32, grab: i32) {
-        let offset = (y - grab - self.start).clamp(0, self.travel);
+        let pointer = y - grab - self.start;
+        // Several row indices can share one pixel in a long list.
+        if pointer == self.top - self.start {
+            return;
+        }
+        let offset = pointer.clamp(0, self.travel);
         let position = ((i64::from(offset) * i64::from(self.last) + i64::from(self.travel) / 2)
             / i64::from(self.travel)) as i32;
         if position != self.current {
@@ -87,7 +99,7 @@ fn paint(hwnd: HWND, list: HWND, dc: HDC) {
     if let Some(thumb) = Thumb::measure(list, bounds.bottom, dpi) {
         let track = centered_bar(
             bounds,
-            scaled(3, dpi),
+            scaled(TRACK_WIDTH, dpi),
             thumb.start,
             bounds.bottom - thumb.start,
         );
@@ -98,8 +110,13 @@ fn paint(hwnd: HWND, list: HWND, dc: HDC) {
             theme::divider(),
             theme::divider(),
         );
-        let bar = centered_bar(bounds, scaled(10, dpi), thumb.top, thumb.top + thumb.length);
-        let colour = if unsafe { GetCapture() == hwnd } {
+        let bar = centered_bar(
+            bounds,
+            scaled(THUMB_WIDTH, dpi),
+            thumb.top,
+            thumb.top + thumb.length,
+        );
+        let colour = if !theme::high_contrast() && unsafe { GetCapture() == hwnd } {
             theme::accent()
         } else {
             theme::muted()

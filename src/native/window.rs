@@ -418,7 +418,7 @@ pub(super) unsafe extern "system" fn window_proc(
                         &d.rcItem,
                         if selected { s.selected_brush } else { s.paper },
                     );
-                    crate::ui::result_dividers(
+                    s.result_dividers.draw(
                         d.hDC,
                         d.rcItem,
                         [scaled(30, s.dpi), scaled(146, s.dpi)],

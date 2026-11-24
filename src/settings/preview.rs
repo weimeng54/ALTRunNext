@@ -19,6 +19,7 @@ pub const READY: u32 = WM_APP + 2;
 type ResultImage = (skin::Request, Result<skin::Bitmap, String>);
 
 pub struct Preview {
+    result_dividers: ui::ResultDividers,
     request: Option<skin::Request>,
     bitmap: Option<skin::Bitmap>,
     sender: mpsc::Sender<ResultImage>,
@@ -32,6 +33,7 @@ impl Preview {
     pub fn new(prefs: Preferences) -> Self {
         let (sender, results) = mpsc::channel();
         Self {
+            result_dividers: ui::ResultDividers::from_preferences(&prefs),
             request: None,
             bitmap: None,
             sender,
@@ -51,6 +53,7 @@ impl Preview {
         );
         let request = skin::Request::for_settings(&prefs, data, theme::surface());
         theme::install_chrome(&prefs);
+        self.result_dividers = ui::ResultDividers::from_preferences(&prefs);
         self.prefs = prefs;
         if request == self.request {
             return;
@@ -261,7 +264,7 @@ impl Preview {
                         theme::paper()
                     },
                 );
-                ui::result_dividers(
+                self.result_dividers.draw(
                     dc,
                     row,
                     [

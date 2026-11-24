@@ -61,24 +61,29 @@ fn draw_scrollbar_on_axis(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32, h
 
 pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
     // A DPI of zero follows a window that can move between monitors while open.
-    style_scrollbar(control, id, dpi * 2, false, Some(scrollbar_proc));
+    style_scrollbar(control, id, Overlay::Vertical(dpi));
 }
 
 pub fn style_horizontal_scrollbar(control: HWND, id: usize, dpi: i32) {
-    style_scrollbar(control, id, dpi * 2 + 1, true, Some(scrollbar_proc));
+    style_scrollbar(control, id, Overlay::Horizontal(dpi));
 }
 
 pub(crate) fn style_launcher_scrollbar(control: HWND, id: usize) {
-    style_scrollbar(control, id, 0, false, Some(launcher::procedure));
+    style_scrollbar(control, id, Overlay::Launcher);
 }
 
-fn style_scrollbar(
-    control: HWND,
-    id: usize,
-    style: i32,
-    horizontal: bool,
-    procedure: SUBCLASSPROC,
-) {
+enum Overlay {
+    Vertical(i32),
+    Horizontal(i32),
+    Launcher,
+}
+
+fn style_scrollbar(control: HWND, id: usize, overlay: Overlay) {
+    let (procedure, style, horizontal): (SUBCLASSPROC, usize, bool) = match overlay {
+        Overlay::Vertical(dpi) => (Some(scrollbar_proc), dpi as usize * 2, false),
+        Overlay::Horizontal(dpi) => (Some(scrollbar_proc), dpi as usize * 2 + 1, true),
+        Overlay::Launcher => (Some(launcher::procedure), 0, false),
+    };
     unsafe {
         let scrollbar = CreateWindowExW(
             0,
@@ -94,15 +99,18 @@ fn style_scrollbar(
             std::ptr::null_mut(),
             std::ptr::null(),
         );
-        if !scrollbar.is_null()
-            && SetWindowSubclass(scrollbar, procedure, style as usize, control as usize) != 0
-        {
-            SetWindowSubclass(
+        if scrollbar.is_null() {
+            return;
+        }
+        if SetWindowSubclass(scrollbar, procedure, style, control as usize) == 0
+            || SetWindowSubclass(
                 control,
                 Some(scroll_control_proc),
                 1 + usize::from(horizontal),
                 scrollbar as usize,
-            );
+            ) == 0
+        {
+            DestroyWindow(scrollbar);
         }
     }
 }

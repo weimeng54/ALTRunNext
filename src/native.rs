@@ -4,7 +4,7 @@
 //! Resident native launcher. Show/search only use cached data and controls.
 use crate::{
     theme,
-    ui::{CaptionIcon, make_font, scaled, ui, wide},
+    ui::{CaptionIcon, ResultDividers, make_font, scaled, ui, wide},
     windows::{
         clipboard::{clipboard_text, copy_text},
         shell_execute::{execute_request, execute_request_with},
@@ -96,6 +96,7 @@ struct PopupSound {
 }
 
 struct State {
+    result_dividers: ResultDividers,
     sound_sender: std::sync::mpsc::SyncSender<PopupSound>,
     input_paper: HBRUSH,
     font_colours: [u32; 3],

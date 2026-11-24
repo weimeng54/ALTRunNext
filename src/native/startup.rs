@@ -262,6 +262,7 @@ pub(crate) fn run() -> Result<(), String> {
         let old_list = SetWindowLongPtrW(list, GWLP_WNDPROC, list_proc as *const () as isize);
         STATE.with(|c| {
             *c.borrow_mut() = Some(State {
+                result_dividers: ResultDividers::from_preferences(&preferences),
                 sound_sender,
                 input_paper,
                 alias_font,
