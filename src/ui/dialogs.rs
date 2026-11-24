@@ -67,3 +67,26 @@ pub(crate) fn accept_key(dialog: HWND, primary: usize, actions: &[usize]) {
         }
     }
 }
+
+pub(crate) fn close_on_escape(window: HWND, msg: &MSG) -> bool {
+    if msg.message != WM_KEYDOWN || msg.wParam != VK_ESCAPE as usize {
+        return false;
+    }
+    unsafe {
+        if (msg.hwnd != window && IsChild(window, msg.hwnd) == 0) || IsWindowEnabled(window) == 0 {
+            return false;
+        }
+        // One press dismisses only the active interaction, even if the key is held.
+        if msg.lParam & (1 << 30) == 0 {
+            if SendMessageW(msg.hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0
+                || crate::search_ime::is_composing(msg.hwnd)
+            {
+                TranslateMessage(msg);
+                DispatchMessageW(msg);
+            } else {
+                SendMessageW(window, WM_CLOSE, 0, 0);
+            }
+        }
+        true
+    }
+}

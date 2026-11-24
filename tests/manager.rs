@@ -486,7 +486,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
                 .len(),
             3
         );
-        answer_confirmation(manager, pid, WM_CLOSE, 0, VK_ESCAPE);
+        answer_confirmation(manager, pid, WM_KEYDOWN, VK_ESCAPE as usize, VK_ESCAPE);
         assert_ne!(IsWindowVisible(manager), 0);
         SendMessageW(manager, WM_COMMAND, 2113, 0);
         assert_eq!(

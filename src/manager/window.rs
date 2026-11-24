@@ -373,6 +373,9 @@ pub(super) fn run(
         apply_intake(hwnd);
         let mut message: MSG = zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+            if crate::ui::dialogs::close_on_escape(hwnd, &message) {
+                continue;
+            }
             if message.message == WM_KEYDOWN {
                 let control = GetKeyState(VK_CONTROL as i32) < 0;
                 let focus = GetFocus();

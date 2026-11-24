@@ -13,6 +13,9 @@
 
 ### 变更 / Changed
 
+- 管理启动项和设置面板支持按 Esc 关闭。有未保存的修改时会先确认。\
+  Press Esc to close Manage launch items or Settings, with confirmation when there are unsaved changes.
+
 - 「发送到」添加启动项弹窗更紧凑，快捷项与名称并排，目标路径保留整行空间。\
   The Send to dialog places the alias and name side by side and gives the target path a full-width field.
 

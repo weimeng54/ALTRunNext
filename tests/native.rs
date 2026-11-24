@@ -8,7 +8,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, VK_ESCAPE};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::{
     Foundation::{HWND, POINT, RECT},
@@ -98,8 +98,12 @@ fn check_centered_editor(launcher: HWND, pid: u32, action: usize, class: &str, s
         assert_eq!(bounds.right - bounds.left, (1102 * dpi + 48) / 96);
         assert_eq!(bounds.bottom - bounds.top, (721 * dpi + 48) / 96);
         native_snapshot::save(hwnd, &format!("editor-{action}-{scale}"));
-        SendMessageW(hwnd, WM_CLOSE, 0, 0);
-        assert_eq!(IsWindow(hwnd), 0);
+        assert_ne!(PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE as usize, 0), 0);
+        let close_deadline = Instant::now() + Duration::from_secs(8);
+        while IsWindow(hwnd) != 0 {
+            assert!(Instant::now() < close_deadline, "Esc did not close the editor");
+            thread::sleep(Duration::from_millis(20));
+        }
     }
 }
 

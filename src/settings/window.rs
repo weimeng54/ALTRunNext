@@ -375,6 +375,9 @@ pub(crate) fn open(
                     {
                         continue;
                     }
+                    if ui::dialogs::close_on_escape(hwnd, &msg) {
+                        continue;
+                    }
                     if msg.hwnd == preview_controls[2]
                         && msg.message == WM_KEYDOWN
                         && matches!(msg.wParam as u16, VK_UP | VK_DOWN)

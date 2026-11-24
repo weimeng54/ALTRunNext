@@ -6,8 +6,9 @@ use windows_sys::Win32::{
     Foundation::HWND,
     UI::Input::{
         Ime::{
-            HIMC, ImmAssociateContext, ImmGetContext, ImmGetConversionStatus, ImmGetOpenStatus,
-            ImmReleaseContext, ImmSetConversionStatus, ImmSetOpenStatus,
+            GCS_COMPSTR, HIMC, ImmAssociateContext, ImmGetCompositionStringW, ImmGetContext,
+            ImmGetConversionStatus, ImmGetOpenStatus, ImmReleaseContext, ImmSetConversionStatus,
+            ImmSetOpenStatus,
         },
         KeyboardAndMouse::{ActivateKeyboardLayout, GetKeyboardLayout, HKL},
     },
@@ -34,6 +35,18 @@ pub fn set_direct(edit: HWND, direct: bool) {
             }
         }
     });
+}
+
+pub(crate) fn is_composing(edit: HWND) -> bool {
+    unsafe {
+        let context = ImmGetContext(edit);
+        if context.is_null() {
+            return false;
+        }
+        let composing = ImmGetCompositionStringW(context, GCS_COMPSTR, null_mut(), 0) > 0;
+        ImmReleaseContext(edit, context);
+        composing
+    }
 }
 
 pub(crate) struct InputMode {

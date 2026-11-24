@@ -13,11 +13,7 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
-    UI::{
-        Controls::*,
-        Input::{Ime::*, KeyboardAndMouse::*},
-        WindowsAndMessaging::*,
-    },
+    UI::{Controls::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
 mod layout;
@@ -626,14 +622,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
                 && (msg.hwnd == hwnd || IsChild(hwnd, msg.hwnd) != 0)
                 && matches!(msg.wParam as u16, VK_RETURN | VK_ESCAPE)
             {
-                let focus = GetFocus();
-                let ime = ImmGetContext(focus);
-                let composing =
-                    !ime.is_null() && ImmGetCompositionStringW(ime, GCS_COMPSTR, null_mut(), 0) > 0;
-                if !ime.is_null() {
-                    ImmReleaseContext(focus, ime);
-                }
-                if composing {
+                if crate::search_ime::is_composing(GetFocus()) {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                     continue;
