@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::*;
-use altrun_probe::management::{self, MissingPath, PathInspection, RepairTarget};
 use crate::ui::dialogs::input::notice;
+use altrun_probe::management::{self, MissingPath, PathInspection, RepairTarget};
 use std::{collections::HashSet, path::Path};
 
 const CLASS: &str = "ALTRun.Native.MissingPaths";
