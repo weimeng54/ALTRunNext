@@ -420,6 +420,11 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         });
         SendMessageW(list, WM_VSCROLL, SB_LINEDOWN as usize, 0);
         assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 1);
+        assert_eq!(SendMessageW(track, WM_NCHITTEST, 0, 0), HTCLIENT as isize);
+        // The outer edge of the gutter is clickable, even outside the painted thumb.
+        SendMessageW(track, WM_LBUTTONDOWN, 1, (2 << 16) | 1);
+        SendMessageW(track, WM_LBUTTONUP, 0, (2 << 16) | 1);
+        assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 0);
         native_snapshot::save_painted(launcher, "launcher-dark-scrollbar");
         set(edit, "^(ab)\\1$");
         assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);

@@ -18,6 +18,9 @@
 
 ### 修复 / Fixed
 
+- 启动面板的滚动滑块更宽且带有最小高度。点击右侧轨道可直接跳到相应位置，也可以在整条轨道宽度内拖动。\
+  The launcher has a wider scrollbar thumb with a minimum height. Click the right-hand track to jump to a position or drag anywhere across its width.
+
 - 启动面板的管理、设置和隐藏按钮使用线宽与视觉大小统一的图标。\
   The launcher’s Manage, Settings, and Hide buttons use icons with matching strokes and visual weight.
 

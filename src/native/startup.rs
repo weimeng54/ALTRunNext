@@ -330,7 +330,7 @@ pub(crate) fn run() -> Result<(), String> {
                 library_updates,
             })
         });
-        crate::ui::style_vertical_scrollbar(list, ID_SCROLLBAR, 0);
+        crate::ui::style_launcher_scrollbar(list, ID_SCROLLBAR);
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());
         let mut startup_warnings = Vec::new();

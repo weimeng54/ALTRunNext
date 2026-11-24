@@ -11,10 +11,12 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     UI::{
         Controls::*,
-        Shell::{DefSubclassProc, SetWindowSubclass},
+        Shell::{DefSubclassProc, SUBCLASSPROC, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
+
+mod launcher;
 
 fn vertical_scrollbar(hwnd: HWND) -> Option<SCROLLBARINFO> {
     scrollbar_info(hwnd, OBJID_VSCROLL)
@@ -59,14 +61,24 @@ fn draw_scrollbar_on_axis(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32, h
 
 pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
     // A DPI of zero follows a window that can move between monitors while open.
-    style_scrollbar(control, id, dpi, false);
+    style_scrollbar(control, id, dpi * 2, false, Some(scrollbar_proc));
 }
 
 pub fn style_horizontal_scrollbar(control: HWND, id: usize, dpi: i32) {
-    style_scrollbar(control, id, dpi, true);
+    style_scrollbar(control, id, dpi * 2 + 1, true, Some(scrollbar_proc));
 }
 
-fn style_scrollbar(control: HWND, id: usize, dpi: i32, horizontal: bool) {
+pub(crate) fn style_launcher_scrollbar(control: HWND, id: usize) {
+    style_scrollbar(control, id, 0, false, Some(launcher::procedure));
+}
+
+fn style_scrollbar(
+    control: HWND,
+    id: usize,
+    style: i32,
+    horizontal: bool,
+    procedure: SUBCLASSPROC,
+) {
     unsafe {
         let scrollbar = CreateWindowExW(
             0,
@@ -83,12 +95,7 @@ fn style_scrollbar(control: HWND, id: usize, dpi: i32, horizontal: bool) {
             std::ptr::null(),
         );
         if !scrollbar.is_null()
-            && SetWindowSubclass(
-                scrollbar,
-                Some(scrollbar_proc),
-                dpi as usize * 2 + usize::from(horizontal),
-                control as usize,
-            ) != 0
+            && SetWindowSubclass(scrollbar, procedure, style as usize, control as usize) != 0
         {
             SetWindowSubclass(
                 control,
