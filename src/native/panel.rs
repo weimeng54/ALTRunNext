@@ -3,6 +3,14 @@
 
 use super::*;
 
+pub(super) fn update_caption_button_labels(hwnd: HWND) {
+    for (id, _, key) in CAPTION_BUTTONS {
+        let title = crate::localization::tr(key);
+        let label = title.split('\t').next().unwrap_or(&title);
+        unsafe { SetWindowTextW(GetDlgItem(hwnd, id as i32), wide(label).as_ptr()) };
+    }
+}
+
 pub(super) fn show_inline_error(message: &str) {
     let (hwnd, edit, error) = STATE.with(|c| {
         let mut s = c.borrow_mut();

@@ -214,11 +214,8 @@ pub(super) fn apply_settings_messages() {
                     });
                     unsafe {
                         SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
-                        SetWindowTextW(
-                            GetDlgItem(owner, ID_SETTINGS as i32),
-                            ui("ui.settings").as_ptr(),
-                        );
                     }
+                    update_caption_button_labels(owner);
                     apply_appearance();
                     refresh();
                     update_search_ime(true);

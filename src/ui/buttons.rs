@@ -2,7 +2,9 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::{painting::*, scaled};
+mod caption_icons;
 use crate::theme;
+pub(crate) use caption_icons::CaptionIcon;
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -22,14 +24,14 @@ pub fn menu_button(item: &DRAWITEMSTRUCT, dpi: i32) {
     draw_button(item, false, theme::chrome(), dpi, ButtonContent::Dropdown);
 }
 
-pub(crate) fn settings_button(item: &DRAWITEMSTRUCT, backdrop: u32, dpi: i32) {
-    draw_button(item, false, backdrop, dpi, ButtonContent::Gear);
+pub(crate) fn caption_button(item: &DRAWITEMSTRUCT, backdrop: u32, dpi: i32, icon: CaptionIcon) {
+    draw_button(item, false, backdrop, dpi, ButtonContent::Icon(icon));
 }
 
 enum ButtonContent {
     Label,
     Dropdown,
-    Gear,
+    Icon(CaptionIcon),
 }
 
 fn draw_button(
@@ -85,8 +87,13 @@ fn draw_button(
             theme::border()
         },
     );
-    if matches!(content, ButtonContent::Gear) {
-        draw_gear(dc, rect, dpi, text);
+    if let ButtonContent::Icon(icon) = content {
+        let ink = if pressed || theme::high_contrast() {
+            text
+        } else {
+            theme::muted()
+        };
+        icon.draw(dc, rect, dpi, ink);
         return;
     }
     unsafe {
@@ -108,46 +115,6 @@ fn draw_button(
         }
         line_text(dc, label, &window_text(item.hwndItem), text, DT_CENTER);
         SelectObject(dc, old);
-    }
-}
-
-fn draw_gear(dc: HDC, rect: RECT, dpi: i32, colour: u32) {
-    // One quadrant of an eight-tooth gear, rotated around the center.
-    const QUARTER: [(i32, i32); 8] = [
-        (-1, -6),
-        (1, -6),
-        (1, -5),
-        (3, -4),
-        (4, -5),
-        (5, -4),
-        (4, -3),
-        (5, -1),
-    ];
-    let x = (rect.left + rect.right) / 2;
-    let y = (rect.top + rect.bottom) / 2;
-    let outline: [POINT; 32] = std::array::from_fn(|index| {
-        let (a, b) = QUARTER[index % QUARTER.len()];
-        let (dx, dy) = match index / QUARTER.len() {
-            0 => (a, b),
-            1 => (-b, a),
-            2 => (-a, -b),
-            _ => (b, -a),
-        };
-        POINT {
-            x: x + scaled(dx, dpi),
-            y: y + scaled(dy, dpi),
-        }
-    });
-    let hub = scaled(2, dpi).max(1);
-    unsafe {
-        let pen = CreatePen(PS_SOLID, scaled(1, dpi).max(1), colour);
-        let previous_pen = SelectObject(dc, pen);
-        let previous_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-        Polygon(dc, outline.as_ptr(), outline.len() as i32);
-        Ellipse(dc, x - hub, y - hub, x + hub + 1, y + hub + 1);
-        SelectObject(dc, previous_brush);
-        SelectObject(dc, previous_pen);
-        DeleteObject(pen);
     }
 }
 

@@ -18,8 +18,8 @@
 
 ### 修复 / Fixed
 
-- 启动面板的「设置」按钮使用清晰的线框齿轮图标。\
-  The launcher’s Settings button uses an outlined gear icon.
+- 启动面板的管理、设置和隐藏按钮使用线宽与视觉大小统一的图标。\
+  The launcher’s Manage, Settings, and Hide buttons use icons with matching strokes and visual weight.
 
 - 备份与恢复对话框的键盘焦点提示改为贴近复选框和单选按钮的细环。\
   Backup and restore dialogs show a compact keyboard focus ring around checkboxes and radio buttons.

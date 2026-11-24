@@ -225,18 +225,9 @@ pub(crate) fn run() -> Result<(), String> {
         ShowWindow(inline_error, SW_HIDE);
         let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
         SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
-        let buttons = [
-            control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_MANAGE),
-            control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_SETTINGS),
-            control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_HIDE),
-        ];
-        for (button, text) in buttons
-            .iter()
-            .zip([wide("≡"), ui("ui.settings"), wide("×")])
-        {
-            SetWindowTextW(*button, text.as_ptr());
-            SendMessageW(*button, WM_SETFONT, font as usize, 0);
-        }
+        let buttons = CAPTION_BUTTONS
+            .map(|(id, _, _)| control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, id));
+        update_caption_button_labels(hwnd);
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);
         SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
         if [title, edit, list, command, inline_error, empty]

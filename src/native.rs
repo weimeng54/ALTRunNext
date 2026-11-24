@@ -4,7 +4,7 @@
 //! Resident native launcher. Show/search only use cached data and controls.
 use crate::{
     theme,
-    ui::{make_font, scaled, ui, wide},
+    ui::{CaptionIcon, make_font, scaled, ui, wide},
     windows::{
         clipboard::{clipboard_text, copy_text},
         shell_execute::{execute_request, execute_request_with},
@@ -38,7 +38,7 @@ mod panel;
 mod result_names;
 use panel::{
     apply_appearance, layout_inline_error, list_proc, paint_panel, paint_title, render_hits,
-    show_inline_error,
+    show_inline_error, update_caption_button_labels,
 };
 mod hotkeys;
 use hotkeys::{BindingUpdate, apply_settings_messages, register_bindings};
@@ -64,6 +64,11 @@ const ID_HIDE: usize = 18001;
 const ID_EXIT: usize = 18002;
 const ID_MANAGE: usize = 18003;
 const ID_SETTINGS: usize = 18005;
+const CAPTION_BUTTONS: [(usize, CaptionIcon, &str); 3] = [
+    (ID_MANAGE, CaptionIcon::Manage, "ui.manage_shortcuts"),
+    (ID_SETTINGS, CaptionIcon::Settings, "ui.settings"),
+    (ID_HIDE, CaptionIcon::Hide, "ui.hide"),
+];
 const ID_RECENT: usize = 18006;
 const ID_ABOUT: usize = 18007;
 const ID_RESTART: usize = 18008;
