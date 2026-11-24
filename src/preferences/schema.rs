@@ -128,6 +128,19 @@ pub const SPECS: &[Spec] = &[
     spec!("UseCustomTextColor", "ui.use_custom_text_color", Bool, "0"),
     spec!("SelectionColor", "ui.selection_background", Text, "#E7EFF8"),
     spec!(
+        "VerticalResultDividers",
+        "ui.vertical_result_dividers",
+        Bool,
+        "0"
+    ),
+    spec!(
+        "HorizontalResultDividers",
+        "ui.horizontal_result_dividers",
+        Bool,
+        "0"
+    ),
+    spec!("ResultDividerColor", "ui.result_divider_color", Text, ""),
+    spec!(
         "TitleFont",
         "ui.title_font",
         Font,

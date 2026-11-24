@@ -405,16 +405,21 @@ pub(super) unsafe extern "system" fn window_proc(
                 };
                 let e = &s.entries[i];
                 unsafe {
+                    let selected = d.itemState & ODS_SELECTED != 0;
                     FillRect(
                         d.hDC,
                         &d.rcItem,
-                        if d.itemState & ODS_SELECTED != 0 {
-                            s.selected_brush
-                        } else {
-                            s.paper
-                        },
+                        if selected { s.selected_brush } else { s.paper },
                     );
-                    if d.itemState & ODS_SELECTED != 0 {
+                    crate::ui::result_dividers(
+                        d.hDC,
+                        d.rcItem,
+                        [scaled(30, s.dpi), scaled(146, s.dpi)],
+                        s.dpi,
+                        selected,
+                        (d.itemID as usize + 1) < s.hits.len(),
+                    );
+                    if selected {
                         let rail = RECT {
                             left: 0,
                             top: d.rcItem.top + scaled(3, s.dpi),

@@ -111,6 +111,10 @@ pub(super) fn switch_field(spec: &altrun_probe::preferences::Spec) -> bool {
     matches!(spec.kind, Kind::Bool) || spec.key == "PositionMode"
 }
 
+pub(super) fn divider_checkbox(key: &str) -> bool {
+    matches!(key, "VerticalResultDividers" | "HorizontalResultDividers")
+}
+
 pub(super) fn image_control(id: usize) -> bool {
     matches!(
         id,

@@ -75,8 +75,8 @@ pub const CARDS: &[Card] = &[
     card(
         3,
         "ui.panel_and_results",
-        BoxRect::new(RIGHT, 486, 549, 117),
-        &[41, 81],
+        BoxRect::new(RIGHT, 486, 549, 161),
+        &[41, 81, 117],
     ),
     card(
         4,
@@ -84,7 +84,12 @@ pub const CARDS: &[Card] = &[
         BoxRect::new(CONTENT, 180, 290, 192),
         &[56, 101, 146],
     ),
-    card(4, "ui.colors", BoxRect::new(CONTENT, 416, 290, 88), &[44]),
+    card(
+        4,
+        "ui.colors",
+        BoxRect::new(CONTENT, 416, 290, 132),
+        &[44, 88],
+    ),
     card(5, "ui.launcher", BoxRect::new(CONTENT, 180, 859, 89), &[44]),
 ];
 
@@ -126,11 +131,14 @@ pub fn field(key: &str) -> Placement {
         "RowHeight" => (525, 527, 273, 40, 78, "ui.result_row_height_2"),
         "ShowCommandLine" => (799, 527, 273, 40, 0, "ui.show_command_line"),
         "ShowOperationHint" => (525, 567, 547, 35, 0, ""),
+        "VerticalResultDividers" => (758, 604, 141, 41, 0, ""),
+        "HorizontalResultDividers" => (912, 604, 151, 41, 0, ""),
         "TitleFont" => (215, 236, 288, 45, 78, "ui.title_size"),
         "KeywordFont" => (215, 281, 288, 45, 78, "ui.search_size"),
         "ListFont" => (215, 326, 288, 45, 78, "ui.result_size"),
         "UseCustomTextColor" => (215, 417, 288, 43, 0, ""),
         "TextColor" => (215, 460, 288, 43, 130, "ui.custom_text_color"),
+        "ResultDividerColor" => (215, 504, 288, 43, 119, ""),
         "TitleColor" => (525, 479, 547, 39, 207, ""),
         "KeywordColor" => (525, 518, 547, 40, 207, ""),
         "ListColor" => (525, 558, 547, 40, 207, ""),

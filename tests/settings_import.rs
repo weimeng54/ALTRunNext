@@ -4,6 +4,23 @@
 use altrun_probe::preferences::Preferences;
 
 #[test]
+fn result_dividers_keep_legacy_defaults_and_round_trip_independently() {
+    let legacy = Preferences::import("[GUI]\nTheme=dark\n").unwrap();
+    assert!(!legacy.flag("VerticalResultDividers"));
+    assert!(!legacy.flag("HorizontalResultDividers"));
+    for (vertical, horizontal) in [("0", "0"), ("1", "0"), ("0", "1"), ("1", "1")] {
+        let mut prefs = legacy.clone();
+        prefs.set("VerticalResultDividers", vertical).unwrap();
+        prefs.set("HorizontalResultDividers", horizontal).unwrap();
+        prefs.set("ResultDividerColor", "#22AACC").unwrap();
+        assert_eq!(Preferences::import(&prefs.text()).unwrap(), prefs);
+        assert!(prefs.set("ResultDividerColor", "bad").is_err());
+        prefs.set("ResultDividerColor", "").unwrap();
+        assert_eq!(Preferences::import(&prefs.text()).unwrap(), prefs);
+    }
+}
+
+#[test]
 fn imports_current_exports_and_previous_app_settings() {
     let old_export = "[Config]\nEnglishSearch=1\nParamHistoryLimit=0\nTraceEnable=1\nAllowDynamicTarget=1\n[GUI]\nTheme=dark\nPositionMode=remember\n";
     let settings = Preferences::import(old_export).unwrap();

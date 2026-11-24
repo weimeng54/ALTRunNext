@@ -145,6 +145,8 @@ impl Preferences {
                     "Theme",
                     "RowHeight",
                     "MaxRows",
+                    "VerticalResultDividers",
+                    "HorizontalResultDividers",
                     "PositionMode",
                 ]
                 .contains(&key.as_str())

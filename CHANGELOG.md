@@ -6,6 +6,16 @@
 
 ## [未发布 / Unreleased]
 
+### 新增 / Added
+
+- 外观设置可分别显示启动结果的竖线和横线，并实时预览。字体与颜色页可修改分隔线颜色或恢复主题默认。\
+  Toggle vertical and horizontal launch-result dividers independently and preview them live. Set a divider color or use the theme default under Fonts and colors.
+
+### 修复 / Fixed
+
+- 备份与恢复对话框的键盘焦点提示改为贴近复选框和单选按钮的细环。\
+  Backup and restore dialogs show a compact keyboard focus ring around checkboxes and radio buttons.
+
 ## [0.4.6] - 2026-11-23
 
 ### 变更 / Changed

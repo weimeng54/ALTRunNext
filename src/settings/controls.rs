@@ -263,6 +263,8 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         }
         let panel_font_label = control("STATIC", "ui.panel_font", 0, 228, 196, 72, 26, 0);
         extra_controls.push((4, panel_font_label));
+        let dividers_label = control("STATIC", "ui.show_result_dividers", 0, 538, 614, 214, 23, 0);
+        extra_controls.push((3, dividers_label));
         for (id, label, x, y, w, h, page) in [
             (SEGMENT, "settings.follow_system", 230, 195, 84, 30, 3),
             (SEGMENT + 1, "ui.light", 317, 195, 84, 30, 3),
@@ -270,7 +272,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             (SEGMENT + 3, "ui.solid", 230, 299, 128, 30, 3),
             (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
             (FONT_FAMILY, "", 310, 191, 180, 34, 4),
-            (MORE_COLORS, "ui.other_colors", 215, 517, 288, 40, 4),
+            (MORE_COLORS, "ui.other_colors", 215, 561, 288, 40, 4),
         ] {
             let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
             if (SEGMENT..SEGMENT + 5).contains(&id) {
@@ -438,7 +440,9 @@ fn create_fields(
                         (h - 1).max(1),
                         FIELD + index,
                     );
-                    ui::switch(field.value, dpi);
+                    if !pages::divider_checkbox(key) {
+                        ui::switch(field.value, dpi);
+                    }
                 } else {
                     let name = matches!(*key, "PopupFileName" | "BGFileName");
                     let hotkey = matches!(spec.kind, Kind::Hotkey);
@@ -598,6 +602,18 @@ fn create_fields(
                             if color { 27 } else { 34 },
                             PICK + index,
                         );
+                        if *key == "ResultDividerColor" {
+                            field.clear = control(
+                                "BUTTON",
+                                "ui.theme_divider_color",
+                                WS_TABSTOP,
+                                right - 132,
+                                y + (h - 27) / 2,
+                                74,
+                                27,
+                                CLEAR + index,
+                            );
+                        }
                     }
                 }
                 assert!(fields[index].value.is_null(), "duplicate settings field");

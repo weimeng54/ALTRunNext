@@ -26,6 +26,20 @@ struct Palette {
     accent: u32,
     border: u32,
 }
+#[derive(Clone, Copy)]
+pub(crate) struct ResultDividers {
+    pub vertical: bool,
+    pub horizontal: bool,
+    pub colour: Option<u32>,
+}
+thread_local! {
+    static RESULT_DIVIDERS: std::cell::Cell<ResultDividers> =
+        const { std::cell::Cell::new(ResultDividers { vertical: false, horizontal: false, colour: None }) };
+}
+
+pub(crate) fn result_dividers() -> ResultDividers {
+    RESULT_DIVIDERS.get()
+}
 thread_local! {static PALETTE:std::cell::Cell<Palette>=const{std::cell::Cell::new(Palette{surface:SURFACE,paper:PAPER,text:TEXT,muted:MUTED,selection:SELECTION,accent:ACCENT,border:BORDER})};}
 pub fn surface() -> u32 {
     PALETTE.with(|p| p.get().surface)
@@ -133,6 +147,15 @@ pub fn frame(hwnd: windows_sys::Win32::Foundation::HWND) {
     }
 }
 fn install_palette(prefs: &altrun_probe::preferences::Preferences, custom: bool) {
+    RESULT_DIVIDERS.set(ResultDividers {
+        vertical: custom && prefs.flag("VerticalResultDividers"),
+        horizontal: custom && prefs.flag("HorizontalResultDividers"),
+        colour: if custom {
+            altrun_probe::preferences::parse_colour(&prefs.get("ResultDividerColor")).ok()
+        } else {
+            None
+        },
+    });
     use windows_sys::Win32::{Graphics::Gdi::*, System::Registry::*, UI::WindowsAndMessaging::*};
     #[repr(C)]
     struct Contrast {

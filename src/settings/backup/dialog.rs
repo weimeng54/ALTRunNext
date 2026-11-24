@@ -143,10 +143,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let hdr = &*(l as *const NMHDR);
                 if hdr.code == NM_CUSTOMDRAW && (ITEMS..=REPLACE).contains(&hdr.idFrom) {
                     let info = &*(l as *const NMCUSTOMDRAW);
-                    if info.dwDrawStage == CDDS_PREPAINT {
-                        draw_option(state, info);
-                        return CDRF_SKIPDEFAULT as isize;
-                    }
+                    return draw_option(state, info);
                 }
                 0
             }
@@ -411,6 +408,7 @@ fn run(hwnd: HWND, state: &Window<'_>, options: Option<&Options>) -> Option<Rest
                 }
                 return None;
             }
+            ui::option_focus_cues(hwnd, &msg);
             if msg.message == WM_KEYDOWN
                 && (msg.hwnd == hwnd || IsChild(hwnd, msg.hwnd) != 0)
                 && matches!(msg.wParam as u16, VK_RETURN | VK_ESCAPE)

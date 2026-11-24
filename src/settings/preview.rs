@@ -116,6 +116,7 @@ impl Preview {
         let query = query.to_ascii_lowercase();
         let mut results: Vec<_> = [
             ("calc", "ui.calculator", "calc.exe"),
+            ("control", "ui.control_panel", "control.exe"),
             ("download", "ui.downloads", r"%USERPROFILE%\Downloads"),
             ("desktop", "ui.desktop", r"%USERPROFILE%\Desktop"),
             ("notepad", "ui.notepad", "notepad.exe"),
@@ -250,14 +251,26 @@ impl Preview {
             let mut y = 39 + input_height;
             for (i, (alias, name, _)) in matches.iter().enumerate() {
                 let active = selected.is_some_and(|row| row.0 == *alias);
+                let row = area(9, y, bounds.w - 18, row_height);
                 ui::fill(
                     dc,
-                    &area(9, y, bounds.w - 18, row_height),
+                    &row,
                     if active {
                         theme::selection()
                     } else {
-                        theme::control_surface()
+                        theme::paper()
                     },
+                );
+                ui::result_dividers(
+                    dc,
+                    row,
+                    [
+                        area(39, y, 0, 0).left,
+                        area(39 + (bounds.w - 68) * 3 / 7, y, 0, 0).left,
+                    ],
+                    dpi,
+                    active,
+                    i + 1 < matches.len(),
                 );
                 if active {
                     ui::fill(dc, &area(9, y + 4, 3, row_height - 8), theme::accent());

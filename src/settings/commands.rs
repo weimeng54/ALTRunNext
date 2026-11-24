@@ -188,6 +188,10 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
     }
     if let Some(index) = id.checked_sub(CLEAR).filter(|index| *index < SPECS.len()) {
         stop_capture();
+        if SPECS[index].key == "ResultDividerColor" {
+            set_colour("ResultDividerColor", SPECS[index].default);
+            return 0;
+        }
         unsafe {
             SetWindowTextW(fields()[index].value, wide("").as_ptr());
         }

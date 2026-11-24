@@ -64,9 +64,17 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     .idFrom
                     .checked_sub(FIELD)
                     .and_then(|index| SPECS.get(index))
-                && spec.key == "BGStrength"
             {
-                return ui::slider(unsafe { &*(l as *const NMCUSTOMDRAW) });
+                let info = unsafe { &*(l as *const NMCUSTOMDRAW) };
+                if spec.key == "BGStrength" {
+                    return ui::slider(info);
+                }
+                if pages::divider_checkbox(spec.key)
+                    && let Some((dpi, font)) =
+                        EDITOR.with(|c| c.borrow().as_ref().map(|s| (s.dpi, s.font)))
+                {
+                    return ui::check_option(info, dpi, font, theme::control_surface(), false);
+                }
             }
             0
         }
@@ -361,6 +369,7 @@ pub(crate) fn open(
                 SetFocus(tabs);
                 let mut msg: MSG = std::mem::zeroed();
                 while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+                    ui::option_focus_cues(hwnd, &msg);
                     if matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
                         && record_key(msg.wParam as u32, modifier_bits(|key| GetKeyState(key)))
                     {

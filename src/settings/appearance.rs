@@ -31,6 +31,7 @@ pub(super) fn swatch_colour(key: &str, value: &str) -> u32 {
             "TitleColor" => theme::surface(),
             "SelectionColor" => theme::selection(),
             "KeywordColor" | "ListColor" => theme::paper(),
+            "ResultDividerColor" => theme::divider(),
             _ => altrun_probe::preferences::parse_colour(value).unwrap_or_else(|_| theme::text()),
         }
     } else {

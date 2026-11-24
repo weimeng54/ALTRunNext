@@ -177,6 +177,8 @@ const PAGES: &[Page] = &[
             "MaxRows",
             "ShowCommandLine",
             "ShowOperationHint",
+            "VerticalResultDividers",
+            "HorizontalResultDividers",
         ],
     },
     Page {
@@ -190,6 +192,7 @@ const PAGES: &[Page] = &[
             "ListColor",
             "UseCustomTextColor",
             "TextColor",
+            "ResultDividerColor",
             "SelectionColor",
         ],
     },

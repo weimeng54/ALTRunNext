@@ -110,7 +110,9 @@ impl Preferences {
                 if spec.key == "BGCrop" && !matches!(value, "top" | "center" | "bottom") {
                     return Err("ui.select_a_valid_crop_alignment".into());
                 }
-                if spec.key.ends_with("Color") {
+                if spec.key.ends_with("Color")
+                    && !(spec.key == "ResultDividerColor" && value.is_empty())
+                {
                     parse_colour(value)?;
                 }
                 value.to_owned()
