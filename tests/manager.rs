@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use windows_sys::Win32::{
-    Foundation::{HWND, POINT, RECT},
+    Foundation::{HWND, LPARAM, POINT, RECT},
     Graphics::Gdi::*,
     UI::{
         Controls::*,
@@ -563,7 +563,7 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
             assert_eq!(read(alias), "codex-plus-plus-manager");
             assert_eq!(IsWindowEnabled(save), 0);
             let width = SendMessageW(list, LVM_GETCOLUMNWIDTH, 0, 0);
-            assert_ne!(SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, width + 75), 0);
+            assert_ne!(SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, width + 460), 0);
             for (id, axis) in [(2164, SB_VERT), (2165, SB_HORZ)] {
                 let gutter = GetDlgItem(manager, id);
                 wait(|| IsWindowVisible(gutter) != 0);
@@ -572,7 +572,7 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
                 let (x, y) = if axis == SB_VERT {
                     (1, bounds.bottom - 2)
                 } else {
-                    (bounds.right / 2, 1)
+                    (bounds.right - bounds.bottom, 1)
                 };
                 let point = ((y << 16) | x) as LPARAM;
                 SendMessageW(gutter, WM_LBUTTONDOWN, 1, point);
@@ -587,7 +587,7 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
                 assert_ne!(GetScrollInfo(list, axis, &mut info), 0);
                 assert!(info.nPos > 0, "the styled gutter must scroll the report");
             }
-            SendMessageW(list, LVM_SCROLL, (-75_i32) as usize, 0);
+            SendMessageW(list, LVM_SCROLL, (-460_i32) as usize, 0);
             SendMessageW(list, LVM_ENSUREVISIBLE, 0, 0);
             native_snapshot::save(manager, &format!("manager-table-{theme}-{scale}"));
             let dc = GetDC(header);

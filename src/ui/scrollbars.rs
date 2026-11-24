@@ -130,7 +130,9 @@ impl Target {
                 }
                 Self::ReportRows => {
                     let mut row = RECT::default();
-                    if SendMessageW(control, LVM_GETITEMRECT, 0, &mut row as *mut RECT as LPARAM) != 0 {
+                    if SendMessageW(control, LVM_GETITEMRECT, 0, &mut row as *mut RECT as LPARAM)
+                        != 0
+                    {
                         let dy = delta.saturating_mul(row.bottom - row.top);
                         SendMessageW(control, LVM_SCROLL, 0, dy as LPARAM);
                     }
@@ -253,7 +255,8 @@ fn update_scrollbar(control: HWND, scrollbar: HWND, axis: Axis) {
         let mut bounds = RECT::default();
         GetWindowRect(scrollbar, &mut bounds);
         let mut track = bar.rcScrollBar;
-        if axis == Axis::Horizontal && let Some(vertical) = scrollbar_info(control, Axis::Vertical)
+        if axis == Axis::Horizontal
+            && let Some(vertical) = scrollbar_info(control, Axis::Vertical)
         {
             // Cover the native size box. The horizontal thumb ends before it.
             track.right = track.right.max(vertical.rcScrollBar.right);
