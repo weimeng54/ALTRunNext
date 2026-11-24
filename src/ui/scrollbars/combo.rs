@@ -6,14 +6,13 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     UI::{
-        Controls::{
-            COMBOBOXINFO, GetComboBoxInfo, STATE_SYSTEM_PRESSED, SetWindowTheme, WM_MOUSELEAVE,
-        },
-        Input::KeyboardAndMouse::{TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent},
+        Controls::{COMBOBOXINFO, GetComboBoxInfo, STATE_SYSTEM_PRESSED, SetWindowTheme},
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
+
+const HOVER_TIMER: usize = 0x414c;
 
 pub(in crate::ui) fn style_combo_scrollbar(combo: HWND, dpi: i32) {
     let mut info = COMBOBOXINFO {
@@ -68,45 +67,41 @@ unsafe extern "system" fn procedure(
     hover: usize,
 ) -> LRESULT {
     unsafe {
-        let result = DefSubclassProc(hwnd, msg, w, l);
-        let mut active = hover != 0;
-        match msg {
-            WM_NCMOUSEMOVE => {
-                active = w == HTVSCROLL as usize;
-                if active && hover == 0 {
-                    TrackMouseEvent(&mut TRACKMOUSEEVENT {
-                        cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                        dwFlags: TME_LEAVE | TME_NONCLIENT,
-                        hwndTrack: hwnd,
-                        dwHoverTime: 0,
-                    });
-                }
+        let polling = msg == WM_TIMER && w == HOVER_TIMER;
+        let result = if polling {
+            0
+        } else {
+            DefSubclassProc(hwnd, msg, w, l)
+        };
+        if matches!(msg, WM_WINDOWPOSCHANGED | WM_SHOWWINDOW) {
+            let flags = match msg {
+                WM_WINDOWPOSCHANGED => (*(l as *const WINDOWPOS)).flags,
+                _ if w != 0 => SWP_SHOWWINDOW,
+                _ => SWP_HIDEWINDOW,
+            };
+            if flags & SWP_SHOWWINDOW != 0 {
+                // A dropdown can capture the pointer before the scrollbar gets mouse messages.
+                SetTimer(hwnd, HOVER_TIMER, 40, None);
+            } else if flags & SWP_HIDEWINDOW != 0 {
+                KillTimer(hwnd, HOVER_TIMER);
             }
-            WM_NCMOUSELEAVE | WM_MOUSELEAVE => active = false,
-            WM_SHOWWINDOW if w == 0 => active = false,
-            WM_PRINT if l as i32 & PRF_NONCLIENT != 0 => {
-                paint(hwnd, w as HDC, dpi as i32, active);
-                return result;
-            }
-            _ => {}
         }
-        let changed = active != (hover != 0);
-        if changed {
+        let repaint = matches!(
+            msg,
+            WM_NCPAINT | WM_PAINT | WM_VSCROLL | WM_MOUSEWHEEL | WM_NCLBUTTONDOWN | WM_KEYDOWN
+        );
+        let print = msg == WM_PRINT && l as i32 & PRF_NONCLIENT != 0;
+        if !polling && !repaint && !print {
+            return result;
+        }
+        let mut pointer = POINT::default();
+        let active = GetCursorPos(&mut pointer) != 0
+            && scrollbar_info(hwnd, Axis::Vertical)
+                .is_some_and(|bar| PtInRect(&bar.rcScrollBar, pointer) != 0);
+        if print {
+            paint(hwnd, w as HDC, dpi as i32, active);
+        } else if IsWindowVisible(hwnd) != 0 && (repaint || active != (hover != 0)) {
             SetWindowSubclass(hwnd, Some(procedure), dpi, usize::from(active));
-        }
-        if IsWindowVisible(hwnd) != 0
-            && (changed
-                || matches!(
-                    msg,
-                    WM_NCPAINT
-                        | WM_PAINT
-                        | WM_VSCROLL
-                        | WM_MOUSEWHEEL
-                        | WM_NCLBUTTONDOWN
-                        | WM_NCMOUSEMOVE
-                        | WM_KEYDOWN
-                ))
-        {
             let dc = GetWindowDC(hwnd);
             if !dc.is_null() {
                 paint(hwnd, dc, dpi as i32, active);
