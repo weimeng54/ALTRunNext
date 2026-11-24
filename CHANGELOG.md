@@ -16,6 +16,11 @@
 - 「发送到」添加启动项弹窗更紧凑，快捷项与名称并排，目标路径保留整行空间。\
   The Send to dialog places the alias and name side by side and gives the target path a full-width field.
 
+### 修复 / Fixed
+
+- 「发送到」与启动项管理统一使用「测试打开」。\
+  Send to and Manage launch items use the same label for testing a launch item.
+
 ## [0.4.7] - 2026-11-24
 
 ### 新增 / Added

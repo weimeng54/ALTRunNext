@@ -56,7 +56,7 @@ pub const SPECS: &[Spec] = &[
         "0"
     ),
     spec!("ShowOperationHint", "ui.show_operation_hints", Bool, "1"),
-    spec!("ShowCommandLine", "ui.show_command_preview", Bool, "1"),
+    spec!("ShowCommandLine", "ui.show_command_line", Bool, "1"),
     spec!("PlayPopupNotify", "ui.popup_sound", Bool, "1"),
     spec!("ShowSkin", "ui.use_background_image", Bool, "0"),
     spec!("ShowMeWhenStart", "ui.show_panel_at_startup", Bool, "0"),

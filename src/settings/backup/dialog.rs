@@ -277,7 +277,7 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
                 (20, 56, WIDTH - 40, 27),
             );
             let sections = [
-                (ITEMS, "backup.launch_items", available.items),
+                (ITEMS, "ui.shortcuts", available.items),
                 (SETTINGS, "backup.settings", available.settings),
                 (HISTORY, "backup.history", available.history),
             ];

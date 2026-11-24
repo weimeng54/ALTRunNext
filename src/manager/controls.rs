@@ -30,7 +30,7 @@ pub(super) fn create(
                 match label {
                     "ui.alias" => 2170,
                     "ui.name" => 2171,
-                    "ui.command_or_path" => 2172,
+                    "ui.command_label" => 2172,
                     "ui.input_format" => 2173,
                     _ => id,
                 }
@@ -78,7 +78,7 @@ pub(super) fn create(
                 _ if label == "ui.manage_shortcuts" => (RAIL + 25, 60, FIELD_WIDTH, 41),
                 _ if label == "ui.alias" => (FIELD_LEFT, 128, HALF_FIELD, 21),
                 _ if label == "ui.name" => (FIELD_RIGHT - HALF_FIELD, 128, HALF_FIELD, 21),
-                _ if label == "ui.command_or_path" => (FIELD_LEFT, 212, FIELD_WIDTH, 21),
+                _ if label == "ui.command_label" => (FIELD_LEFT, 212, FIELD_WIDTH, 21),
                 _ if label == "ui.input_format" => (FIELD_LEFT, 352, FIELD_WIDTH, 21),
                 _ => (x, y, width, height),
             };
@@ -198,7 +198,7 @@ pub(super) fn create(
             28,
             NAME,
         );
-        control("STATIC", "ui.command_or_path", 0, 280, 118, 464, 20, 0);
+        control("STATIC", "ui.command_label", 0, 280, 118, 464, 20, 0);
         let command = control(
             "EDIT",
             "",
@@ -297,7 +297,7 @@ pub(super) fn create(
 
         let delete = control("BUTTON", "ui.delete", WS_TABSTOP, 92, 374, 72, 30, DELETE);
         control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CLOSE);
-        control("BUTTON", "ui.try_opening_2", WS_TABSTOP, 0, 0, 0, 0, TEST);
+        control("BUTTON", "ui.try_opening", WS_TABSTOP, 0, 0, 0, 0, TEST);
         let save = control(
             "BUTTON",
             "ui.save",
