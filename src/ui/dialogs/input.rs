@@ -639,7 +639,7 @@ fn open(
                 (EC_LEFTMARGIN | EC_RIGHTMARGIN) as usize,
                 inset | (inset << 16),
             );
-            ui::style_vertical_scrollbar(content, 12, dpi);
+            ui::style_text_scrollbar(content, 13, dpi);
         }
         if let Some(report) = report.filter(|r| !r.rows.is_empty()) {
             let [left, right] = preview
@@ -704,7 +704,7 @@ fn open(
                     wide(&format!("{alias} · {name}")).as_ptr() as LPARAM,
                 );
             }
-            ui::style_vertical_scrollbar(table, 12, dpi);
+            ui::style_list_scrollbar(table, 14, dpi);
             if let Some(preview) = &preview
                 && !preview.note.is_empty()
             {

@@ -18,6 +18,9 @@
 
 ### 修复 / Fixed
 
+- 统一启动面板、管理窗口、导入和其他对话框的滚动条样式。鼠标移入滚动区域时，滑块加宽并显示淡色轨道。\
+  Scrollbars throughout the app share the launcher’s style, with a wider thumb and a subtle track on hover.
+
 - 「发送到」与启动项管理统一使用「测试打开」。\
   Send to and Manage launch items use the same label for testing a launch item.
 

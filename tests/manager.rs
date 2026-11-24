@@ -564,6 +564,31 @@ fn shortcut_table_preserves_theme_and_selection_when_resized() {
             assert_eq!(IsWindowEnabled(save), 0);
             let width = SendMessageW(list, LVM_GETCOLUMNWIDTH, 0, 0);
             assert_ne!(SendMessageW(list, LVM_SETCOLUMNWIDTH, 0, width + 75), 0);
+            for (id, axis) in [(2164, SB_VERT), (2165, SB_HORZ)] {
+                let gutter = GetDlgItem(manager, id);
+                wait(|| IsWindowVisible(gutter) != 0);
+                let mut bounds = RECT::default();
+                GetClientRect(gutter, &mut bounds);
+                let (x, y) = if axis == SB_VERT {
+                    (1, bounds.bottom - 2)
+                } else {
+                    (bounds.right / 2, 1)
+                };
+                let point = ((y << 16) | x) as LPARAM;
+                SendMessageW(gutter, WM_LBUTTONDOWN, 1, point);
+                let end = (((bounds.bottom - 1) << 16) | (bounds.right - 1)) as LPARAM;
+                SendMessageW(gutter, WM_MOUSEMOVE, 1, end);
+                SendMessageW(gutter, WM_LBUTTONUP, 0, point);
+                let mut info = SCROLLINFO {
+                    cbSize: size_of::<SCROLLINFO>() as u32,
+                    fMask: SIF_POS,
+                    ..Default::default()
+                };
+                assert_ne!(GetScrollInfo(list, axis, &mut info), 0);
+                assert!(info.nPos > 0, "the styled gutter must scroll the report");
+            }
+            SendMessageW(list, LVM_SCROLL, (-75_i32) as usize, 0);
+            SendMessageW(list, LVM_ENSUREVISIBLE, 0, 0);
             native_snapshot::save(manager, &format!("manager-table-{theme}-{scale}"));
             let dc = GetDC(header);
             let color = GetPixel(dc, 4, 4);

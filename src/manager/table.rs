@@ -97,8 +97,7 @@ unsafe fn configure_pixels(list: HWND, dpi: i32, columns: &[(&str, i32)], extend
         if !region.is_null() && SetWindowRgn(list, region, 0) == 0 {
             DeleteObject(region);
         }
-        ui::style_vertical_scrollbar(list, 2164, dpi);
-        ui::style_horizontal_scrollbar(list, 2165, dpi);
+        ui::style_report_scrollbars(list, 2164, 2165, dpi);
     }
 }
 

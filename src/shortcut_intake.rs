@@ -508,7 +508,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
                 SendMessageW(list, LB_ADDSTRING, 0, wide(&accessible).as_ptr() as LPARAM);
             }
             SendMessageW(list, LB_SETCURSEL, 0, 0);
-            ui::style_vertical_scrollbar(list, 12, dpi);
+            ui::style_list_scrollbar(list, 12, dpi);
         }
         let label_style = ui::STATIC_CENTER_IMAGE;
         let full = width - 2 * MARGIN;

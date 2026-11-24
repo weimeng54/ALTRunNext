@@ -66,6 +66,7 @@ pub fn combo(item: &DRAWITEMSTRUCT, dpi: i32) {
 
 pub fn style_combo(hwnd: HWND, dpi: i32) {
     unsafe { SetWindowSubclass(hwnd, Some(combo_proc), 1, dpi as usize) };
+    super::scrollbars::style_combo_scrollbar(hwnd, dpi);
 }
 
 #[derive(Clone, Copy)]

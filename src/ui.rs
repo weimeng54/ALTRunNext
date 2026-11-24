@@ -22,9 +22,7 @@ pub(crate) use painting::{
     Chevron, ResultDividers, STATIC_CENTER_IMAGE, app_icon, buffered, chevron, draw_app_icon, fill,
     launcher_title, line_text, panel_caption, round_panel, rounded, window_text,
 };
-pub(crate) use scrollbars::{
-    style_horizontal_scrollbar, style_launcher_scrollbar, style_vertical_scrollbar,
-};
+pub(crate) use scrollbars::{style_list_scrollbar, style_report_scrollbars, style_text_scrollbar};
 
 use std::ptr::null_mut;
 use windows_sys::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};

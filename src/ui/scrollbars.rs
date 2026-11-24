@@ -5,85 +5,163 @@ use super::{
     painting::{fill, rounded},
     scaled, wide,
 };
-use crate::theme;
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     UI::{
         Controls::*,
-        Shell::{DefSubclassProc, SUBCLASSPROC, SetWindowSubclass},
+        Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
 };
 
-mod launcher;
+mod appearance;
+mod combo;
+mod overlay;
 
-fn vertical_scrollbar(hwnd: HWND) -> Option<SCROLLBARINFO> {
-    scrollbar_info(hwnd, OBJID_VSCROLL)
+pub(super) use combo::style_combo_scrollbar;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    Vertical,
+    Horizontal,
 }
 
-fn scrollbar_info(hwnd: HWND, object: OBJECT_IDENTIFIER) -> Option<SCROLLBARINFO> {
+impl Axis {
+    fn object(self) -> OBJECT_IDENTIFIER {
+        match self {
+            Self::Vertical => OBJID_VSCROLL,
+            Self::Horizontal => OBJID_HSCROLL,
+        }
+    }
+
+    fn scroll_bar(self) -> SCROLLBAR_CONSTANTS {
+        match self {
+            Self::Vertical => SB_VERT,
+            Self::Horizontal => SB_HORZ,
+        }
+    }
+
+    fn length(self, bounds: RECT) -> i32 {
+        match self {
+            Self::Vertical => bounds.bottom - bounds.top,
+            Self::Horizontal => bounds.right - bounds.left,
+        }
+    }
+
+    fn cross_length(self, bounds: RECT) -> i32 {
+        match self {
+            Self::Vertical => bounds.right - bounds.left,
+            Self::Horizontal => bounds.bottom - bounds.top,
+        }
+    }
+
+    fn mouse_position(self, l: LPARAM) -> i32 {
+        let coordinate = match self {
+            Self::Vertical => l >> 16,
+            Self::Horizontal => l,
+        };
+        coordinate as i16 as i32
+    }
+
+    fn centered(self, bounds: RECT, width: i32, start: i32, end: i32) -> RECT {
+        let offset = (self.cross_length(bounds) - width) / 2;
+        match self {
+            Self::Vertical => RECT {
+                left: bounds.left + offset,
+                top: bounds.top + start,
+                right: bounds.left + offset + width,
+                bottom: bounds.top + end,
+            },
+            Self::Horizontal => RECT {
+                left: bounds.left + start,
+                top: bounds.top + offset,
+                right: bounds.left + end,
+                bottom: bounds.top + offset + width,
+            },
+        }
+    }
+}
+
+fn scrollbar_info(hwnd: HWND, axis: Axis) -> Option<SCROLLBARINFO> {
     let mut bar = SCROLLBARINFO {
-        cbSize: std::mem::size_of::<SCROLLBARINFO>() as u32,
+        cbSize: size_of::<SCROLLBARINFO>() as u32,
         ..Default::default()
     };
     unsafe {
-        (GetScrollBarInfo(hwnd, object, &mut bar) != 0
+        (GetScrollBarInfo(hwnd, axis.object(), &mut bar) != 0
             && bar.rgstate[0] & STATE_SYSTEM_INVISIBLE == 0)
             .then_some(bar)
     }
 }
 
-fn draw_scrollbar_on_axis(dc: HDC, track: RECT, bar: &SCROLLBARINFO, dpi: i32, horizontal: bool) {
-    fill(dc, &track, theme::paper());
-    if bar.xyThumbBottom > bar.xyThumbTop {
-        let width = scaled(4, dpi).max(3);
-        let thumb = if horizontal {
-            let top = (track.top + track.bottom - width) / 2;
-            RECT {
-                left: track.left + bar.xyThumbTop,
-                right: track.left + bar.xyThumbBottom,
-                top,
-                bottom: top + width,
-            }
+#[derive(Clone, Copy)]
+enum Target {
+    List,
+    ReportRows,
+    ReportColumns,
+    Text,
+}
+
+impl Target {
+    fn axis(self) -> Axis {
+        if matches!(self, Self::ReportColumns) {
+            Axis::Horizontal
         } else {
-            let left = (track.left + track.right - width) / 2;
-            RECT {
-                left,
-                right: left + width,
-                top: track.top + bar.xyThumbTop,
-                bottom: track.top + bar.xyThumbBottom,
+            Axis::Vertical
+        }
+    }
+
+    fn decode(style: usize) -> Self {
+        match style % 4 {
+            0 => Self::List,
+            1 => Self::ReportRows,
+            2 => Self::ReportColumns,
+            _ => Self::Text,
+        }
+    }
+
+    fn set_position(self, control: HWND, minimum: i32, current: i32, position: i32) {
+        let delta = position - current;
+        unsafe {
+            match self {
+                Self::List => {
+                    SendMessageW(control, LB_SETTOPINDEX, (minimum + position) as usize, 0);
+                }
+                Self::ReportRows => {
+                    let mut row = RECT::default();
+                    if SendMessageW(control, LVM_GETITEMRECT, 0, &mut row as *mut RECT as LPARAM) != 0 {
+                        let dy = delta.saturating_mul(row.bottom - row.top);
+                        SendMessageW(control, LVM_SCROLL, 0, dy as LPARAM);
+                    }
+                }
+                Self::ReportColumns => {
+                    SendMessageW(control, LVM_SCROLL, delta as usize, 0);
+                }
+                Self::Text => {
+                    SendMessageW(control, EM_LINESCROLL, 0, delta as LPARAM);
+                }
             }
-        };
-        rounded(dc, thumb, width, theme::muted(), theme::muted());
+        }
     }
 }
 
-pub fn style_vertical_scrollbar(control: HWND, id: usize, dpi: i32) {
-    // A DPI of zero follows a window that can move between monitors while open.
-    style_scrollbar(control, id, Overlay::Vertical(dpi));
+pub(crate) fn style_list_scrollbar(control: HWND, id: usize, dpi: i32) {
+    style_scrollbar(control, id, Target::List, dpi);
 }
 
-pub fn style_horizontal_scrollbar(control: HWND, id: usize, dpi: i32) {
-    style_scrollbar(control, id, Overlay::Horizontal(dpi));
+pub(crate) fn style_text_scrollbar(control: HWND, id: usize, dpi: i32) {
+    style_scrollbar(control, id, Target::Text, dpi);
 }
 
-pub(crate) fn style_launcher_scrollbar(control: HWND, id: usize) {
-    style_scrollbar(control, id, Overlay::Launcher);
+pub(crate) fn style_report_scrollbars(control: HWND, vertical: usize, horizontal: usize, dpi: i32) {
+    style_scrollbar(control, vertical, Target::ReportRows, dpi);
+    style_scrollbar(control, horizontal, Target::ReportColumns, dpi);
 }
 
-enum Overlay {
-    Vertical(i32),
-    Horizontal(i32),
-    Launcher,
-}
-
-fn style_scrollbar(control: HWND, id: usize, overlay: Overlay) {
-    let (procedure, style, horizontal): (SUBCLASSPROC, usize, bool) = match overlay {
-        Overlay::Vertical(dpi) => (Some(scrollbar_proc), dpi as usize * 2, false),
-        Overlay::Horizontal(dpi) => (Some(scrollbar_proc), dpi as usize * 2 + 1, true),
-        Overlay::Launcher => (Some(launcher::procedure), 0, false),
-    };
+fn style_scrollbar(control: HWND, id: usize, target: Target, dpi: i32) {
+    let style = dpi as usize * 4 + target as usize;
+    let horizontal = target.axis() == Axis::Horizontal;
     unsafe {
         let scrollbar = CreateWindowExW(
             0,
@@ -102,7 +180,7 @@ fn style_scrollbar(control: HWND, id: usize, overlay: Overlay) {
         if scrollbar.is_null() {
             return;
         }
-        if SetWindowSubclass(scrollbar, procedure, style, control as usize) == 0
+        if SetWindowSubclass(scrollbar, Some(overlay::procedure), style, control as usize) == 0
             || SetWindowSubclass(
                 control,
                 Some(scroll_control_proc),
@@ -123,6 +201,10 @@ unsafe extern "system" fn scroll_control_proc(
     subclass: usize,
     scrollbar: usize,
 ) -> LRESULT {
+    let scrollbar = scrollbar as HWND;
+    if msg == WM_NCDESTROY {
+        unsafe { DestroyWindow(scrollbar) };
+    }
     let result = unsafe { DefSubclassProc(hwnd, msg, w, l) };
     if matches!(
         msg,
@@ -131,32 +213,38 @@ unsafe extern "system" fn scroll_control_proc(
             | WM_VSCROLL
             | WM_HSCROLL
             | WM_MOUSEWHEEL
+            | WM_MOUSEHWHEEL
             | WM_KEYDOWN
             | WM_NCLBUTTONDOWN
             | WM_SIZE
+            | WM_SHOWWINDOW
+            | WM_WINDOWPOSCHANGED
             | LB_SETTOPINDEX
             | LB_SETCURSEL
             | EM_LINESCROLL
             | EM_SCROLL
+            | EM_SCROLLCARET
             | WM_SETTEXT
             | LVM_SCROLL
             | LVM_SETCOLUMNWIDTH
             | LVM_ENSUREVISIBLE
     ) {
-        update_scrollbar(hwnd, scrollbar as HWND, subclass == 2);
+        let axis = if subclass == 2 {
+            Axis::Horizontal
+        } else {
+            Axis::Vertical
+        };
+        update_scrollbar(hwnd, scrollbar, axis);
     }
     result
 }
 
-fn update_scrollbar(list: HWND, scrollbar: HWND, horizontal: bool) {
+fn update_scrollbar(control: HWND, scrollbar: HWND, axis: Axis) {
     unsafe {
         let visible = GetWindowLongW(scrollbar, GWL_STYLE) as u32 & WS_VISIBLE != 0;
-        let object = if horizontal {
-            OBJID_HSCROLL
-        } else {
-            OBJID_VSCROLL
-        };
-        let Some(bar) = scrollbar_info(list, object) else {
+        let bar = scrollbar_info(control, axis)
+            .filter(|_| GetWindowLongW(control, GWL_STYLE) as u32 & WS_VISIBLE != 0);
+        let Some(bar) = bar else {
             if visible {
                 ShowWindow(scrollbar, SW_HIDE);
             }
@@ -165,9 +253,9 @@ fn update_scrollbar(list: HWND, scrollbar: HWND, horizontal: bool) {
         let mut bounds = RECT::default();
         GetWindowRect(scrollbar, &mut bounds);
         let mut track = bar.rcScrollBar;
-        if horizontal && let Some(vertical) = vertical_scrollbar(list) {
-            // The native size box between the two scrollbars uses the system
-            // background. Extend the themed track across that corner.
+        if axis == Axis::Horizontal && let Some(vertical) = scrollbar_info(control, Axis::Vertical)
+        {
+            // Cover the native size box. The horizontal thumb ends before it.
             track.right = track.right.max(vertical.rcScrollBar.right);
         }
         if !visible || EqualRect(&bounds, &track) == 0 {
@@ -186,57 +274,11 @@ fn update_scrollbar(list: HWND, scrollbar: HWND, horizontal: bool) {
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
         }
-        // Native scrollbar tracking can draw directly into its list window.
-        // A separate, clipped sibling keeps our colors visible during that loop.
         RedrawWindow(
             scrollbar,
             std::ptr::null(),
             std::ptr::null_mut(),
             RDW_INVALIDATE | RDW_UPDATENOW,
         );
-    }
-}
-
-unsafe extern "system" fn scrollbar_proc(
-    hwnd: HWND,
-    msg: u32,
-    w: WPARAM,
-    l: LPARAM,
-    style: usize,
-    list: usize,
-) -> LRESULT {
-    match msg {
-        WM_NCHITTEST => HTTRANSPARENT as isize,
-        WM_ERASEBKGND => 1,
-        WM_PAINT | WM_PRINTCLIENT => unsafe {
-            let mut paint = PAINTSTRUCT::default();
-            let dc = if msg == WM_PAINT {
-                BeginPaint(hwnd, &mut paint)
-            } else {
-                w as HDC
-            };
-            let mut track = RECT::default();
-            GetClientRect(hwnd, &mut track);
-            let horizontal = style & 1 != 0;
-            let object = if horizontal {
-                OBJID_HSCROLL
-            } else {
-                OBJID_VSCROLL
-            };
-            if let Some(bar) = scrollbar_info(list as HWND, object) {
-                let dpi = match style / 2 {
-                    0 => super::geometry::window_dpi(list as HWND),
-                    dpi => dpi as i32,
-                };
-                draw_scrollbar_on_axis(dc, track, &bar, dpi, horizontal);
-            } else {
-                fill(dc, &track, theme::paper());
-            }
-            if msg == WM_PAINT {
-                EndPaint(hwnd, &paint);
-            }
-            0
-        },
-        _ => unsafe { DefSubclassProc(hwnd, msg, w, l) },
     }
 }
