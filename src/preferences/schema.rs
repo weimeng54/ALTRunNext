@@ -131,7 +131,7 @@ pub const SPECS: &[Spec] = &[
         "VerticalResultDividers",
         "ui.vertical_result_dividers",
         Bool,
-        "0"
+        "1"
     ),
     spec!(
         "HorizontalResultDividers",

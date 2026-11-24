@@ -4,9 +4,9 @@
 use altrun_probe::preferences::Preferences;
 
 #[test]
-fn result_dividers_keep_legacy_defaults_and_round_trip_independently() {
+fn result_dividers_default_to_vertical_and_round_trip_independently() {
     let legacy = Preferences::import("[GUI]\nTheme=dark\n").unwrap();
-    assert!(!legacy.flag("VerticalResultDividers"));
+    assert!(legacy.flag("VerticalResultDividers"));
     assert!(!legacy.flag("HorizontalResultDividers"));
     for (vertical, horizontal) in [("0", "0"), ("1", "0"), ("0", "1"), ("1", "1")] {
         let mut prefs = legacy.clone();

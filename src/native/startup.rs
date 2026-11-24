@@ -230,8 +230,11 @@ pub(crate) fn run() -> Result<(), String> {
             control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_SETTINGS),
             control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, ID_HIDE),
         ];
-        for (button, text) in buttons.iter().zip(["≡", "⚙", "×"]) {
-            SetWindowTextW(*button, wide(text).as_ptr());
+        for (button, text) in buttons
+            .iter()
+            .zip([wide("≡"), ui("ui.settings"), wide("×")])
+        {
+            SetWindowTextW(*button, text.as_ptr());
             SendMessageW(*button, WM_SETFONT, font as usize, 0);
         }
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);

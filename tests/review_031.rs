@@ -134,6 +134,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
         std::fs::remove_file(&archive).unwrap();
     }
     let original = std::fs::read(data).unwrap();
+    assert_eq!(text(child(launcher, 18005)), "设置…");
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);
     check_settings_layout(settings, theme, scale);
@@ -174,14 +175,17 @@ fn check_settings_layout(settings: HWND, theme: &str, scale: &str) {
     let preview = child(settings, 2306);
     for (page, section) in [(3, "appearance"), (4, "fonts")] {
         select(page);
-        assert_eq!(text(preview), "cl");
+        assert!(text(preview).is_empty());
         assert!(!review_native_support::has_text(settings, "例如 db"));
         native_snapshot::save(
             settings,
             &format!("settings-clean-{section}-{theme}-{scale}"),
         );
     }
+    set(preview, "cl");
     select(3);
+    assert_eq!(text(preview), "cl");
+    set(preview, "");
     let row_limit = altrun_probe::preferences::SPECS
         .iter()
         .position(|spec| spec.key == "MaxRows")

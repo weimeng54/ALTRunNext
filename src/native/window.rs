@@ -389,7 +389,11 @@ pub(super) unsafe extern "system" fn window_proc(
             }
             if d.CtlType == ODT_BUTTON {
                 let dpi = STATE.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
-                crate::ui::button_on(d, false, theme::surface(), dpi);
+                if d.CtlID as usize == ID_SETTINGS {
+                    crate::ui::settings_button(d, theme::surface(), dpi);
+                } else {
+                    crate::ui::button_on(d, false, theme::surface(), dpi);
+                }
                 return 1;
             }
             if d.itemID == u32::MAX {

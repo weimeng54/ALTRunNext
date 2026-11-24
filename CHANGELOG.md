@@ -11,7 +11,15 @@
 - 外观设置可分别显示启动结果的竖线和横线，并实时预览。字体与颜色页可修改分隔线颜色或恢复主题默认。\
   Toggle vertical and horizontal launch-result dividers independently and preview them live. Set a divider color or use the theme default under Fonts and colors.
 
+### 变更 / Changed
+
+- 启动结果默认显示竖向分隔线。设置中的启动面板预览初始显示完整的示例列表。\
+  Launch results show vertical dividers by default. The launcher preview in Settings initially shows the full sample list.
+
 ### 修复 / Fixed
+
+- 启动面板的「设置」按钮使用清晰的线框齿轮图标。\
+  The launcher’s Settings button uses an outlined gear icon.
 
 - 备份与恢复对话框的键盘焦点提示改为贴近复选框和单选按钮的细环。\
   Backup and restore dialogs show a compact keyboard focus ring around checkboxes and radio buttons.

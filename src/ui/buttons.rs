@@ -15,14 +15,30 @@ use windows_sys::Win32::{
 };
 
 pub fn button_on(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32) {
-    draw_button(item, primary, backdrop, dpi, false);
+    draw_button(item, primary, backdrop, dpi, ButtonContent::Label);
 }
 
 pub fn menu_button(item: &DRAWITEMSTRUCT, dpi: i32) {
-    draw_button(item, false, theme::chrome(), dpi, true);
+    draw_button(item, false, theme::chrome(), dpi, ButtonContent::Dropdown);
 }
 
-fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, menu: bool) {
+pub(crate) fn settings_button(item: &DRAWITEMSTRUCT, backdrop: u32, dpi: i32) {
+    draw_button(item, false, backdrop, dpi, ButtonContent::Gear);
+}
+
+enum ButtonContent {
+    Label,
+    Dropdown,
+    Gear,
+}
+
+fn draw_button(
+    item: &DRAWITEMSTRUCT,
+    primary: bool,
+    backdrop: u32,
+    dpi: i32,
+    content: ButtonContent,
+) {
     let dc = item.hDC;
     let rect = item.rcItem;
     let pressed = item.itemState & ODS_SELECTED != 0;
@@ -69,11 +85,15 @@ fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, me
             theme::border()
         },
     );
+    if matches!(content, ButtonContent::Gear) {
+        draw_gear(dc, rect, dpi, text);
+        return;
+    }
     unsafe {
         let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
         let old = SelectObject(dc, font);
         let mut label = rect;
-        if menu {
+        if matches!(content, ButtonContent::Dropdown) {
             label.right -= scaled(16, dpi);
             chevron(
                 dc,
@@ -88,6 +108,46 @@ fn draw_button(item: &DRAWITEMSTRUCT, primary: bool, backdrop: u32, dpi: i32, me
         }
         line_text(dc, label, &window_text(item.hwndItem), text, DT_CENTER);
         SelectObject(dc, old);
+    }
+}
+
+fn draw_gear(dc: HDC, rect: RECT, dpi: i32, colour: u32) {
+    // One quadrant of an eight-tooth gear, rotated around the center.
+    const QUARTER: [(i32, i32); 8] = [
+        (-1, -6),
+        (1, -6),
+        (1, -5),
+        (3, -4),
+        (4, -5),
+        (5, -4),
+        (4, -3),
+        (5, -1),
+    ];
+    let x = (rect.left + rect.right) / 2;
+    let y = (rect.top + rect.bottom) / 2;
+    let outline: [POINT; 32] = std::array::from_fn(|index| {
+        let (a, b) = QUARTER[index % QUARTER.len()];
+        let (dx, dy) = match index / QUARTER.len() {
+            0 => (a, b),
+            1 => (-b, a),
+            2 => (-a, -b),
+            _ => (b, -a),
+        };
+        POINT {
+            x: x + scaled(dx, dpi),
+            y: y + scaled(dy, dpi),
+        }
+    });
+    let hub = scaled(2, dpi).max(1);
+    unsafe {
+        let pen = CreatePen(PS_SOLID, scaled(1, dpi).max(1), colour);
+        let previous_pen = SelectObject(dc, pen);
+        let previous_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+        Polygon(dc, outline.as_ptr(), outline.len() as i32);
+        Ellipse(dc, x - hub, y - hub, x + hub + 1, y + hub + 1);
+        SelectObject(dc, previous_brush);
+        SelectObject(dc, previous_pen);
+        DeleteObject(pen);
     }
 }
 

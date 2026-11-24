@@ -207,9 +207,17 @@ pub(super) fn apply_settings_messages() {
                     let language =
                         STATE.with(|c| c.borrow().as_ref().unwrap().preferences.get("Lang"));
                     crate::localization::set_active(&language);
-                    let empty = STATE.with(|c| c.borrow().as_ref().unwrap().empty);
+                    let (owner, empty) = STATE.with(|c| {
+                        let state = c.borrow();
+                        let state = state.as_ref().unwrap();
+                        (state.hwnd, state.empty)
+                    });
                     unsafe {
                         SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
+                        SetWindowTextW(
+                            GetDlgItem(owner, ID_SETTINGS as i32),
+                            ui("ui.settings").as_ptr(),
+                        );
                     }
                     apply_appearance();
                     refresh();

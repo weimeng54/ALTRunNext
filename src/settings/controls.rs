@@ -144,13 +144,6 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         ];
         ui::style_edit_with_colours(preview_controls[2], dpi, preview_edit_colours);
         SendMessageW(preview_controls[0], WM_SETFONT, section_font as usize, 0);
-        SendMessageW(
-            preview_controls[2],
-            EM_SETCUEBANNER,
-            0,
-            ui("ui.type_a_shortcut").as_ptr() as isize,
-        );
-        SetWindowTextW(preview_controls[2], wide("cl").as_ptr());
         let mut sections = Vec::new();
         for card in layout::CARDS {
             let group = control(

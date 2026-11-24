@@ -11,8 +11,8 @@ mod painting;
 mod scrollbars;
 
 pub(crate) use buttons::{
-    button_on, caption_close, check_option, menu_button, option_focus_cues, style_caption_close,
-    switch,
+    button_on, caption_close, check_option, menu_button, option_focus_cues, settings_button,
+    style_caption_close, switch,
 };
 pub(crate) use fields::{
     NUMBER_STEP, buffer_edit_selection, combo, slider, style_combo, style_edit,
