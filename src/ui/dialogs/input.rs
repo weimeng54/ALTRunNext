@@ -532,7 +532,7 @@ fn open(
         let note_height = if preview.as_ref().is_some_and(|p| !p.note.is_empty()) {
             38
         } else {
-            SS_NOPREFIX
+            0
         };
         let start_y = if custom_caption {
             ui::geometry::CAPTION
@@ -589,10 +589,13 @@ fn open(
         } else if message.is_none() {
             WS_TABSTOP | ES_AUTOHSCROLL as u32
         } else {
-            0
+            SS_NOPREFIX
         };
         let content_text = report
-            .map_or_else(|| localized_message.unwrap_or_default(), |r| r.summary.clone())
+            .map_or_else(
+                || localized_message.unwrap_or_default(),
+                |r| r.summary.clone(),
+            )
             .replace("\r\n", "\n")
             .replace('\n', "\r\n");
         let content = CreateWindowExW(
@@ -748,34 +751,33 @@ fn open(
             }
         }
         let mut focus = content;
-        let actions: &[(&str, usize, i32, i32)] =
-            if notice {
-                &[("ui.ok", 1, width - 100, 84)]
-            } else if let (Some(action), Some(alternate)) = (action, alternate) {
-                &[
-                    (action, 1, 424, 160),
-                    (alternate, 3, 234, 180),
-                    ("ui.cancel", 2, 140, 84),
-                ]
-            } else if action == Some("ui.close") {
-                &[("ui.close", 1, 500, 84)]
-            } else if let Some(action) = action {
-                &[(action, 1, 404, 180), ("ui.cancel", 2, 310, 84)]
-            } else if has_rows {
-                &[
-                    ("ui.remove_missing", 1, 372, 120),
-                    ("ui.cancel", 2, 500, 84),
-                ]
-            } else if report.is_some() {
-                &[("ui.close", 1, 500, 84)]
-            } else if close_settings {
-                &[
-                    ("ui.discard_and_close", 1, 156, 120),
-                    ("ui.keep_editing", 2, 284, 120),
-                ]
-            } else {
-                &[("ui.ok", 1, 224, 84), ("ui.cancel", 2, 320, 84)]
-            };
+        let actions: &[(&str, usize, i32, i32)] = if notice {
+            &[("ui.ok", 1, width - 100, 84)]
+        } else if let (Some(action), Some(alternate)) = (action, alternate) {
+            &[
+                (action, 1, 424, 160),
+                (alternate, 3, 234, 180),
+                ("ui.cancel", 2, 140, 84),
+            ]
+        } else if action == Some("ui.close") {
+            &[("ui.close", 1, 500, 84)]
+        } else if let Some(action) = action {
+            &[(action, 1, 404, 180), ("ui.cancel", 2, 310, 84)]
+        } else if has_rows {
+            &[
+                ("ui.remove_missing", 1, 372, 120),
+                ("ui.cancel", 2, 500, 84),
+            ]
+        } else if report.is_some() {
+            &[("ui.close", 1, 500, 84)]
+        } else if close_settings {
+            &[
+                ("ui.discard_and_close", 1, 156, 120),
+                ("ui.keep_editing", 2, 284, 120),
+            ]
+        } else {
+            &[("ui.ok", 1, 224, 84), ("ui.cancel", 2, 320, 84)]
+        };
         for &(text, id, x, width) in actions {
             let button = CreateWindowExW(
                 0,

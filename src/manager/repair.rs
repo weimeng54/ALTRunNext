@@ -3,6 +3,7 @@
 
 use super::*;
 use altrun_probe::management::{self, MissingPath, PathInspection, RepairTarget};
+use crate::ui::dialogs::input::notice;
 use std::{collections::HashSet, path::Path};
 
 const CLASS: &str = "ALTRun.Native.MissingPaths";
@@ -261,11 +262,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                         match repair_path(hwnd, finding) {
                             Ok(true) => (*state).completion = Some("ui.repaired_path_save"),
                             Ok(false) => {}
-                            Err(err) => ui::dialogs::input::notice(
-                                hwnd,
-                                "ui.repair_missing_path",
-                                &err,
-                            ),
+                            Err(err) => notice(hwnd, "ui.repair_missing_path", &err),
                         }
                         (*state).busy = false;
                         if (*state).completion.is_some() {
