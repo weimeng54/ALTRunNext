@@ -7,6 +7,7 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
     UI::{
+        Controls::WM_MOUSELEAVE,
         Input::KeyboardAndMouse::{
             GetCapture, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
         },
@@ -246,9 +247,9 @@ pub(super) unsafe extern "system" fn procedure(
                     SetCapture(hwnd);
                     if GetCapture() == hwnd {
                         Pointer::Drag(grab).apply(hwnd);
-                        if !on_thumb {
-                            thumb.scroll_to(list, y, grab);
-                        }
+                    }
+                    if !on_thumb {
+                        thumb.scroll_to(list, y, grab);
                     }
                 }
                 0
