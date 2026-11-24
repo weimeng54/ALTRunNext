@@ -6,6 +6,8 @@
 
 ## [未发布 / Unreleased]
 
+## [0.4.7] - 2026-11-24
+
 ### 新增 / Added
 
 - 外观设置可分别显示启动结果的竖线和横线，并实时预览。字体与颜色页可修改分隔线颜色或恢复主题默认。\
@@ -183,7 +185,8 @@
 - 首次启动跟随 Windows 显示语言。内置英文和简体中文，便携包附带日语、韩语、法语、德语和西班牙语，并支持外置语言包。\
   The app follows the Windows display language on first launch. English and Simplified Chinese are built in. The portable ZIP includes Japanese, Korean, French, German, and Spanish, and the app supports external language packs.
 
-[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.6...main
+[未发布 / Unreleased]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.7...main
+[0.4.7]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/weimeng54/ALTRunNext/compare/v0.4.3...v0.4.4
