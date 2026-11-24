@@ -101,7 +101,10 @@ fn check_centered_editor(launcher: HWND, pid: u32, action: usize, class: &str, s
         assert_ne!(PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE as usize, 0), 0);
         let close_deadline = Instant::now() + Duration::from_secs(8);
         while IsWindow(hwnd) != 0 {
-            assert!(Instant::now() < close_deadline, "Esc did not close the editor");
+            assert!(
+                Instant::now() < close_deadline,
+                "Esc did not close the editor"
+            );
             thread::sleep(Duration::from_millis(20));
         }
     }
