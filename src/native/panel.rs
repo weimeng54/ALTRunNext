@@ -31,7 +31,7 @@ pub(super) fn show_inline_error(message: &str) {
 }
 
 pub(super) fn layout_inline_error() {
-    let (hwnd, list, command, error, font, dpi, visible, preview) = STATE.with(|c| {
+    let (hwnd, list, command, error, font, dpi, visible, preview, layout) = STATE.with(|c| {
         let state = c.borrow();
         let s = state.as_ref().unwrap();
         (
@@ -43,8 +43,12 @@ pub(super) fn layout_inline_error() {
             s.dpi,
             s.error,
             s.preferences.flag("ShowCommandLine"),
+            s.layout,
         )
     });
+    let Some(layout) = layout else {
+        return;
+    };
     unsafe {
         ShowWindow(
             command,
@@ -99,27 +103,20 @@ pub(super) fn layout_inline_error() {
         let height = if visible {
             y + height + scaled(5, dpi)
         } else {
-            origin.y
-                + scaled(
-                    if preview {
-                        theme::BASE_HEIGHT - theme::LIST_Y
-                    } else {
-                        70 - theme::LIST_Y
-                    },
-                    dpi,
-                )
+            layout.window_height()
         };
+        let width = scaled(layout.width, dpi);
         SetWindowPos(
             hwnd,
             null_mut(),
             0,
             0,
-            panel.right,
+            width,
             height,
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let radius = scaled(16, dpi);
-        let region = CreateRoundRectRgn(0, 0, panel.right + 1, height + 1, radius, radius);
+        let region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius);
         if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
             DeleteObject(region);
         }
@@ -134,6 +131,17 @@ pub(super) struct PanelLayout {
     height: i32,
     dpi: i32,
     show_command: bool,
+}
+
+impl PanelLayout {
+    fn window_height(self) -> i32 {
+        let chrome = if self.show_command {
+            theme::BASE_HEIGHT
+        } else {
+            70
+        };
+        scaled(chrome, self.dpi) + self.height
+    }
 }
 
 pub(super) fn result_label(entry: &Entry) -> Vec<u16> {
@@ -276,7 +284,7 @@ fn layout_results(hwnd: HWND, layout: PanelLayout) {
         row,
         height,
         dpi,
-        show_command,
+        ..
     } = layout;
     let (list, edit, title, command, empty, buttons) = STATE.with(|c| {
         let state = c.borrow();
@@ -348,7 +356,7 @@ fn layout_results(hwnd: HWND, layout: PanelLayout) {
             0,
             0,
             scaled(width, dpi),
-            scaled(if show_command { theme::BASE_HEIGHT } else { 70 }, dpi) + height,
+            layout.window_height(),
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let diameter = scaled(16, dpi);
@@ -356,7 +364,7 @@ fn layout_results(hwnd: HWND, layout: PanelLayout) {
             0,
             0,
             scaled(width, dpi) + 1,
-            scaled(if show_command { theme::BASE_HEIGHT } else { 70 }, dpi) + height + 1,
+            layout.window_height() + 1,
             diameter,
             diameter,
         );
