@@ -3,6 +3,19 @@
 
 use super::*;
 
+fn default_data_path() -> std::io::Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    if !exe.with_file_name("ALTRunNext.installed").try_exists()? {
+        return Ok(exe.with_file_name("shortcuts.tsv"));
+    }
+    let local = std::env::var_os("LOCALAPPDATA")
+        .filter(|path| std::path::Path::new(path).is_absolute())
+        .ok_or_else(|| std::io::Error::other("LOCALAPPDATA is unavailable"))?;
+    let profile = std::path::PathBuf::from(local).join("ALTRunNext");
+    std::fs::create_dir_all(&profile)?;
+    Ok(profile.join("shortcuts.tsv"))
+}
+
 pub(crate) fn run() -> Result<(), String> {
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     crate::localization::refresh_packs();
@@ -22,9 +35,7 @@ pub(crate) fn run() -> Result<(), String> {
         std::path::absolute(args.get(i + 1).ok_or("--data needs a path")?)
             .map_err(|e| e.to_string())?
     } else {
-        std::env::current_exe()
-            .map_err(|e| e.to_string())?
-            .with_file_name("shortcuts.tsv")
+        default_data_path().map_err(|e| e.to_string())?
     };
     let intake = args
         .iter()

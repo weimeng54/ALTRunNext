@@ -6,6 +6,8 @@
 
 ## [未发布 / Unreleased]
 
+- 新增 Windows 安装包。升级沿用安装目录，保留启动项、设置和历史。卸载时可选择清除当前用户的安装版数据。便携 ZIP 继续独立使用。\
+  Added a Windows installer that reuses the installation directory on upgrade and preserves launch items, settings and history. Uninstall can optionally clear the current user's installed profile. The portable ZIP remains available.
 - 搜索时启动面板保持固定高度。没有结果时可按回车，用当前输入的快捷项新建启动项。切换到其他窗口时面板自动收起。\
   The launcher keeps its height while filtering. Press Enter on an empty result to create a launch item with the typed alias. Switching to another window hides the launcher.
 - 从托盘菜单退出时直接舍弃设置和启动项管理窗口中未保存的修改。\

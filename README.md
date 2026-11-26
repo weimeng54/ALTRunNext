@@ -17,6 +17,8 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 2. 按 **Alt+R** 打开启动面板，使用 **↑ / ↓** 选择结果，按 **Enter** 启动，按 **Esc** 收起面板。
 3. 右键单击托盘图标，选择「管理启动项」添加项目，或打开「设置」调整快捷键、语言、主题和呼出声音。
 
+试装版也提供 Inno Setup 安装包。首次默认安装到 `C:\Program Files\ALTRunNext`，覆盖安装沿用此前目录。更新前请先保存并从托盘退出。安装版将个人数据写入 `%LOCALAPPDATA%\ALTRunNext`，便携版写在 EXE 同级。可通过「备份与恢复」在两者之间迁移。在 Windows「已安装的应用」中卸载时，默认保留个人数据，勾选清除选项可移除当前用户的安装版数据。
+
 ### 添加和备份启动项
 
 - 在「设置 → 常规」开启并保存「添加 ALTRunNext 到发送到菜单」。在资源管理器中右键单击目标，选择「显示更多选项 → 发送到 → ALTRunNext」，确认后保存。文件可以使用系统默认应用，也可以为该启动项指定打开程序。在设置里关闭此选项即可移除菜单入口。
@@ -51,6 +53,8 @@ ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, t
 1. Get the portable ZIP from [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases), extract it to a writable folder, and run `ALTRunNext.exe`.
 2. Press **Alt+R** to open the launcher, **↑ / ↓** to select a result, **Enter** to launch it, and **Esc** to hide the panel.
 3. Right-click the tray icon to manage launch items or open Settings. Settings include hotkeys, language, theme, and the popup sound.
+
+Trial builds also include an Inno Setup installer. It defaults to `C:\Program Files\ALTRunNext` and remembers the installation directory for upgrades. Save your work and exit from the tray before updating. The installed app stores personal data in `%LOCALAPPDATA%\ALTRunNext`. Portable copies store data beside the executable. Use **Backup and restore** to transfer data. Uninstall from Windows **Installed apps** to keep your profile by default, or select the checkbox to remove the current user's installed data.
 
 ### Adding and backing up launch items
 
