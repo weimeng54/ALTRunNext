@@ -670,6 +670,22 @@ pub(super) unsafe extern "system" fn list_proc(
         move_selection(if ((w >> 16) as i16) > 0 { -1 } else { 1 });
         return 0;
     }
+    if msg == WM_ERASEBKGND {
+        return 1;
+    }
+    if msg == WM_PAINT && w == 0 {
+        let paper = STATE.with(|c| c.borrow().as_ref().unwrap().paper);
+        unsafe {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = BeginPaint(hwnd, &mut paint);
+            crate::ui::buffered(dc, paint.rcPaint, |target| {
+                FillRect(target, &paint.rcPaint, paper);
+                SendMessageW(hwnd, WM_PRINTCLIENT, target as WPARAM, PRF_CLIENT as LPARAM);
+            });
+            EndPaint(hwnd, &paint);
+        }
+        return 0;
+    }
     let old = STATE.with(|c| c.borrow().as_ref().unwrap().old_list);
     unsafe {
         CallWindowProcW(

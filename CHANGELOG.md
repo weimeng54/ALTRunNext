@@ -10,6 +10,8 @@
   The launcher keeps its height while filtering. Press Enter on an empty result to create a launch item with the typed alias. Switching to another window hides the launcher.
 - 从托盘菜单退出时直接舍弃设置和启动项管理窗口中未保存的修改。\
   Exiting from the tray menu discards unsaved settings and launch item edits without prompting.
+- 修复清空搜索框、恢复完整启动项列表时的短暂闪烁。\
+  Fixed a brief flicker when clearing the search field restored the full launch list.
 
 ## [0.5.0] - 2026-11-24
 
