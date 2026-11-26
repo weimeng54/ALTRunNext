@@ -109,7 +109,7 @@ def exercise_wizard(executable, *, uninstall=False, upgrade=False, choices=None)
                 labels = OPTION_LABELS[-1:] if upgrade else OPTION_LABELS
                 if upgrade and any(name in controls for name in OPTION_LABELS[:-1]):
                     raise RuntimeError("Upgrade offered to overwrite existing integration preferences")
-                defaults = (False,) if upgrade else (False, True, True, True, False)
+                defaults = (True,) if upgrade else (False, False, True, True, True)
                 for name, default, desired in zip(labels, defaults, choices or defaults, strict=True):
                     box = controls[name]
                     if user.SendMessageW(box, 0xF0, 0, 0) != default:
@@ -138,7 +138,10 @@ def exercise_wizard(executable, *, uninstall=False, upgrade=False, choices=None)
                     if not verified:
                         continue
                     clicked.add(click)
-                    user.PostMessageW(button, 0xF5, 0, 0)
+                    # CI has no foreground desktop. Deliver the same BN_CLICKED
+                    # notification the native button sends to its parent.
+                    if not user.PostMessageW(dialog, 0x111, user.GetDlgCtrlID(button), button):
+                        raise ctypes.WinError()
                     break
         time.sleep(0.12)
     if process.returncode or not verified or (not uninstall and not options_seen):

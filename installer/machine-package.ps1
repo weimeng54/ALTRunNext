@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory)][string]$Directory,
     [Parameter(Mandatory)][string]$Version,
     [ValidateSet(0,1)][int]$Purge = 0,
-    [ValidateRange(0,31)][int]$Options = 14
+    [ValidateRange(0,31)][int]$Options = 28
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'user-session.ps1')

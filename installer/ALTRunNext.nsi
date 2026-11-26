@@ -54,7 +54,7 @@ LangString Failed ${LANG_SIMPCHINESE} "操作未能完成。"
 Var Purge
 Var Check
 Function .onInit
-    StrCpy $Options 14
+    StrCpy $Options 28
     ReadRegStr $PreviousInstall HKLM64 "${ARP}" "InstallLocation"
     ${If} $INSTDIR == ""
         StrCpy $INSTDIR $PreviousInstall

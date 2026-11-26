@@ -17,7 +17,7 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 2. 按 **Alt+R** 打开启动面板，使用 **↑ / ↓** 选择结果，按 **Enter** 启动，按 **Esc** 收起面板。
 3. 右键单击托盘图标，选择「管理启动项」添加项目，或打开「设置」调整快捷键、语言、主题和呼出声音。
 
-试装版也提供 NSIS 安装包。首次默认安装到 `C:\Program Files\ALTRunNext`，覆盖安装沿用此前目录。首次安装默认创建桌面快捷方式、启用登录 Windows 时启动，并添加到「发送到」菜单。开始菜单快捷方式和安装完成后打开可自行勾选。覆盖升级保留现有快捷方式和系统集成选择。更新前请先保存并从托盘退出。安装版将个人数据写入 `%LOCALAPPDATA%\ALTRunNext`，便携版写在 EXE 同级。可通过「备份与恢复」在两者之间迁移。在 Windows「已安装的应用」中卸载时，默认保留个人数据，勾选清除选项可移除当前用户的安装版数据。
+试装版也提供 NSIS 安装包。首次默认安装到 `C:\Program Files\ALTRunNext`，覆盖安装沿用此前目录。首次安装默认启用登录 Windows 时启动、添加到「发送到」菜单和安装完成后打开。开始菜单和桌面快捷方式均可按需勾选。覆盖升级保留现有快捷方式和系统集成选择。更新前请先保存并从托盘退出。安装版将个人数据写入 `%LOCALAPPDATA%\ALTRunNext`，便携版写在 EXE 同级。可通过「备份与恢复」在两者之间迁移。在 Windows「已安装的应用」中卸载时，默认保留个人数据，勾选清除选项可移除当前用户的安装版数据。
 
 ### 添加和备份启动项
 
@@ -54,7 +54,7 @@ ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, t
 2. Press **Alt+R** to open the launcher, **↑ / ↓** to select a result, **Enter** to launch it, and **Esc** to hide the panel.
 3. Right-click the tray icon to manage launch items or open Settings. Settings include hotkeys, language, theme, and the popup sound.
 
-Trial builds also include an NSIS installer. It defaults to `C:\Program Files\ALTRunNext` and remembers the installation directory for upgrades. On first install, the desktop shortcut, launch at Windows sign-in and Send to integration are selected by default. The Start menu shortcut and opening the app after installation are optional. Upgrades keep existing shortcuts and Windows integrations. Save your work and exit from the tray before updating. The installed app stores personal data in `%LOCALAPPDATA%\ALTRunNext`. Portable copies store data beside the executable. Use **Backup and restore** to transfer data. Uninstall from Windows **Installed apps** to keep your profile by default, or select the checkbox to remove the current user's installed data.
+Trial builds also include an NSIS installer. It defaults to `C:\Program Files\ALTRunNext` and remembers the installation directory for upgrades. First-time setup selects launch at Windows sign-in, Send to integration and opening the app after installation by default. Start menu and desktop shortcuts are opt-in. Upgrades keep existing shortcuts and Windows integrations. Save your work and exit from the tray before updating. The installed app stores personal data in `%LOCALAPPDATA%\ALTRunNext`. Portable copies store data beside the executable. Use **Backup and restore** to transfer data. Uninstall from Windows **Installed apps** to keep your profile by default, or select the checkbox to remove the current user's installed data.
 
 ### Adding and backing up launch items
 
