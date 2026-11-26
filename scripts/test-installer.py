@@ -13,6 +13,7 @@ import sys
 import time
 import winreg
 from zipfile import ZipFile
+from installer_dialog import start_inno, uninstall_with_checkbox
 
 
 def require(condition, message):
@@ -36,10 +37,36 @@ def hashes(directory):
             for p in directory.rglob("*") if p.is_file()}
 
 
+def create_shell_entries(directory, data, name):
+    exe = directory / "ALTRunNext.exe"
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, run_key) as handle:
+        winreg.SetValueEx(handle, name, 0, winreg.REG_SZ, f'"{exe}" --enable-launch --data "{data}"')
+    command = """
+        $ErrorActionPreference = 'Stop'
+        $path = Join-Path ([Environment]::GetFolderPath('SendTo')) 'ALTRunNext.lnk'
+        $link = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
+        $link.TargetPath = $env:TEST_EXE
+        $link.Arguments = '--enable-launch --data "' + $env:TEST_DATA + '" --add'
+        $link.Save()
+        $path
+    """
+    path = subprocess.check_output(["pwsh", "-NoProfile", "-Command", command],
+                                   env={**os.environ, "TEST_EXE": str(exe), "TEST_DATA": str(data)}, text=True)
+    return Path(path.strip())
+
+
+def registered_run(name):
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, run_key) as handle:
+        try:
+            return winreg.QueryValueEx(handle, name)[0]
+        except FileNotFoundError:
+            return None
+
+
 def install(exe, log, *options, expect_failure=False):
     logfile = work / (log + ".log")
-    result = subprocess.run([exe, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
-                             f"/LOG={logfile}", *options], timeout=120)
+    result = start_inno(exe, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/LOG={logfile}", *options])
+    result.wait(120)
     if (result.returncode != 0) != expect_failure:
         print(logfile.read_text(encoding="utf-8-sig", errors="replace")[-7000:], flush=True)
         raise RuntimeError(f"{log} returned {result.returncode}")
@@ -73,6 +100,7 @@ if __name__ == "__main__":
     require(os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("RUNNER_ENVIRONMENT") == "github-hosted",
             "Running on a disposable hosted runner")
     setup, version = Path(sys.argv[1]).resolve(), sys.argv[2]
+    run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
     work = Path(os.environ["RUNNER_TEMP"]) / "ALTRunNext installation test"
     installed, portable, old = (work / n for n in ("Custom installation", "Portable", "Previous payload"))
     profile = Path(os.environ["LOCALAPPDATA"]) / "ALTRunNext"
@@ -95,7 +123,7 @@ if __name__ == "__main__":
     install(default_dir / "unins000.exe", "default-uninstall")
     require(not registration(), "Default installation unregistered")
     install(old_setup, "protect-portable", f"/DIR={portable}", expect_failure=True)
-    install(old_setup, "custom-install", f"/DIR={installed}")
+    install(old_setup, "custom-install", f"/DIR={installed}", "/LANG=english")
     launch(installed, lambda: install(setup, "busy-upgrade", expect_failure=True))
     items = profile / "shortcuts.tsv"
     require(items.is_file() and not (installed / items.name).exists(), "First run seeded the installed profile")
@@ -119,18 +147,27 @@ if __name__ == "__main__":
     require(all(actual.get(name) == digest for name, digest in payload.items()), "All installed payload hashes match ZIP")
     launch(installed)
     uninstall = Path(entry["UninstallString"].strip('"'))
+    own_run = "ALTRunNext-0000000000000001"
+    link = create_shell_entries(installed, items, own_run)
     install(uninstall, "keep")
+    require(not registered_run(own_run) and not link.exists(), "Installed startup and Send to entries were removed")
     require(not registration() and not installed.exists() and hashes(profile) == before,
             "Default uninstall removed program and kept all user data")
     items.write_bytes(b"")
-    install(setup, "reinstall", f"/DIR={installed}")
+    install(setup, "reinstall", f"/DIR={installed}", "/LANG=english")
     launch(installed)
     require(items.read_bytes() == b"", "Reinstall respected an intentionally empty list")
     launch(portable)
     require((portable / "shortcuts.tsv").stat().st_size > 0, "Portable launcher seeded its independent list")
     portable_before = hashes(portable)
-    install(uninstall, "purge", "/PURGEUSERDATA")
+    other_run = "ALTRunNext-0000000000000002"
+    create_shell_entries(portable, portable / "shortcuts.tsv", other_run)
+    original_link = link.read_bytes()
+    original_run = registered_run(other_run)
+    uninstall_with_checkbox(uninstall, work / "purge.log")
     require(not registration() and not installed.exists(), "Opt-in uninstall removed program and registration")
     require(list(profile.iterdir()) == [notes] and notes.read_bytes() == b"unrelated file", "Only owned user files were cleared")
     require(hashes(portable) == portable_before, "Portable data survived uninstall")
+    require(registered_run(other_run) == original_run and link.read_bytes() == original_link,
+            "The portable copy retained its own startup and Send to entries")
     launch(portable)

@@ -115,7 +115,6 @@ begin
     Check := TNewCheckBox.Create(Form);
     Check.Parent := Form;
     Check.SetBounds(ScaleX(16), ScaleY(14), Form.ClientWidth - ScaleX(32), ScaleY(30));
-    Check.WordWrap := True;
     Check.Caption := CustomMessage('Purge');
     Remove := TNewButton.Create(Form);
     Remove.Parent := Form;
@@ -161,14 +160,21 @@ end;
 
 procedure CurUninstallStepChanged(Step: TUninstallStep);
 var
-  Code: Integer;
-  Args: String;
+  Code, Handle: Integer;
+  Args, Exe: String;
 begin
   if Step <> usUninstall then Exit;
+  Exe := ExpandConstant('{app}\ALTRunNext.exe');
+  Handle := OpenForUpdate(Exe, $40000000, 0, 0, 3, 0, 0);
+  if (Handle < 0) and FileExists(Exe) then RaiseException(CustomMessage('CloseApp'));
+  try
   Args := '-NoLogo -NoProfile -NonInteractive -EncodedCommand ';
   if PurgeProfile then Args := Args + '{#PurgeCommand}'
   else Args := Args + '{#KeepCommand}';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Args,
-    ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+  if not ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Args,
+    ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, Code, nil) or (Code <> 0) then
     RaiseException(CustomMessage('CleanupError'));
+  finally
+    if Handle >= 0 then CloseHandle(Handle);
+  end;
 end;

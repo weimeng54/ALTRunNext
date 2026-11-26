@@ -422,6 +422,9 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 1);
         assert_eq!(SendMessageW(track, WM_NCHITTEST, 0, 0), HTCLIENT as isize);
         // The outer edge of the gutter is clickable, even outside the painted thumb.
+        let mut cursor = POINT { x: 1, y: 2 };
+        assert_ne!(ClientToScreen(track, &mut cursor), 0);
+        assert_ne!(SetCursorPos(cursor.x, cursor.y), 0);
         SendMessageW(track, WM_LBUTTONDOWN, 1, (2 << 16) | 1);
         SendMessageW(track, WM_LBUTTONUP, 0, (2 << 16) | 1);
         assert_eq!(SendMessageW(list, LB_GETTOPINDEX, 0, 0), 0);

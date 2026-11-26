@@ -2,7 +2,6 @@ name: Native launcher validation
 on:
   push:
     branches: ['main']
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-2025
     timeout-minutes: 25
     env:
@@ -105,10 +105,11 @@ jobs:
         run: |
           $version = ((cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json).packages)[0].version
           $name = "ALTRunNext-$($env:GITHUB_SHA.Substring(0,8))-Win11-x64"
-          $setup = "target/$name-Setup.exe"
+          $setup = "target/inno-trial/$name-Setup.exe"
           ./scripts/build-installer.ps1 -Payload dist -Version $version -Output $setup
           python scripts/test-installer.py $setup $version
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Move-Item -LiteralPath $setup -Destination "target/$name-Setup.exe"
           Copy-Item target/ALTRunNext-Win11-x64.zip "target/$name.zip"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

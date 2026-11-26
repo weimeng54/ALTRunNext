@@ -33,6 +33,7 @@ impl Drop for Running {
         let _ = self.0.wait();
     }
 }
+#[track_caller]
 fn wait(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
