@@ -60,13 +60,27 @@ function Remove-Profile([bool]$Purge) {
 # UAC may have been approved with another account. Run per-user work with the
 # desktop user's limited token, before Inno removes the machine registration.
 $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
-$desktop = Get-CimInstance Win32_Process -Filter "Name='explorer.exe' AND SessionId=$session" |
-    Where-Object { $_.ExecutablePath -eq (Join-Path $env:windir 'explorer.exe') } |
-    Select-Object -First 1
-if ($desktop) {
-    $owner = Invoke-CimMethod -InputObject $desktop -MethodName GetOwnerSid
-    if ($owner.ReturnValue -ne 0) { throw 'Cannot identify the desktop user' }
-    $account = $owner.Sid
+if ($session -gt 0) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class DesktopSession {
+    [DllImport("wtsapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool WTSQuerySessionInformationW(IntPtr server, int session, int field, out IntPtr buffer, out int bytes);
+    [DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr buffer);
+    public static string Read(int session, int field) {
+        IntPtr buffer; int bytes;
+        if (!WTSQuerySessionInformationW(IntPtr.Zero, session, field, out buffer, out bytes))
+            throw new System.ComponentModel.Win32Exception();
+        try { return Marshal.PtrToStringUni(buffer); } finally { WTSFreeMemory(buffer); }
+    }
+}
+'@
+    $user = [DesktopSession]::Read($session, 5)
+    $domain = [DesktopSession]::Read($session, 7)
+    if (!$user -or !$domain) { throw 'Cannot identify the interactive user' }
+    $account = ([Security.Principal.NTAccount]::new($domain, $user)).Translate(
+        [Security.Principal.SecurityIdentifier]).Value
     $logon = 'Interactive'
 } else {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

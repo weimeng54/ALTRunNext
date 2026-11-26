@@ -44,6 +44,8 @@ Name: "{commonprograms}\ALTRunNext"; Filename: "{app}\ALTRunNext.exe"; Parameter
 [CustomMessages]
 english.Occupied=Choose an empty folder for the first installation. To move your portable data, use Backup and restore in Settings.
 chinesesimplified.Occupied=首次安装请选择空文件夹。如需迁移便携版数据，请使用设置中的“备份与恢复”。
+english.Previous=Upgrade in the existing installation directory. To move the program, uninstall it first and keep your profile.
+chinesesimplified.Previous=请在原安装目录升级。如需移动程序，请先卸载并保留个人数据。
 english.CloseApp=Save your changes and exit ALTRunNext from the tray, then try again.
 chinesesimplified.CloseApp=请保存修改，从托盘退出 ALTRunNext，然后重试。
 english.Purge=Also delete this user's installed launch items, settings and history
@@ -83,9 +85,10 @@ begin
   Dir := ExpandConstant('{app}');
   if RegQueryStringValue(HKLM64,
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\ALTRunNext_is1',
-    'InstallLocation', Previous) and
-    (CompareText(RemoveBackslashUnlessRoot(Previous), RemoveBackslashUnlessRoot(Dir)) = 0) then begin
-    if Busy then Result := CustomMessage('CloseApp');
+    'InstallLocation', Previous) then begin
+    if CompareText(RemoveBackslashUnlessRoot(Previous), RemoveBackslashUnlessRoot(Dir)) <> 0 then
+      Result := CustomMessage('Previous')
+    else if Busy then Result := CustomMessage('CloseApp');
   end else if FindFirst(AddBackslash(Dir) + '*', Entry) then begin
     try
       repeat
