@@ -83,9 +83,10 @@ def exercise_wizard(executable, *, uninstall=False, upgrade=False, choices=None)
     clicked = set()
     verified = False
     options_seen = False
+    last_screen = None
     while process.poll() is None:
         if time.monotonic() > deadline:
-            raise RuntimeError(f"Wizard timed out after clicking {clicked}")
+            raise RuntimeError(f"Wizard timed out after clicking {clicked}; last visible controls: {last_screen}")
         for dialog in windows():
             title = caption(dialog)
             if "altrunnext" not in title.lower():
@@ -93,6 +94,12 @@ def exercise_wizard(executable, *, uninstall=False, upgrade=False, choices=None)
             if not user.IsWindowVisible(dialog):
                 continue
             controls = {caption(child).replace("&", ""): child for child in windows(dialog) if user.IsWindowVisible(child)}
+            visible = tuple(sorted(text for text in controls if text))
+            if visible != last_screen:
+                print(f"Wizard: {visible}", flush=True)
+                last_screen = visible
+            if "OK" in controls and "Cancel" not in controls and len(visible) <= 4:
+                raise RuntimeError(f"Installer reported: {visible}")
             if not uninstall and not verified and (upgrade or str(Path(os.environ["ProgramFiles"]) / "ALTRunNext") in controls):
                 if upgrade and "Next >" not in controls:
                     continue
@@ -125,10 +132,12 @@ def exercise_wizard(executable, *, uninstall=False, upgrade=False, choices=None)
                 verified = True
             for label in ("Install", "Uninstall", "Next >", "Close", "OK"):
                 button = controls.get(label)
-                if button and user.IsWindowEnabled(button) and (dialog.value, label) not in clicked:
+                page = "options" if OPTION_LABELS[-1] in controls else "wizard"
+                click = (dialog.value, page, label)
+                if button and user.IsWindowEnabled(button) and click not in clicked:
                     if not verified:
                         continue
-                    clicked.add((dialog.value, label))
+                    clicked.add(click)
                     user.PostMessageW(button, 0xF5, 0, 0)
                     break
         time.sleep(0.12)
