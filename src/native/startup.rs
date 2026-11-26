@@ -25,13 +25,6 @@ pub(crate) fn run() -> Result<(), String> {
     } else {
         crate::installed::default_data_path().map_err(|e| e.to_string())?
     };
-    let seed_defaults = !data_path.try_exists().map_err(|error| error.to_string())?
-        && (explicit_data.is_none() || crate::installed::is_installed_profile(&data_path));
-    if seed_defaults
-        && let Some(directory) = data_path.parent()
-    {
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    }
     let intake = args
         .iter()
         .position(|a| a == "--add")
@@ -54,15 +47,20 @@ pub(crate) fn run() -> Result<(), String> {
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
     crate::localization::set_active(&preferences.get("Lang"));
     theme::install(&preferences);
-    let entries = if !seed_defaults {
-        altrun_probe::library::Snapshot::open(&data_path)?.entries
-    } else {
+    let seed_defaults = !data_path.try_exists().map_err(|error| error.to_string())?
+        && (explicit_data.is_none() || crate::installed::is_installed_profile(&data_path));
+    let entries = if seed_defaults {
+        if let Some(directory) = data_path.parent() {
+            std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+        }
         let mut entries = parse_entries(include_str!("../../assets/shortcuts.tsv"))?;
         for entry in &mut entries {
             entry.name = crate::localization::tr(&entry.name);
         }
         altrun_probe::library::Snapshot::new(data_path.clone(), entries.clone())?.save(&entries)?;
         entries
+    } else {
+        altrun_probe::library::Snapshot::open(&data_path)?.entries
     };
     let (base_directory, base_is_working_directory) = working_directory(&preferences, &data_path);
     let allow_dynamic_target = preferences.flag("AllowDynamicTarget");
