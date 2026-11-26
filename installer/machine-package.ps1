@@ -2,19 +2,22 @@
 # Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 param(
-    [ValidateSet('Install','Remove')][string]$Mode,
+    [ValidateSet('Install','Remove','Open')][string]$Mode,
     [Parameter(Mandatory)][string]$Directory,
     [Parameter(Mandatory)][string]$Version,
-    [ValidateSet(0,1)][int]$Purge = 0
+    [ValidateSet(0,1)][int]$Purge = 0,
+    [ValidateRange(0,31)][int]$Options = 14
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'user-session.ps1')
 $install = $Mode -eq 'Install'
 $dir = [IO.Path]::GetFullPath($Directory).TrimEnd('\')
 $arp = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ALTRunNext_is1'
 $exe = Join-Path $dir 'ALTRunNext.exe'
 $marker = Join-Path $dir 'ALTRunNext.installed'
 $uninstaller = Join-Path $dir 'Uninstall.exe'
-$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'ALTRunNext.lnk'
+$startLink = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'ALTRunNext.lnk'
+$desktopLink = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'ALTRunNext.lnk'
 $payload = Join-Path $PSScriptRoot 'payload'
 $changes = [Collections.Generic.List[object]]::new()
 $transaction = [Guid]::NewGuid().ToString('N')
@@ -54,6 +57,40 @@ function Remove-EmptyDirectory([string]$path) {
     }
 }
 
+function Update-Shortcut([string]$path, [bool]$create) {
+    $shell = New-Object -ComObject WScript.Shell
+    if ([IO.File]::Exists($path)) {
+        if ($shell.CreateShortcut($path).TargetPath -ne $exe) {
+            if ($create) { throw "Another shortcut already uses $path" }
+            return
+        }
+    }
+    if (!$create) { Update-File $path; return }
+    $stage = Join-Path $PSScriptRoot 'ALTRunNext.lnk'
+    $link = $shell.CreateShortcut($stage)
+    $link.TargetPath = $exe
+    $link.Arguments = '--show'
+    $link.WorkingDirectory = $dir
+    $link.Save()
+    Update-File $path $stage
+}
+
+# The interactive user's token owns the Run value, Send to menu and launcher.
+function Invoke-InstalledApp {
+    param([int]$action)
+    $ErrorActionPreference = 'Stop'
+    $key = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ALTRunNext_is1'
+    $app = Join-Path (Get-ItemPropertyValue -LiteralPath $key -Name InstallLocation) 'ALTRunNext.exe'
+    if ($action -eq 16) {
+        Start-Process -FilePath $app -ArgumentList '--show'
+    } else {
+        $process = Start-Process -FilePath $app -ArgumentList "--configure-installed-integrations $action" -PassThru -Wait
+        exit $process.ExitCode
+    }
+}
+
+if ($Mode -eq 'Open') { exit (Invoke-DesktopUser ${function:Invoke-InstalledApp} 16) }
+
 $mutex = [Threading.Mutex]::new($false, 'Global\ALTRunNext.Package')
 try { $locked = $mutex.WaitOne(0) }
 catch [Threading.AbandonedMutexException] { $locked = $true }
@@ -82,13 +119,10 @@ try {
         if ($install) {
             $null = [IO.Directory]::CreateDirectory($languageDir)
             foreach ($file in $files) { Update-File (Join-Path $dir $file) (Join-Path $payload $file) }
-            $stagedLink = Join-Path $PSScriptRoot 'ALTRunNext.lnk'
-            $link = (New-Object -ComObject WScript.Shell).CreateShortcut($stagedLink)
-            $link.TargetPath = $exe
-            $link.Arguments = '--show'
-            $link.WorkingDirectory = $dir
-            $link.Save()
-            Update-File $shortcut $stagedLink
+            if (!$registered) {
+                if ($Options -band 1) { Update-Shortcut $startLink $true }
+                if ($Options -band 2) { Update-Shortcut $desktopLink $true }
+            }
             if ($legacy) {
                 foreach ($ext in 'exe','dat','msg') { Update-File (Join-Path $dir "unins000.$ext") }
             }
@@ -100,9 +134,15 @@ try {
             }
             if (!$registered) { $null = New-Item -Path $arp }
             foreach ($name in $values.Keys) { Set-ItemProperty -LiteralPath $arp -Name $name -Value $values[$name] }
+            if (!$registered) {
+                $integrations = ($Options -shr 2) -band 3
+                $result = Invoke-DesktopUser ${function:Invoke-InstalledApp} $integrations
+                if ($result -ne 0) { throw "Could not configure Windows integrations: $result" }
+            }
         } else {
             foreach ($file in $files) { Update-File (Join-Path $dir $file) }
-            Update-File $shortcut
+            Update-Shortcut $startLink $false
+            Update-Shortcut $desktopLink $false
             & (Join-Path $PSScriptRoot 'uninstall-profile.ps1') -PurgeProfile ([bool]$Purge)
             Remove-Item -LiteralPath $arp
         }

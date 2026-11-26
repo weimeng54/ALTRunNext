@@ -38,13 +38,31 @@ impl Integration {
                 hash = hash.wrapping_mul(131).wrapping_add(byte as u64);
             }
             let name = format!("ALTRunNext-{hash:016x}");
-            Ok(Self {
+            let mut integration = Self {
                 registry: r"Software\Microsoft\Windows\CurrentVersion\Run".into(),
                 send_to: folder.join("ALTRunNext.lnk"),
                 name,
                 executable: std::env::current_exe().map_err(|e| e.to_string())?,
                 data,
-            })
+            };
+            if integration
+                .executable
+                .with_file_name("ALTRunNext.installed")
+                .is_file()
+            {
+                let alternate = folder.join("ALTRunNext (installed).lnk");
+                if alternate.is_file()
+                    || (integration.send_to.is_file()
+                        && integration.link_state()? == LinkState::Other)
+                {
+                    integration.send_to = alternate;
+                    if integration.send_to.exists() && integration.link_state()? == LinkState::Other
+                    {
+                        return Err("ui.could_not_create_the_send_to_shortcut".into());
+                    }
+                }
+            }
+            Ok(integration)
         }
     }
     pub fn command(&self) -> String {

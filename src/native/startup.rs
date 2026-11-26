@@ -3,19 +3,6 @@
 
 use super::*;
 
-fn default_data_path() -> std::io::Result<std::path::PathBuf> {
-    let exe = std::env::current_exe()?;
-    if !exe.with_file_name("ALTRunNext.installed").try_exists()? {
-        return Ok(exe.with_file_name("shortcuts.tsv"));
-    }
-    let local = std::env::var_os("LOCALAPPDATA")
-        .filter(|path| std::path::Path::new(path).is_absolute())
-        .ok_or_else(|| std::io::Error::other("LOCALAPPDATA is unavailable"))?;
-    let profile = std::path::PathBuf::from(local).join("ALTRunNext");
-    std::fs::create_dir_all(&profile)?;
-    Ok(profile.join("shortcuts.tsv"))
-}
-
 pub(crate) fn run() -> Result<(), String> {
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     crate::localization::refresh_packs();
@@ -31,12 +18,20 @@ pub(crate) fn run() -> Result<(), String> {
         };
         crate::ui::geometry::set_test_dpi(dpi);
     }
-    let data_path = if let Some(i) = args.iter().position(|a| a == "--data") {
+    let explicit_data = args.iter().position(|a| a == "--data");
+    let data_path = if let Some(i) = explicit_data {
         std::path::absolute(args.get(i + 1).ok_or("--data needs a path")?)
             .map_err(|e| e.to_string())?
     } else {
-        default_data_path().map_err(|e| e.to_string())?
+        crate::installed::default_data_path().map_err(|e| e.to_string())?
     };
+    let seed_defaults = !data_path.try_exists().map_err(|error| error.to_string())?
+        && (explicit_data.is_none() || crate::installed::is_installed_profile(&data_path));
+    if seed_defaults
+        && let Some(directory) = data_path.parent()
+    {
+        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    }
     let intake = args
         .iter()
         .position(|a| a == "--add")
@@ -59,7 +54,7 @@ pub(crate) fn run() -> Result<(), String> {
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
     crate::localization::set_active(&preferences.get("Lang"));
     theme::install(&preferences);
-    let entries = if args.iter().any(|a| a == "--data") || data_path.exists() {
+    let entries = if !seed_defaults {
         altrun_probe::library::Snapshot::open(&data_path)?.entries
     } else {
         let mut entries = parse_entries(include_str!("../../assets/shortcuts.tsv"))?;

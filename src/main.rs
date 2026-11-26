@@ -4,6 +4,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod installed;
+#[cfg(windows)]
 mod instance;
 #[cfg(windows)]
 use altrun_probe::localization;
@@ -27,6 +29,16 @@ mod ui;
 mod windows;
 
 fn main() {
+    #[cfg(windows)]
+    if std::env::args_os().nth(1).as_deref() == Some("--configure-installed-integrations".as_ref())
+    {
+        let options = std::env::args().nth(2).and_then(|s| s.parse::<u8>().ok());
+        let result = options
+            .filter(|bits| *bits <= 3)
+            .ok_or_else(|| "Invalid integration options".to_owned())
+            .and_then(installed::configure_integrations);
+        std::process::exit(i32::from(result.is_err()));
+    }
     #[cfg(windows)]
     if let Some(pid) = std::env::args()
         .collect::<Vec<_>>()

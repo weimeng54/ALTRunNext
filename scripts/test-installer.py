@@ -6,6 +6,7 @@ import ctypes
 from ctypes import wintypes
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -88,10 +89,10 @@ def install(exe, log, *options, expect_failure=False):
         raise RuntimeError(f"{log} returned {result.returncode}")
 
 
-def launch(directory, while_running=None):
+def launch(directory, while_running=None, arguments=()):
     user = ctypes.windll.user32
     user.FindWindowW.restype = wintypes.HWND
-    process = subprocess.Popen([directory / "ALTRunNext.exe", "--safe-mode", "--show"])
+    process = subprocess.Popen([directory / "ALTRunNext.exe", *arguments, "--safe-mode", "--show"])
     try:
         for _ in range(150):
             window = wintypes.HWND(user.FindWindowW("ALTRun.Native.PerformanceProbe", "ALTRunNext"))
@@ -110,6 +111,48 @@ def launch(directory, while_running=None):
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+def shell_state(directory, profile):
+    command = """
+        $shell = New-Object -ComObject WScript.Shell
+        $result = @{}
+        foreach ($folder in 'CommonPrograms','CommonDesktopDirectory','SendTo') {
+            $path = Join-Path ([Environment]::GetFolderPath($folder)) 'ALTRunNext.lnk'
+            $result[$folder] = if (Test-Path -LiteralPath $path) {
+                $link = $shell.CreateShortcut($path)
+                @($link.TargetPath, $link.Arguments)
+            }
+        }
+        $result | ConvertTo-Json -Compress
+    """
+    state = json.loads(subprocess.check_output(["pwsh", "-NoProfile", "-Command", command], text=True))
+    exe = str(directory / "ALTRunNext.exe")
+    data = profile / "shortcuts.tsv"
+    run_value = f'"{exe}" --enable-launch --data "{data}"'
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, run_key) as key:
+        runs = [winreg.EnumValue(key, i)[1] for i in range(winreg.QueryInfoKey(key)[1])]
+    return (state["CommonPrograms"] == [exe, "--show"], state["CommonDesktopDirectory"] == [exe, "--show"],
+            run_value in runs, state["SendTo"] == [exe, run_value.split('" ', 1)[1] + " --add"])
+
+
+def check_post_install_launch(directory, expected):
+    # A hosted service session may not expose the desktop user's HWND. Verify
+    # the actual launched image by full path and stop only the test instance.
+    command = """
+        $until = [DateTime]::UtcNow.AddSeconds(8)
+        do {
+            $app = Get-Process ALTRunNext -ErrorAction SilentlyContinue | Where-Object Path -eq $env:TEST_EXE
+            if ($app -or $env:EXPECT_OPEN -eq '0') { break }
+            Start-Sleep -Milliseconds 150
+        } while ([DateTime]::UtcNow -lt $until)
+        if ($app) { $app | Stop-Process -Force; $app | Wait-Process; exit 10 }
+        exit 0
+    """
+    result = subprocess.run(["pwsh", "-NoProfile", "-Command", command], env={
+        **os.environ, "TEST_EXE": str(directory / "ALTRunNext.exe"), "EXPECT_OPEN": str(int(expected)),
+    })
+    require(result.returncode == (10 if expected else 0), f"Post-install launch matched selection ({expected})")
 
 
 if __name__ == "__main__":
@@ -136,8 +179,21 @@ if __name__ == "__main__":
     exercise_wizard(setup)
     default_dir = Path(registration()["InstallLocation"])
     require(default_dir == Path(os.environ["ProgramFiles"]) / "ALTRunNext", "First install uses Program Files")
+    require(shell_state(default_dir, profile) == (False, True, True, True), "Fresh install applied options 2, 3 and 4")
+    check_post_install_launch(default_dir, False)
+    launch(default_dir, arguments=("--enable-launch", "--data", str(profile / "shortcuts.tsv")))
+    require((profile / "shortcuts.tsv").stat().st_size > 0, "First sign-in launch initialized the installed profile")
     install(default_dir / "Uninstall.exe", "default-uninstall")
     require(not registration(), "Default installation unregistered")
+    require(shell_state(default_dir, profile) == (False,) * 4, "Uninstall removed all selected integrations")
+    exercise_wizard(setup, choices=(True, False, False, False, True))
+    check_post_install_launch(default_dir, True)
+    require(shell_state(default_dir, profile) == (True, False, False, False), "Custom first-install choices took effect")
+    custom_profile = hashes(profile)
+    exercise_wizard(setup, upgrade=True)
+    require(hashes(profile) == custom_profile, "Interactive upgrade preserved every existing profile file")
+    require(shell_state(default_dir, profile) == (True, False, False, False), "Interactive upgrade preserved custom integrations")
+    install(default_dir / "Uninstall.exe", "custom-uninstall")
     install(old_setup, "protect-portable", f"/D={portable}", expect_failure=True)
     # Build the legacy trial from its immutable source so migration remains
     # reproducible after its short-lived CI artifact expires.
@@ -159,18 +215,22 @@ if __name__ == "__main__":
     require(items.is_file() and not (installed / items.name).exists(), "First run seeded the installed profile")
     items.write_text("trial\tTrial item\tnotepad.exe\t0\tnone\n", encoding="utf-8")
     (profile / "shortcuts.settings.ini").write_text("Lang=en\n", encoding="utf-8")
-    (profile / "shortcuts.state.tsv").write_bytes(b"")
-    shutil.copyfile(items, profile / "shortcuts.tsv.bak")
+    (profile / "shortcuts.state.tsv").write_bytes(b"R\ttrial\nF\ttrial\t7\nH\ttrial\ttest argument\n")
+    for file in (items, profile / "shortcuts.settings.ini", profile / "shortcuts.state.tsv"):
+        shutil.copyfile(file, file.with_suffix(file.suffix + ".bak"))
     media = profile / "altrun-media-item-1-2-3"
     media.mkdir()
     (media / "notify.wav").write_bytes(b"fixture")
+    (media / "background.bin").write_bytes(b"synthetic background")
     notes = profile / "my-notes.txt"
     notes.write_bytes(b"unrelated file")
     before = hashes(profile)
     install(old_setup, "upgrade-from-inno")
+    require(hashes(profile) == before, "Inno migration preserved every profile file byte for byte")
     require(not list(installed.glob("unins000.*")), "Migration retired the Inno uninstaller")
     require(Path(registration()["UninstallString"].strip('"')).name == "Uninstall.exe", "NSIS owns the existing registration")
     verify_upgrade_rollback(setup, installed)
+    require(hashes(profile) == before, "Failed upgrade preserved every profile file byte for byte")
     install(setup, "native-upgrade")
     entry = registration()
     require(Path(entry["InstallLocation"]) == installed and entry["DisplayVersion"] == version

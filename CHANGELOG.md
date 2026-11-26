@@ -6,6 +6,8 @@
 
 ## [未发布 / Unreleased]
 
+- 首次安装可选择开始菜单和桌面快捷方式、登录时启动、“发送到”菜单和安装后打开。覆盖升级保留已有选择。\
+  First-time setup offers Start menu and desktop shortcuts, launch at sign-in, Send to integration and opening the app after installation. Upgrades keep existing preferences.
 - 新增 NSIS 安装包，可直接覆盖此前的 Inno Setup 试装版。升级沿用安装目录，保留启动项、设置和历史。卸载时可选择清除当前用户的安装版数据。便携 ZIP 继续独立使用。\
   Added an NSIS installer that upgrades the earlier Inno Setup trial, reuses the installation directory on upgrade and preserves launch items, settings and history. Uninstall can optionally clear the current user's installed profile. The portable ZIP remains available.
 - 搜索时启动面板保持固定高度。没有结果时可按回车，用当前输入的快捷项新建启动项。切换到其他窗口时面板自动收起。\

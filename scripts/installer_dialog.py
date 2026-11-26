@@ -46,7 +46,14 @@ def capture_wizard(dialog, filename):
     })
 
 
-def exercise_wizard(executable, *, uninstall=False):
+OPTION_LABELS = (
+    "Create a Start menu shortcut", "Create a desktop shortcut",
+    "Start ALTRunNext when I sign in to Windows", "Add ALTRunNext to the Send to menu",
+    "Open ALTRunNext after installation",
+)
+
+
+def exercise_wizard(executable, *, uninstall=False, upgrade=False, choices=None):
     user = ctypes.windll.user32
     user.GetDlgItem.restype = wintypes.HWND
     enumerate_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -75,6 +82,7 @@ def exercise_wizard(executable, *, uninstall=False):
     deadline = time.monotonic() + 65
     clicked = set()
     verified = False
+    options_seen = False
     while process.poll() is None:
         if time.monotonic() > deadline:
             raise RuntimeError(f"Wizard timed out after clicking {clicked}")
@@ -85,9 +93,27 @@ def exercise_wizard(executable, *, uninstall=False):
             if not user.IsWindowVisible(dialog):
                 continue
             controls = {caption(child).replace("&", ""): child for child in windows(dialog) if user.IsWindowVisible(child)}
-            if not uninstall and not verified and str(Path(os.environ["ProgramFiles"]) / "ALTRunNext") in controls:
+            if not uninstall and not verified and (upgrade or str(Path(os.environ["ProgramFiles"]) / "ALTRunNext") in controls):
+                if upgrade and "Next >" not in controls:
+                    continue
                 capture_wizard(dialog, "nsis-install.png")
                 verified = True
+            if OPTION_LABELS[-1] in controls and not options_seen:
+                labels = OPTION_LABELS[-1:] if upgrade else OPTION_LABELS
+                if upgrade and any(name in controls for name in OPTION_LABELS[:-1]):
+                    raise RuntimeError("Upgrade offered to overwrite existing integration preferences")
+                defaults = (False,) if upgrade else (False, True, True, True, False)
+                for name, default, desired in zip(labels, defaults, choices or defaults, strict=True):
+                    box = controls[name]
+                    if user.SendMessageW(box, 0xF0, 0, 0) != default:
+                        raise RuntimeError(f"Incorrect initial checkbox state: {name}")
+                    if desired != default:
+                        user.SendMessageW(box, 0xF5, 0, 0)
+                    if user.SendMessageW(box, 0xF0, 0, 0) != desired:
+                        raise RuntimeError(f"Could not set checkbox: {name}")
+                if choices is None:
+                    capture_wizard(dialog, "nsis-upgrade.png" if upgrade else "nsis-options.png")
+                options_seen = True
             check = controls.get("Also delete this user's installed launch items, settings and history")
             if check and not verified:
                 if user.SendMessageW(check, 0xF0, 0, 0) != 0:  # BM_GETCHECK
@@ -106,5 +132,5 @@ def exercise_wizard(executable, *, uninstall=False):
                     user.PostMessageW(button, 0xF5, 0, 0)
                     break
         time.sleep(0.12)
-    if process.returncode or not verified:
+    if process.returncode or not verified or (not uninstall and not options_seen):
         raise RuntimeError(f"Interactive wizard failed (exit {process.returncode}, selection verified {verified})")

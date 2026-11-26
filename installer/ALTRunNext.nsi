@@ -28,6 +28,7 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright (c) 2026 ALTRunNext contr
 !define MUI_HEADERIMAGE_BITMAP "${GENERATED}\header.bmp"
 !define MUI_HEADERIMAGE_UNBITMAP "${GENERATED}\header.bmp"
 !insertmacro MUI_PAGE_DIRECTORY
+Page custom OptionsPage ReadOptions
 !insertmacro MUI_PAGE_INSTFILES
 UninstPage custom un.ProfilePage un.ReadProfile
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -49,11 +50,14 @@ LangString Destination ${LANG_SIMPCHINESE} "首次安装请选择空文件夹。
 LangString Failed ${LANG_ENGLISH} "Could not complete the operation."
 LangString Failed ${LANG_SIMPCHINESE} "操作未能完成。"
 
+!include "install-options.nsh"
 Var Purge
 Var Check
 Function .onInit
+    StrCpy $Options 14
+    ReadRegStr $PreviousInstall HKLM64 "${ARP}" "InstallLocation"
     ${If} $INSTDIR == ""
-        ReadRegStr $INSTDIR HKLM64 "${ARP}" "InstallLocation"
+        StrCpy $INSTDIR $PreviousInstall
         ${If} $INSTDIR == ""
             StrCpy $INSTDIR "$PROGRAMFILES64\ALTRunNext"
         ${EndIf}
@@ -79,6 +83,7 @@ Function un.ReadProfile
     ${NSD_GetState} $Check $Purge
 FunctionEnd
 Function un.onInit
+    StrCpy $Options 0
     StrCpy $Purge 0
     ${If} ${Silent}
         ${GetParameters} $0
@@ -92,8 +97,9 @@ FunctionEnd
 !macro ApplyPackage Mode
     SetOutPath "$PLUGINSDIR"
     File "machine-package.ps1"
+    File "user-session.ps1"
     File "${GENERATED}\files.txt"
-    nsExec::ExecToStack '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\machine-package.ps1" -Mode ${Mode} -Directory "$INSTDIR\." -Version "${VERSION}" -Purge $Purge'
+    nsExec::ExecToStack '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\machine-package.ps1" -Mode ${Mode} -Directory "$INSTDIR\." -Version "${VERSION}" -Purge $Purge -Options $Options'
     Pop $0
     Pop $1
     ${If} $0 != 0
@@ -110,6 +116,19 @@ FunctionEnd
         Abort
     ${EndIf}
 !macroend
+
+Function .onInstSuccess
+    IntOp $0 $Options & 16
+    ${If} $0 != 0
+    ${AndIfNot} ${Silent}
+        nsExec::ExecToStack '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\machine-package.ps1" -Mode Open -Directory "$INSTDIR\." -Version "${VERSION}"'
+        Pop $0
+        Pop $1
+        ${If} $0 != 0
+            MessageBox MB_OK|MB_ICONEXCLAMATION "$(Failed)$\r$\n$1"
+        ${EndIf}
+    ${EndIf}
+FunctionEnd
 
 Section "Install"
     InitPluginsDir
