@@ -154,7 +154,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
     let executable = std::env::var_os("ALTRUN_RELEASE_SMOKE_EXE")
         .unwrap_or_else(|| env!("CARGO_BIN_EXE_ALTRunNext").into());
     for scale in ["100", "125", "150", "200"] {
-        let _child = Running(
+        let mut child = Running(
             Command::new(&executable)
                 .arg("--show")
                 .arg("--enable-launch")
@@ -386,12 +386,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             assert_eq!(IsWindowVisible(hwnd), 0);
             check_centered_editor(
                 hwnd,
-                _child.0.id(),
+                child.0.id(),
                 18003,
                 "ALTRun.Native.ShortcutManager",
                 scale,
             );
-            check_centered_editor(hwnd, _child.0.id(), 18005, "ALTRun.Native.Settings", scale);
+            check_centered_editor(hwnd, child.0.id(), 18005, "ALTRun.Native.Settings", scale);
             SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
             let query = "new-synthetic-alias";
             SendMessageW(edit, WM_SETTEXT, 0, wide(query).as_ptr() as isize);
@@ -415,7 +415,39 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 assert!(Instant::now() < deadline, "new draft did not use the query");
                 thread::sleep(Duration::from_millis(15));
             }
-            assert!(!std::fs::read_to_string(&data).unwrap().contains(query));
+            let saved_items = std::fs::read_to_string(&data).unwrap();
+            assert!(!saved_items.contains(query));
+            let settings_file = data.with_extension("settings.ini");
+            let saved_settings = std::fs::read(&settings_file).unwrap();
+            SendMessageW(hwnd, WM_COMMAND, 18005, 0);
+            let deadline = Instant::now() + Duration::from_secs(8);
+            let sound_id = altrun_probe::preferences::SPECS
+                .iter()
+                .position(|spec| spec.key == "PlayPopupNotify")
+                .unwrap() as i32
+                + 2400;
+            loop {
+                let settings =
+                    FindWindowW(wide("ALTRun.Native.Settings").as_ptr(), std::ptr::null());
+                let sound = GetDlgItem(settings, sound_id);
+                if !sound.is_null() && IsWindowVisible(settings) != 0 {
+                    let previous = SendMessageW(sound, BM_GETCHECK, 0, 0);
+                    SendMessageW(sound, BM_CLICK, 0, 0);
+                    assert_ne!(previous, SendMessageW(sound, BM_GETCHECK, 0, 0));
+                    break;
+                }
+                assert!(Instant::now() < deadline, "settings did not open");
+                thread::sleep(Duration::from_millis(15));
+            }
+            SendMessageW(hwnd, WM_COMMAND, 18002, 0);
+            let deadline = Instant::now() + Duration::from_secs(8);
+            while child.0.try_wait().unwrap().is_none() {
+                assert!(Instant::now() < deadline, "tray exit was blocked");
+                thread::sleep(Duration::from_millis(15));
+            }
+            assert!(child.0.wait().unwrap().success());
+            assert_eq!(std::fs::read_to_string(&data).unwrap(), saved_items);
+            assert_eq!(std::fs::read(&settings_file).unwrap(), saved_settings);
         }
     }
 }

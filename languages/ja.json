@@ -360,7 +360,6 @@
     "ui.save_and_apply": "保存して適用",
     "ui.save_and_close_the_shortcut_manager_or": "先に管理画面または設定を保存して閉じてください。",
     "ui.save_diagnostic_log": "診断ログを保存",
-    "ui.save_or_close_the_shortcut_manager_before": "ALTRunNext を終了するには、先に起動項目管理を保存するか閉じてください。",
     "ui.save_to_apply_your_changes": "変更後に保存してください。",
     "ui.saved_and_applied": "設定を保存して適用しました。",
     "ui.saved_the_launcher_is_updated_and_a": "保存しました。ランチャーに反映され、直前の版は .bak に保存されました。",

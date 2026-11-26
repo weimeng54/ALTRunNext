@@ -226,9 +226,6 @@ pub(crate) fn prepare_for_restore() -> Result<bool, &'static str> {
     }
 }
 
-pub fn focus() {
-    notify(true);
-}
 fn notify(show: bool) {
     let hwnd = WINDOW.load(Ordering::Acquire);
     if hwnd != 0 {

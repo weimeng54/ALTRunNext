@@ -539,15 +539,6 @@ pub(super) unsafe extern "system" fn window_proc(
             0
         }
         QUIT => {
-            if crate::manager::is_open() || crate::settings::is_open() {
-                crate::manager::focus();
-                crate::ui::dialogs::input::notice(
-                    hwnd,
-                    "ALTRunNext",
-                    "ui.save_or_close_the_shortcut_manager_before",
-                );
-                return 0;
-            }
             unsafe {
                 DestroyWindow(hwnd);
             }

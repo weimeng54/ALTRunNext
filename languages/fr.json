@@ -360,7 +360,6 @@
     "ui.save_and_apply": "Appliquer",
     "ui.save_and_close_the_shortcut_manager_or": "Enregistrez et fermez la gestion des éléments de lancement ou les paramètres avant de continuer.",
     "ui.save_diagnostic_log": "Enregistrer le journal de diagnostic",
-    "ui.save_or_close_the_shortcut_manager_before": "Enregistrez ou fermez la fenêtre de gestion avant de quitter ALTRunNext.",
     "ui.save_to_apply_your_changes": "Enregistrez pour appliquer les modifications.",
     "ui.saved_and_applied": "Enregistré et appliqué.",
     "ui.saved_the_launcher_is_updated_and_a": "Éléments de lancement enregistrés et lanceur mis à jour. La version précédente est dans le fichier .bak.",
