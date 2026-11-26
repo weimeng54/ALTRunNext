@@ -157,11 +157,10 @@ pub(super) fn align_preview() {
             s.height - scaled(layout::FOOTER, s.dpi),
         )
     });
-    let query_text = text(query);
     let (panel, input_height) = EDITOR.with(|c| {
         let state = c.borrow();
         let preview = &state.as_ref().unwrap().preview;
-        let (bounds, input, _) = preview.geometry(preview.matches(&query_text).len());
+        let (bounds, input, _) = preview.geometry();
         (bounds, input)
     });
     let px = |value| scaled(value, dpi);

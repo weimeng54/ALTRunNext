@@ -191,7 +191,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 0
             );
             assert!(!edit.is_null() && !list.is_null());
-            centered_work_area(hwnd);
+            let (initial, _) = centered_work_area(hwnd);
             assert_eq!(hit_test_near_bottom(hwnd, 1000), HTCAPTION as isize);
             assert_eq!(hit_test_near_bottom(hwnd, 1001), HTCLIENT as isize);
             SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
@@ -342,53 +342,13 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             );
             assert_eq!(SendMessageW(list, LB_GETCOUNT, 0, 0), 0);
             assert_ne!(IsWindowVisible(GetDlgItem(hwnd, 1004)), 0);
-            let target = edit as usize;
-            let pending = thread::spawn(move || {
-                SendMessageW(target as _, WM_KEYDOWN, 13, 0);
-            });
-            let prompt_deadline = Instant::now() + Duration::from_secs(8);
-            let prompt_class = wide("ALTRun.Native.Confirmation");
-            loop {
-                let mut prompt = FindWindowExW(
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    prompt_class.as_ptr(),
-                    std::ptr::null(),
-                );
-                let mut found = false;
-                while !prompt.is_null() {
-                    let mut pid = 0;
-                    GetWindowThreadProcessId(prompt, &mut pid);
-                    if pid == _child.0.id() && IsWindowVisible(prompt) != 0 {
-                        assert!(!GetDlgItem(prompt, IDOK).is_null());
-                        assert!(!GetDlgItem(prompt, IDCANCEL).is_null());
-                        SendMessageW(prompt, WM_COMMAND, IDCANCEL as usize, 0);
-                        found = true;
-                        break;
-                    }
-                    prompt = FindWindowExW(
-                        std::ptr::null_mut(),
-                        prompt,
-                        prompt_class.as_ptr(),
-                        std::ptr::null(),
-                    );
-                }
-                if found {
-                    break;
-                }
-                assert!(
-                    Instant::now() < prompt_deadline,
-                    "empty-result confirmation did not appear"
-                );
-                thread::sleep(Duration::from_millis(15));
-            }
-            pending.join().unwrap();
-            assert_ne!(
-                IsWindowVisible(hwnd),
-                0,
-                "empty result must not launch or hide"
-            );
+            let (filtered, _) = centered_work_area(hwnd);
+            assert_eq!(initial.bottom - initial.top, filtered.bottom - filtered.top);
             native_snapshot::save(hwnd, &format!("empty-{scale}"));
+            SendMessageW(hwnd, WM_ACTIVATE, WA_INACTIVE as usize, 0);
+            assert_eq!(IsWindowVisible(hwnd), 0);
+            SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
+            assert_ne!(IsWindowVisible(hwnd), 0);
             let _ = std::fs::remove_file(&marker);
             SendMessageW(edit, WM_SETTEXT, 0, wide("r").as_ptr() as isize);
             SendMessageW(edit, WM_KEYDOWN, 13, 0);
@@ -432,6 +392,25 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "ALTRun.Native.ShortcutManager",
                 scale,
             );
+            SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
+            let query = "new-synthetic-alias";
+            SendMessageW(edit, WM_SETTEXT, 0, wide(query).as_ptr() as isize);
+            SendMessageW(edit, WM_KEYDOWN, 13, 0);
+            let deadline = Instant::now() + Duration::from_secs(8);
+            loop {
+                let manager = FindWindowW(
+                    wide("ALTRun.Native.ShortcutManager").as_ptr(),
+                    std::ptr::null(),
+                );
+                let mut alias = [0_u16; 64];
+                let len = GetDlgItemTextW(manager, 2102, alias.as_mut_ptr(), alias.len() as i32);
+                if String::from_utf16_lossy(&alias[..len as usize]) == query {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "new draft did not use the query");
+                thread::sleep(Duration::from_millis(15));
+            }
+            assert!(!std::fs::read_to_string(&data).unwrap().contains(query));
         }
     }
 }

@@ -96,15 +96,7 @@ pub(super) fn launch_selected_with(run_as_admin: bool) {
         return;
     }
     let Some(mut entry) = entry else {
-        if !run_as_admin
-            && enabled
-            && !query.is_empty()
-            && crate::ui::dialogs::input::confirm(
-                hwnd,
-                "ui.new_shortcut",
-                "ui.no_matches_add_a_new_shortcut",
-            )
-        {
+        if !run_as_admin && enabled && !query.trim().is_empty() {
             crate::manager::enqueue(Vec::new(), Some((query, VK_INSERT)));
             open_manager();
         }

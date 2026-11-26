@@ -6,6 +6,9 @@
 
 ## [未发布 / Unreleased]
 
+- 搜索时启动面板保持固定高度。没有结果时可按回车，用当前输入的快捷项新建启动项。切换到其他窗口时面板自动收起。\
+  The launcher keeps its height while filtering. Press Enter on an empty result to create a launch item with the typed alias. Switching to another window hides the launcher.
+
 ## [0.5.0] - 2026-11-24
 
 ### 新增 / Added

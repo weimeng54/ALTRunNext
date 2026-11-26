@@ -317,11 +317,8 @@ pub(super) unsafe extern "system" fn window_proc(
             update_search_ime(false);
             if !CONFIRMING_DELETE.get()
                 && !execution::parameter_open()
-                && STATE.with(|c| {
-                    c.borrow()
-                        .as_ref()
-                        .is_some_and(|s| !s.moving && s.preferences.number("HideDelay") > 0)
-                })
+                && unsafe { IsWindowEnabled(hwnd) != 0 }
+                && STATE.with(|c| c.borrow().as_ref().is_some_and(|s| !s.moving))
             {
                 unsafe {
                     ShowWindow(hwnd, SW_HIDE);
@@ -499,7 +496,8 @@ pub(super) unsafe extern "system" fn window_proc(
             let paper = l as HWND == s.edit
                 || l as HWND == s.list
                 || l as HWND == s.command
-                || l as HWND == s.inline_error;
+                || l as HWND == s.inline_error
+                || l as HWND == s.empty;
             unsafe {
                 SetTextColor(
                     dc,

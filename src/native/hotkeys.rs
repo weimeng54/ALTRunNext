@@ -213,7 +213,7 @@ pub(super) fn apply_settings_messages() {
                         (state.hwnd, state.empty)
                     });
                     unsafe {
-                        SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
+                        SetWindowTextW(empty, ui("ui.press_enter_to_add_launch_item").as_ptr());
                     }
                     update_caption_button_labels(owner);
                     apply_appearance();

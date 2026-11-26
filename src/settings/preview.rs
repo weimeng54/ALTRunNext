@@ -153,11 +153,15 @@ impl Preview {
         results
             .into_iter()
             .map(|(_, entry)| entry)
-            .take(self.prefs.number("MaxRows").clamp(1, 5) as usize)
+            .take(self.visible_rows() as usize)
             .collect()
     }
 
-    pub fn geometry(&self, count: usize) -> (BoxRect, i32, i32) {
+    fn visible_rows(&self) -> i32 {
+        self.prefs.number("MaxRows").clamp(1, 5)
+    }
+
+    pub fn geometry(&self) -> (BoxRect, i32, i32) {
         let width = self.prefs.number("FormWidth").clamp(240, PREVIEW.w - 32);
         let input = Font::parse(&self.prefs.get("KeywordFont")).map_or(17, |font| font.size_dip());
         let input_height = (input + 10).clamp(33, 54);
@@ -167,18 +171,9 @@ impl Preview {
             0
         };
         let row_max =
-            ((PREVIEW.h - 24 - 46 - input_height - command_height) / count.max(1) as i32).max(18);
+            ((PREVIEW.h - 24 - 46 - input_height - command_height) / self.visible_rows()).max(18);
         let row_height = self.prefs.number("RowHeight").clamp(18, row_max);
-        let height = 35
-            + input_height
-            + 4
-            + if count == 0 {
-                30
-            } else {
-                count as i32 * row_height
-            }
-            + command_height
-            + 8;
+        let height = 39 + input_height + self.visible_rows() * row_height + command_height + 8;
         (
             BoxRect::new(
                 (PREVIEW.w - width) / 2,
@@ -199,7 +194,7 @@ impl Preview {
         ui::fill(dc, &rect, theme::surface());
         ui::rounded(dc, rect, px(16), theme::chrome(), theme::divider());
         let matches = self.matches(query);
-        let (bounds, input_height, row_height) = self.geometry(matches.len());
+        let (bounds, input_height, row_height) = self.geometry();
         let area = |x, y, w, h| BoxRect::new(bounds.x + x, bounds.y + y, w, h).pixels(dpi);
         let panel = bounds.pixels(dpi);
         let shadow = area(-2, 3, bounds.w + 4, bounds.h + 3);
@@ -252,6 +247,8 @@ impl Preview {
             );
             SelectObject(dc, row_font);
             let mut y = 39 + input_height;
+            let list_height = self.visible_rows() * row_height;
+            ui::fill(dc, &area(9, y, bounds.w - 18, list_height), theme::paper());
             for (i, (alias, name, _)) in matches.iter().enumerate() {
                 let active = selected.is_some_and(|row| row.0 == *alias);
                 let row = area(9, y, bounds.w - 18, row_height);
@@ -308,19 +305,18 @@ impl Preview {
                 );
                 y += row_height;
             }
-            if matches.is_empty() {
-                ui::fill(dc, &area(9, y, bounds.w - 18, 30), theme::control_surface());
+            let show_hint = !query.trim().is_empty() && self.prefs.flag("ShowOperationHint");
+            if matches.is_empty() && show_hint {
                 ui::line_text(
                     dc,
-                    area(16, y, bounds.w - 32, 30),
-                    &crate::localization::tr("ui.no_matches"),
+                    area(16, y, bounds.w - 32, row_height),
+                    &crate::localization::tr("ui.press_enter_to_add_launch_item"),
                     theme::muted(),
                     0,
                 );
-                y += 30;
             }
             if self.prefs.flag("ShowCommandLine") {
-                let path = selected.map_or("—", |row| row.2);
+                let y = 39 + input_height + list_height;
                 SelectObject(dc, command_font);
                 ui::fill(dc, &area(9, y, bounds.w - 18, 1), theme::divider());
                 ui::fill(
@@ -328,13 +324,15 @@ impl Preview {
                     &area(9, y + 1, bounds.w - 18, 24),
                     theme::control_surface(),
                 );
-                ui::line_text(
-                    dc,
-                    area(16, y + 1, bounds.w - 32, 24),
-                    &format!("{}  {path}", crate::localization::tr("ui.command_label")),
-                    theme::muted(),
-                    0,
-                );
+                if let Some((_, _, path)) = selected {
+                    ui::line_text(
+                        dc,
+                        area(16, y + 1, bounds.w - 32, 24),
+                        &format!("{}  {path}", crate::localization::tr("ui.command_label")),
+                        theme::muted(),
+                        0,
+                    );
+                }
             }
             SelectObject(dc, old);
             DeleteObject(title_font);

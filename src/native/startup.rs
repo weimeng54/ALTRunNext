@@ -229,7 +229,7 @@ pub(crate) fn run() -> Result<(), String> {
             .map(|(id, _, _)| control("BUTTON", BS_OWNERDRAW as u32, 0, 0, 22, 22, id));
         update_caption_button_labels(hwnd);
         let empty = control("STATIC", 1, 12, theme::LIST_Y + 2, 396, 20, 1004);
-        SetWindowTextW(empty, ui("ui.no_matches_try_another_shortcut").as_ptr());
+        SetWindowTextW(empty, ui("ui.press_enter_to_add_launch_item").as_ptr());
         if [title, edit, list, command, inline_error, empty]
             .iter()
             .any(|h| h.is_null())

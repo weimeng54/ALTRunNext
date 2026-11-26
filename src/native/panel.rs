@@ -181,7 +181,7 @@ pub(super) fn render_hits() {
     let layout = PanelLayout {
         width,
         row,
-        height: (count.max(1) as i32).min(max_rows) * row_pixels,
+        height: max_rows * row_pixels,
         dpi,
         show_command,
     };
@@ -202,7 +202,10 @@ pub(super) fn render_hits() {
         (
             s.list,
             s.empty,
-            count == 0 && !s.current_query.is_empty(),
+            count == 0
+                && s.enabled
+                && !s.current_query.trim().is_empty()
+                && s.preferences.flag("ShowOperationHint"),
             dirty,
             s.virtual_results,
             labels,
@@ -288,7 +291,7 @@ fn layout_results(hwnd: HWND, layout: PanelLayout) {
             scaled(theme::LIST_Y + 2, dpi),
             scaled(width - 24, dpi),
             scaled(row, dpi),
-            SWP_NOZORDER | SWP_NOACTIVATE,
+            SWP_NOACTIVATE,
         );
         SetWindowPos(
             edit,

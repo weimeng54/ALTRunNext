@@ -116,7 +116,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                     return false;
                 };
                 let count = s.preview.matches(&query).len();
-                let (panel, input_height, row_height) = s.preview.geometry(count);
+                let (panel, input_height, row_height) = s.preview.geometry();
                 let px = |n| scaled(n, s.dpi);
                 let top = panel.y + input_height + 39;
                 if cursor.x < px(panel.x + 9) || cursor.x >= px(panel.x + panel.w - 9) {
