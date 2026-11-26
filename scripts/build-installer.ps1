@@ -8,7 +8,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
-$tools = Join-Path $root 'target/inno-6.7.3'
+$tools = Join-Path $root 'target/nsis-3.11'
 $null = New-Item -ItemType Directory -Force $tools
 
 function Get-PinnedFile($path, $hash, $urls) {
@@ -23,38 +23,41 @@ function Get-PinnedFile($path, $hash, $urls) {
     throw "Cannot obtain verified $path"
 }
 
-$compiler = Join-Path $tools 'compiler/ISCC.exe'
+$compiler = Join-Path $tools 'compiler/makensis.exe'
 if (!(Test-Path -LiteralPath $compiler)) {
-    $asset = 'jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe'
-    $bootstrap = Join-Path $tools 'innosetup-6.7.3.exe'
-    Get-PinnedFile $bootstrap '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732' @(
-        'https://mirrors.huaweicloud.com/github-release/jrsoftware/issrc/is-6_7_3/innosetup-6.7.3.exe',
-        "https://github.com/$asset"
-    )
-    $dir = Split-Path $compiler
-    $process = Start-Process -FilePath $bootstrap -ArgumentList (
-        '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR="{0}"' -f $dir
-    ) -WindowStyle Hidden -Wait -PassThru
-    if ($process.ExitCode) { throw "Inno Setup bootstrap exited $($process.ExitCode)" }
+    $preinstalled = Join-Path ${env:ProgramFiles(x86)} 'NSIS/makensis.exe'
+    if ((Test-Path -LiteralPath $preinstalled) -and (& $preinstalled /VERSION) -eq 'v3.11') {
+        $compiler = $preinstalled
+    } else {
+        $asset = 'project/nsis/NSIS%203/3.11/nsis-3.11-setup.exe'
+        $bootstrap = Join-Path $tools 'nsis-3.11-setup.exe'
+        Get-PinnedFile $bootstrap '38d49f8fe09b1c332b01d0940e57b7258f4447733643273a01c59959ad9d3b0a' @(
+            "https://mirrors.nju.edu.cn/sourceforge/n/ns/nsis/NSIS%203/3.11/nsis-3.11-setup.exe",
+            "https://downloads.sourceforge.net/$asset"
+        )
+        # NSIS requires /D last, with its complete path unquoted.
+        $process = Start-Process -FilePath $bootstrap -ArgumentList ("/S /D=" + (Split-Path $compiler)) -WindowStyle Hidden -Wait -PassThru
+        if ($process.ExitCode) { throw "NSIS bootstrap exited $($process.ExitCode)" }
+    }
 }
-$messages = Join-Path $tools 'ChineseSimplified.isl'
-Get-PinnedFile $messages '7d544b9bb1d142cfa11f2e5d3cc8abe2e55f8e066c5124e3772675aa236e1278' @(
-    'https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_3/Files/Languages/Unofficial/ChineseSimplified.isl'
+if ((& $compiler /VERSION) -ne 'v3.11') { throw 'Expected NSIS 3.11' }
+$payloadDir = (Resolve-Path -LiteralPath $Payload).Path
+$packageFiles = @('ALTRunNext.exe','CHANGELOG.md','LICENSE','Popup.wav','THIRD-PARTY-NOTICES.txt') + @(
+    Get-ChildItem -LiteralPath (Join-Path $payloadDir 'languages') -Filter '*.json' -File |
+        Sort-Object Name | ForEach-Object { 'languages\' + $_.Name }
 )
-$profileScript = Get-Content -Raw -LiteralPath (Join-Path $root 'installer/uninstall-profile.ps1')
-function EncodedCommand($purge) {
-    $body = '$purgeProfile = $' + $purge + [Environment]::NewLine + $profileScript
-    [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
-}
-$settings = Join-Path $tools 'settings.iss'
-@(
-    '#define Payload "' + (Resolve-Path -LiteralPath $Payload).Path + '"'
-    '#define PackageVersion "' + $Version + '"'
-    '#define ChineseMessages "' + $messages + '"'
-    '#define KeepCommand "' + (EncodedCommand 'false') + '"'
-    '#define PurgeCommand "' + (EncodedCommand 'true') + '"'
-) | Set-Content -LiteralPath $settings -Encoding utf8BOM
-$outputDir = Split-Path ([IO.Path]::GetFullPath($Output))
-$null = New-Item -ItemType Directory -Force $outputDir
-& $compiler "/DGeneratedSettings=$settings" "/O$outputDir" ("/F" + [IO.Path]::GetFileNameWithoutExtension($Output)) (Join-Path $root 'installer/ALTRunNext.iss')
-if ($LASTEXITCODE) { throw "ISCC exited $LASTEXITCODE" }
+if ($packageFiles.Count -le 5) { throw 'Missing packaged language resources' }
+$packageFiles | Set-Content -LiteralPath "$tools/files.txt" -Encoding ascii
+Add-Type -AssemblyName System.Drawing
+$header = [Drawing.Bitmap]::new(150, 57)
+$graphics = [Drawing.Graphics]::FromImage($header)
+$icon = [Drawing.Icon]::new((Join-Path $root 'assets/app.ico'), 48, 48)
+try {
+    $graphics.Clear([Drawing.Color]::White)
+    $graphics.DrawIcon($icon, [Drawing.Rectangle]::new(101, 8, 40, 40))
+    $header.Save("$tools/header.bmp", [Drawing.Imaging.ImageFormat]::Bmp)
+} finally { $icon.Dispose(); $graphics.Dispose(); $header.Dispose() }
+$destination = [IO.Path]::GetFullPath($Output)
+$null = New-Item -ItemType Directory -Force (Split-Path $destination)
+& $compiler /V3 /INPUTCHARSET UTF8 "/DPAYLOAD=$payloadDir" "/DVERSION=$Version" "/DOUTPUT=$destination" "/DGENERATED=$tools" (Join-Path $root 'installer/ALTRunNext.nsi')
+if ($LASTEXITCODE) { throw "makensis exited $LASTEXITCODE" }

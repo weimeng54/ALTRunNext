@@ -1,7 +1,7 @@
 # Copyright (c) 2026 GPT-6
 # Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-# Embedded in the uninstaller. The build sets $purgeProfile before this script.
+param([bool]$PurgeProfile = $false)
 $ErrorActionPreference = 'Stop'
 function Remove-Profile([bool]$Purge) {
     $ErrorActionPreference = 'Stop'
@@ -58,7 +58,7 @@ function Remove-Profile([bool]$Purge) {
 }
 
 # UAC may have been approved with another account. Run per-user work with the
-# desktop user's limited token, before Inno removes the machine registration.
+# desktop user's limited token, before removing the machine registration.
 $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
 if ($session -gt 0) {
     Add-Type -TypeDefinition @'

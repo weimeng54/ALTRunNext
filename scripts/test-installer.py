@@ -5,6 +5,7 @@
 import ctypes
 from ctypes import wintypes
 import hashlib
+import io
 import os
 from pathlib import Path
 import shutil
@@ -13,7 +14,7 @@ import sys
 import time
 import winreg
 from zipfile import ZipFile
-from installer_dialog import start_inno, uninstall_with_checkbox
+from installer_dialog import start_installer, uninstall_with_checkbox
 
 
 def require(condition, message):
@@ -64,11 +65,10 @@ def registered_run(name):
 
 
 def install(exe, log, *options, expect_failure=False):
-    logfile = work / (log + ".log")
-    result = start_inno(exe, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/LOG={logfile}", *options])
+    # NSIS parses the entire unquoted tail after /D= as the directory.
+    result = start_installer(exe, " ".join(("/S", *options)))
     result.wait(120)
     if (result.returncode != 0) != expect_failure:
-        print(logfile.read_text(encoding="utf-8-sig", errors="replace")[-7000:], flush=True)
         raise RuntimeError(f"{log} returned {result.returncode}")
 
 
@@ -120,10 +120,24 @@ if __name__ == "__main__":
     install(old_setup, "default-install")
     default_dir = Path(registration()["InstallLocation"])
     require(default_dir == Path(os.environ["ProgramFiles"]) / "ALTRunNext", "First install uses Program Files")
-    install(default_dir / "unins000.exe", "default-uninstall")
+    install(default_dir / "Uninstall.exe", "default-uninstall")
     require(not registration(), "Default installation unregistered")
-    install(old_setup, "protect-portable", f"/DIR={portable}", expect_failure=True)
-    install(old_setup, "custom-install", f"/DIR={installed}", "/LANG=english")
+    install(old_setup, "protect-portable", f"/D={portable}", expect_failure=True)
+    # Build the legacy trial from its immutable source so migration remains
+    # reproducible after its short-lived CI artifact expires.
+    legacy_commit = "5cc43c4a83ed2923330a657a86ff773359390065"
+    subprocess.run(["git", "fetch", "--depth=1", "origin", legacy_commit], check=True)
+    legacy_root = work / "Legacy installer sources"
+    archive = subprocess.check_output(["git", "archive", "--format=zip", legacy_commit,
+                                      "installer", "scripts/build-installer.ps1", "assets/app.ico"])
+    with ZipFile(io.BytesIO(archive)) as sources:
+        sources.extractall(legacy_root)
+    legacy_setup = work / "Legacy.exe"
+    subprocess.run(["pwsh", "-NoProfile", "-File", legacy_root / "scripts/build-installer.ps1",
+                    "-Payload", old, "-Version", "0.0.1", "-Output", legacy_setup], check=True)
+    legacy = start_installer(legacy_setup, ["/VERYSILENT", "/SUPPRESSMSGBOXES", f"/DIR={installed}"])
+    require(legacy.wait(120) == 0 and (installed / "unins000.exe").exists(), "Installed the actual legacy Inno package")
+
     launch(installed, lambda: install(setup, "busy-upgrade", expect_failure=True))
     items = profile / "shortcuts.tsv"
     require(items.is_file() and not (installed / items.name).exists(), "First run seeded the installed profile")
@@ -138,6 +152,9 @@ if __name__ == "__main__":
     notes.write_bytes(b"unrelated file")
     before = hashes(profile)
     install(setup, "upgrade")
+    require(not list(installed.glob("unins000.*")), "Migration retired the Inno uninstaller")
+    require(Path(registration()["UninstallString"].strip('"')).name == "Uninstall.exe", "NSIS owns the existing registration")
+    install(setup, "native-upgrade")
     entry = registration()
     require(Path(entry["InstallLocation"]) == installed and entry["DisplayVersion"] == version
             and entry["DisplayName"].startswith("ALTRunNext") and Path(entry["UninstallString"].strip('"')).is_file(),
@@ -154,7 +171,7 @@ if __name__ == "__main__":
     require(not registration() and not installed.exists() and hashes(profile) == before,
             "Default uninstall removed program and kept all user data")
     items.write_bytes(b"")
-    install(setup, "reinstall", f"/DIR={installed}", "/LANG=english")
+    install(setup, "reinstall", f"/D={installed}")
     launch(installed)
     require(items.read_bytes() == b"", "Reinstall respected an intentionally empty list")
     launch(portable)
@@ -164,7 +181,7 @@ if __name__ == "__main__":
     create_shell_entries(portable, portable / "shortcuts.tsv", other_run)
     original_link = link.read_bytes()
     original_run = registered_run(other_run)
-    uninstall_with_checkbox(uninstall, work / "purge.log")
+    uninstall_with_checkbox(uninstall)
     require(not registration() and not installed.exists(), "Opt-in uninstall removed program and registration")
     require(list(profile.iterdir()) == [notes] and notes.read_bytes() == b"unrelated file", "Only owned user files were cleared")
     require(hashes(portable) == portable_before, "Portable data survived uninstall")
