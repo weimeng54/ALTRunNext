@@ -14,7 +14,7 @@ import sys
 import time
 import winreg
 from zipfile import ZipFile
-from installer_dialog import start_installer, uninstall_with_checkbox
+from installer_dialog import start_installer, exercise_wizard
 
 
 def require(condition, message):
@@ -62,6 +62,22 @@ def registered_run(name):
             return winreg.QueryValueEx(handle, name)[0]
         except FileNotFoundError:
             return None
+
+
+def verify_upgrade_rollback(setup, installed):
+    before = hashes(installed)
+    entry = registration()
+    kernel = ctypes.windll.kernel32
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    file = kernel.CreateFileW(str(installed / "languages/fr.json"), 0x80000000, 1, None, 3, 0, None)
+    if file == wintypes.HANDLE(-1).value:
+        raise RuntimeError("Could not lock the synthetic language file")
+    try:
+        install(setup, "locked-resource", expect_failure=True)
+    finally:
+        kernel.CloseHandle(wintypes.HANDLE(file))
+    require(hashes(installed) == before and registration() == entry,
+            "A locked resource rolls back the upgrade and retains the previous uninstaller")
 
 
 def install(exe, log, *options, expect_failure=False):
@@ -117,7 +133,7 @@ if __name__ == "__main__":
     old_setup = work / "Previous.exe"
     subprocess.run(["pwsh", "-NoProfile", "-File", "scripts/build-installer.ps1",
                     "-Payload", old, "-Version", "0.0.1", "-Output", old_setup], check=True)
-    install(old_setup, "default-install")
+    exercise_wizard(setup)
     default_dir = Path(registration()["InstallLocation"])
     require(default_dir == Path(os.environ["ProgramFiles"]) / "ALTRunNext", "First install uses Program Files")
     install(default_dir / "Uninstall.exe", "default-uninstall")
@@ -151,9 +167,10 @@ if __name__ == "__main__":
     notes = profile / "my-notes.txt"
     notes.write_bytes(b"unrelated file")
     before = hashes(profile)
-    install(setup, "upgrade")
+    install(old_setup, "upgrade-from-inno")
     require(not list(installed.glob("unins000.*")), "Migration retired the Inno uninstaller")
     require(Path(registration()["UninstallString"].strip('"')).name == "Uninstall.exe", "NSIS owns the existing registration")
+    verify_upgrade_rollback(setup, installed)
     install(setup, "native-upgrade")
     entry = registration()
     require(Path(entry["InstallLocation"]) == installed and entry["DisplayVersion"] == version
@@ -181,7 +198,7 @@ if __name__ == "__main__":
     create_shell_entries(portable, portable / "shortcuts.tsv", other_run)
     original_link = link.read_bytes()
     original_run = registered_run(other_run)
-    uninstall_with_checkbox(uninstall)
+    exercise_wizard(uninstall, uninstall=True)
     require(not registration() and not installed.exists(), "Opt-in uninstall removed program and registration")
     require(list(profile.iterdir()) == [notes] and notes.read_bytes() == b"unrelated file", "Only owned user files were cleared")
     require(hashes(portable) == portable_before, "Portable data survived uninstall")

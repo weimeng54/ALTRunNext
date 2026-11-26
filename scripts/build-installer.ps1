@@ -8,7 +8,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
-$tools = Join-Path $root 'target/nsis-3.11'
+$tools = Join-Path $root 'target/nsis-tools'
 $null = New-Item -ItemType Directory -Force $tools
 
 function Get-PinnedFile($path, $hash, $urls) {
@@ -23,24 +23,17 @@ function Get-PinnedFile($path, $hash, $urls) {
     throw "Cannot obtain verified $path"
 }
 
-$compiler = Join-Path $tools 'compiler/makensis.exe'
-if (!(Test-Path -LiteralPath $compiler)) {
-    $preinstalled = Join-Path ${env:ProgramFiles(x86)} 'NSIS/makensis.exe'
-    if ((Test-Path -LiteralPath $preinstalled) -and (& $preinstalled /VERSION) -eq 'v3.11') {
-        $compiler = $preinstalled
-    } else {
-        $asset = 'project/nsis/NSIS%203/3.11/nsis-3.11-setup.exe'
-        $bootstrap = Join-Path $tools 'nsis-3.11-setup.exe'
-        Get-PinnedFile $bootstrap '38d49f8fe09b1c332b01d0940e57b7258f4447733643273a01c59959ad9d3b0a' @(
-            "https://mirrors.nju.edu.cn/sourceforge/n/ns/nsis/NSIS%203/3.11/nsis-3.11-setup.exe",
-            "https://downloads.sourceforge.net/$asset"
-        )
-        # NSIS requires /D last, with its complete path unquoted.
-        $process = Start-Process -FilePath $bootstrap -ArgumentList ("/S /D=" + (Split-Path $compiler)) -WindowStyle Hidden -Wait -PassThru
-        if ($process.ExitCode) { throw "NSIS bootstrap exited $($process.ExitCode)" }
-    }
-}
-if ((& $compiler /VERSION) -ne 'v3.11') { throw 'Expected NSIS 3.11' }
+$release = 'nsis-3.13'
+$archive = Join-Path $tools "$release.zip"
+Get-PinnedFile $archive 'ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8' @(
+    "https://mirrors.nju.edu.cn/sourceforge/n/ns/nsis/NSIS%203/3.13/$release.zip",
+    "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/$release.zip",
+    "https://github.com/tauri-apps/binary-releases/releases/download/$release/$release.zip"
+)
+$env:NSISDIR = Join-Path $tools $release
+$compiler = Join-Path $env:NSISDIR 'Bin/makensis.exe'
+if (!(Test-Path -LiteralPath $compiler)) { Expand-Archive -LiteralPath $archive -DestinationPath $tools -Force }
+if ((& $compiler /VERSION) -notmatch '^v3\.13(?:\.0)?$') { throw 'Expected NSIS 3.13' }
 $payloadDir = (Resolve-Path -LiteralPath $Payload).Path
 $packageFiles = @('ALTRunNext.exe','CHANGELOG.md','LICENSE','Popup.wav','THIRD-PARTY-NOTICES.txt') + @(
     Get-ChildItem -LiteralPath (Join-Path $payloadDir 'languages') -Filter '*.json' -File |
