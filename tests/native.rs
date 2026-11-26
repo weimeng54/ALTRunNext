@@ -384,7 +384,6 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             }
             assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "ok");
             assert_eq!(IsWindowVisible(hwnd), 0);
-            check_centered_editor(hwnd, _child.0.id(), 18005, "ALTRun.Native.Settings", scale);
             check_centered_editor(
                 hwnd,
                 _child.0.id(),
@@ -392,6 +391,7 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 "ALTRun.Native.ShortcutManager",
                 scale,
             );
+            check_centered_editor(hwnd, _child.0.id(), 18005, "ALTRun.Native.Settings", scale);
             SendMessageW(hwnd, WM_HOTKEY, 17001, 0);
             let query = "new-synthetic-alias";
             SendMessageW(edit, WM_SETTEXT, 0, wide(query).as_ptr() as isize);
@@ -403,7 +403,12 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                     std::ptr::null(),
                 );
                 let mut alias = [0_u16; 64];
-                let len = GetDlgItemTextW(manager, 2102, alias.as_mut_ptr(), alias.len() as i32);
+                let len = SendMessageW(
+                    GetDlgItem(manager, 2102),
+                    WM_GETTEXT,
+                    alias.len(),
+                    alias.as_mut_ptr() as isize,
+                );
                 if String::from_utf16_lossy(&alias[..len as usize]) == query {
                     break;
                 }
