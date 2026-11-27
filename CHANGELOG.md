@@ -28,6 +28,8 @@
 
 ### 修复 / Fixed
 
+- 修复重新呼出启动面板时，标题、输入框和结果列表短暂闪白的问题。\
+  Fixed a white flash in the title, search box and results when reopening the launcher.
 - 修复清空搜索框时启动结果列表短暂闪烁的问题。\
   Fixed a flicker when clearing the search box restored the full result list.
 

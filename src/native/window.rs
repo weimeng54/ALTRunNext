@@ -105,9 +105,7 @@ pub(super) unsafe extern "system" fn window_proc(
             position_panel();
             let edit = STATE.with(|c| c.borrow().as_ref().unwrap().edit);
             unsafe {
-                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                SetForegroundWindow(hwnd);
-                SetFocus(edit);
+                super::panel::show_focused(hwnd, edit);
                 popup_sound();
                 let delay =
                     STATE.with(|c| c.borrow().as_ref().unwrap().preferences.number("HideDelay"));

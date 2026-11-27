@@ -11,6 +11,38 @@ pub(super) fn update_caption_button_labels(hwnd: HWND) {
     }
 }
 
+pub(super) fn show_focused(hwnd: HWND, edit: HWND) {
+    unsafe {
+        if IsWindowVisible(hwnd) == 0 {
+            // Showing the parent exposes the child HWNDs before their queued
+            // WM_PAINTs run. Keep that first frame off screen until all visible
+            // controls have painted, including the edit and owner-drawn list.
+            let cloak = |value: i32| {
+                DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_CLOAK as u32,
+                    (&raw const value).cast(),
+                    size_of::<i32>() as u32,
+                )
+            };
+            let cloaked = cloak(1) >= 0;
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                null_mut(),
+                RDW_INVALIDATE | RDW_FRAME | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
+            GdiFlush();
+            if cloaked {
+                cloak(0);
+            }
+        }
+        SetForegroundWindow(hwnd);
+        SetFocus(edit);
+    }
+}
+
 pub(super) fn show_inline_error(message: &str) {
     let (hwnd, edit, error) = STATE.with(|c| {
         let mut s = c.borrow_mut();
@@ -24,9 +56,7 @@ pub(super) fn show_inline_error(message: &str) {
             .replace('\n', "\r\n");
         SetWindowTextW(error, wide(&message).as_ptr());
         layout_inline_error();
-        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        SetForegroundWindow(hwnd);
-        SetFocus(edit);
+        show_focused(hwnd, edit);
     }
 }
 
