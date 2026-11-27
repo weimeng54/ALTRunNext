@@ -194,7 +194,9 @@ unsafe extern "system" fn procedure(
             WM_THEMECHANGED | WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
                 queue_refresh(&mut APPLIED.lock().unwrap());
             }
-            crate::ui::language::CHANGED => crate::ui::language::refresh(hwnd),
+            crate::ui::language::CHANGED => {
+                return crate::ui::language::refresh(hwnd, || DefSubclassProc(hwnd, msg, w, l));
+            }
             REFRESH => {
                 refresh(hwnd);
                 return 0;

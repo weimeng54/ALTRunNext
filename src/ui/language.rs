@@ -118,17 +118,31 @@ unsafe extern "system" fn child(hwnd: HWND, _: LPARAM) -> i32 {
     1
 }
 
-pub(crate) fn refresh(hwnd: HWND) {
+pub(crate) fn refresh(hwnd: HWND, update_window: impl FnOnce() -> LRESULT) -> LRESULT {
     crate::localization::follow_active();
     unsafe {
         EndMenu();
+        // Native STATIC and BUTTON controls may paint directly from WM_SETTEXT.
+        // Finish translating the whole window before any of them can draw.
+        let visible = IsWindowVisible(hwnd) != 0;
+        if visible {
+            SendMessageW(hwnd, WM_SETREDRAW, 0, 0);
+        }
         SendMessageW(hwnd, REFRESH, 0, 0);
         EnumChildWindows(hwnd, Some(child), 0);
-        RedrawWindow(
-            hwnd,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-            RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN,
-        );
+        let result = update_window();
+        if visible && IsWindow(hwnd) != 0 {
+            let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_COMPOSITED as i32);
+            SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_NOERASE | RDW_UPDATENOW,
+            );
+            SetWindowLongW(hwnd, GWL_EXSTYLE, style);
+        }
+        result
     }
 }
