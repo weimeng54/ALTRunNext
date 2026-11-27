@@ -272,9 +272,34 @@ fn check_open_report_theme(
         !window("ALTRun.Native.Settings", pid).is_null()
     });
     let reopened = ready_window(pid, "ALTRun.Native.Settings", 2310);
-    wait(|| caption(reopened) == light_chrome);
+    assert_eq!(settings_caption_color(reopened), light_chrome);
     unsafe { PostMessageW(reopened, WM_CLOSE, 0, 0) };
     wait(|| unsafe { IsWindow(reopened) == 0 });
+}
+
+// Ask the target process to paint its client area even if another window
+// overlaps the settings caption on the test desktop.
+fn settings_caption_color(hwnd: HWND) -> u32 {
+    use windows_sys::Win32::{
+        Graphics::Gdi::{
+            CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, SelectObject,
+        },
+        Storage::Xps::{PW_CLIENTONLY, PrintWindow},
+    };
+    unsafe {
+        let screen = GetWindowDC(hwnd);
+        let dc = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, 361, 13);
+        let previous = SelectObject(dc, bitmap);
+        let printed = PrintWindow(hwnd, dc, PW_CLIENTONLY);
+        let color = GetPixel(dc, 360, 12);
+        SelectObject(dc, previous);
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+        ReleaseDC(hwnd, screen);
+        assert_ne!(printed, 0);
+        color
+    }
 }
 
 fn check_settings_layout(settings: HWND, theme: &str, scale: &str) {

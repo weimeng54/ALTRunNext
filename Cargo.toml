@@ -18,6 +18,9 @@ windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Secu
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 
+[dev-dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_Xps"] }
+
 [profile.release]
 opt-level = 3
 lto = true
