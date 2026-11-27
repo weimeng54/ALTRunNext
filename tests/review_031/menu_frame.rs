@@ -122,6 +122,7 @@ fn hover(menu: HMENU, row: u32) {
 }
 
 fn wait_popup(pid: u32, menu: Option<HMENU>) -> HWND {
+    eprintln!("Waiting for visible popup (pid={pid}, menu={menu:?})");
     let class = super::review_native_support::wide("#32768");
     let mut hwnd = null_mut();
     super::wait(|| unsafe {
@@ -142,6 +143,27 @@ fn wait_popup(pid: u32, menu: Option<HMENU>) -> HWND {
         }
     });
     hwnd
+}
+
+fn select_with_down(owner: HWND, menu: HMENU, target: u32) {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_DOWN;
+    unsafe {
+        let count = GetMenuItemCount(menu);
+        assert!(count > 0);
+        let selected = || {
+            (0..count as u32).find(|&pos| GetMenuState(menu, pos, MF_BYPOSITION) & MF_HILITE != 0)
+        };
+        for _ in 0..=count {
+            let before = selected();
+            if before == Some(target) {
+                return;
+            }
+            eprintln!("Moving from {before:?} toward row {target} in menu {menu:p}");
+            super::press(owner, VK_DOWN);
+            super::wait(|| selected() != before);
+        }
+        panic!("Down did not reach row {target} in menu {menu:p}");
+    }
 }
 
 fn check_sort_frame(hwnd: HWND, theme: &str, stage: &str) {
@@ -186,24 +208,40 @@ fn check_sort_frame(hwnd: HWND, theme: &str, stage: &str) {
 pub(super) fn check_sort(manager: HWND, pid: u32, theme: &str, scale: &str) {
     use windows_sys::Win32::UI::{
         HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext},
-        Input::KeyboardAndMouse::{VK_DOWN, VK_HOME, VK_RETURN, VK_RIGHT, VK_UP},
+        Input::KeyboardAndMouse::{VK_RETURN, VK_RIGHT, VK_UP},
     };
     unsafe {
         let dpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let mut previous = POINT::default();
         assert_ne!(GetCursorPos(&mut previous), 0);
+        let thread_id = GetWindowThreadProcessId(manager, null_mut());
+        let mut gui = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
         for (pass, expected) in [2130, 2132].into_iter().enumerate() {
+            let input = if pass == 0 { "mouse" } else { "keyboard" };
+            eprintln!("{theme} {scale}% {input}: opening Tools");
+            let mut button = RECT::default();
+            assert_ne!(GetWindowRect(GetDlgItem(manager, 2141), &mut button), 0);
+            assert_ne!(
+                SetCursorPos(
+                    (button.left + button.right) / 2,
+                    (button.top + button.bottom) / 2
+                ),
+                0
+            );
             super::begin(manager, 2141);
             let parent = wait_popup(pid, None);
             let tools = SendMessageW(parent, MN_GETHMENU, 0, 0) as HMENU;
             let sort = GetSubMenu(tools, 2);
             assert!(!sort.is_null());
+            eprintln!("{theme} {scale}% {input}: opening Sort from Tools {tools:p}");
             if pass == 0 {
                 hover(tools, 2);
             } else {
-                for key in [VK_HOME, VK_DOWN, VK_RIGHT] {
-                    super::press(manager, key);
-                }
+                select_with_down(manager, tools, 2);
+                super::press(manager, VK_RIGHT);
             }
             let child = wait_popup(pid, Some(sort));
             assert_eq!(GetMenuItemCount(sort), 3);
@@ -212,7 +250,7 @@ pub(super) fn check_sort(manager: HWND, pid: u32, theme: &str, scale: &str) {
                 assert_ne!(state, u32::MAX);
                 assert_eq!(state & MF_CHECKED != 0, id == expected);
             }
-            thread::sleep(Duration::from_millis(150));
+            thread::sleep(Duration::from_millis(400));
             check_sort_frame(
                 child,
                 theme,
@@ -229,11 +267,15 @@ pub(super) fn check_sort(manager: HWND, pid: u32, theme: &str, scale: &str) {
                 check_sort_frame(child, theme, "keyboard selection");
                 super::native_snapshot::save_painted(child, &format!("menu-sort-{theme}-{scale}"));
             } else {
-                super::press(manager, VK_HOME);
-                super::wait(|| GetMenuState(sort, 0, MF_BYPOSITION) & MF_HILITE != 0);
+                select_with_down(manager, sort, 0);
             }
+            eprintln!("{theme} {scale}% {input}: committing row and waiting for tracking to end");
             super::press(manager, VK_RETURN);
-            super::wait(|| IsWindowVisible(parent) == 0);
+            super::wait(|| {
+                IsWindowVisible(parent) == 0
+                    && GetGUIThreadInfo(thread_id, &mut gui) != 0
+                    && gui.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE) == 0
+            });
         }
         SetCursorPos(previous.x, previous.y);
         SetThreadDpiAwarenessContext(dpi);

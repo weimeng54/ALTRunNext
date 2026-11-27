@@ -150,13 +150,8 @@ unsafe extern "system" fn owner_proc(
             // procedure, bypassing thread call-window hooks. WM_ENTERIDLE supplies
             // the actual popup HWND once the native tracking loop has displayed it.
             WM_ENTERIDLE if w == MSGF_MENU as usize => {
-                let result = DefSubclassProc(hwnd, msg, w, l);
-                let window = l as HWND;
-                tracking.attach(window);
-                if tracking.windows.borrow().iter().any(|&(_, h)| h == window) {
-                    repair_presented_frame(window, tracking.popup.dpi);
-                }
-                result
+                tracking.attach(l as HWND);
+                DefSubclassProc(hwnd, msg, w, l)
             }
             WM_TIMER if w == data => {
                 KillTimer(hwnd, data);
@@ -247,7 +242,16 @@ impl Tracking<'_> {
                 self.sync_button(hwnd);
             }
             self.shape(hwnd);
-            SetTimer(self.owner, data, USER_TIMER_MINIMUM, None);
+            // TPM_NOANIMATION applies to the root only. A hover-opened
+            // cascade can still present a buffered native frame after its
+            // first paint. Schedule one repaint after the opening transition,
+            // including when the pointer remains stationary.
+            let delay = if menu == self.popup.root {
+                USER_TIMER_MINIMUM
+            } else {
+                200
+            };
+            SetTimer(self.owner, data, delay, None);
         }
     }
 }
@@ -296,28 +300,6 @@ fn draw_window_frame(hwnd: HWND, dpi: i32) {
         let dc = GetWindowDC(hwnd);
         if !dc.is_null() {
             paint_frame(hwnd, dc, dpi);
-            ReleaseDC(hwnd, dc);
-        }
-    }
-}
-
-// Hover-opened cascades have their own system animation. USER32 can copy its
-// buffered frame back after the first WM_PAINT and after the initial timer.
-// WM_ENTERIDLE names the currently tracked level after each native update.
-// Only repair an exposed, overwritten outline; leave item pixels alone.
-fn repair_presented_frame(hwnd: HWND, dpi: i32) {
-    unsafe {
-        let mut bounds = RECT::default();
-        if GetWindowRect(hwnd, &mut bounds) == 0 {
-            return;
-        }
-        let dc = GetWindowDC(hwnd);
-        if !dc.is_null() {
-            let x = (bounds.right - bounds.left) / 2;
-            let border = GetPixel(dc, x, 0);
-            if border != CLR_INVALID && border != theme::divider() {
-                paint_frame(hwnd, dc, dpi);
-            }
             ReleaseDC(hwnd, dc);
         }
     }

@@ -8,6 +8,7 @@ use altrun_probe::library::{OpenTarget, Snapshot};
 use review_native_support::*;
 use std::process::Command;
 use windows_sys::Win32::{
+    Foundation::POINT,
     Graphics::Gdi::*,
     UI::{Input::KeyboardAndMouse::VK_RETURN, WindowsAndMessaging::*},
 };
@@ -24,10 +25,16 @@ fn assert_surface(dialog: windows_sys::Win32::Foundation::HWND, expected: u32) {
         let dc = GetDC(status);
         let actual = GetPixel(dc, 4, 4);
         ReleaseDC(status, dc);
-        assert_eq!(
-            actual, expected,
-            "the empty status area must match the form background"
-        );
+        let mut position = POINT { x: 0, y: 4 };
+        assert_ne!(ClientToScreen(status, &mut position), 0);
+        assert_ne!(ScreenToClient(dialog, &mut position), 0);
+        // The uncovered strip immediately left of the label is painted by
+        // the form. Check both the dialog role and the seam on the real window.
+        let dc = GetDC(dialog);
+        let form = GetPixel(dc, position.x - 2, position.y);
+        ReleaseDC(dialog, dc);
+        assert_eq!(form, expected, "the form must use the dialog surface");
+        assert_eq!(actual, form, "the empty status area must match the form");
     }
 }
 
@@ -81,7 +88,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         !dialog.is_null() && unsafe { IsWindowVisible(dialog) != 0 }
     });
     native_snapshot::save(dialog, "send-to-light");
-    assert_surface(dialog, 245 | (247 << 8) | (251 << 16));
+    assert_surface(dialog, 250 | (251 << 8) | (253 << 16));
     check_edit_selection(dialog, 3103);
     unsafe {
         assert_eq!(text(GetDlgItem(dialog, 3107)), "测试打开");
@@ -135,7 +142,7 @@ fn send_to_add_dialog_saves_a_batch_without_overwriting_an_existing_alias() {
         assert_eq!(text(GetDlgItem(dialog, 3102)), "Actual Program");
         assert_eq!(text(GetDlgItem(dialog, 3103)), executable.to_str().unwrap());
         assert_eq!(IsWindowVisible(GetDlgItem(dialog, 3105)), 0);
-        assert_surface(dialog, 25 | (30 << 8) | (37 << 16));
+        assert_surface(dialog, 32 | (38 << 8) | (46 << 16));
         check_edit_selection(dialog, 3103);
         native_snapshot::save(dialog, "send-to-dark-link");
         let admin = GetDlgItem(dialog, 3111);

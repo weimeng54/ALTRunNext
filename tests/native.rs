@@ -95,8 +95,26 @@ fn check_centered_editor(launcher: HWND, pid: u32, action: usize, class: &str, s
             .min((work.right - work.left - 48) * 96 / 1102)
             .min((work.bottom - work.top - 80) * 96 / 721)
             .max(48);
-        assert_eq!(bounds.right - bounds.left, (1102 * dpi + 48) / 96);
-        assert_eq!(bounds.bottom - bounds.top, (721 * dpi + 48) / 96);
+        let mut client = RECT::default();
+        assert_ne!(GetClientRect(hwnd, &mut client), 0);
+        assert_eq!(client.right, (1102 * dpi + 48) / 96);
+        assert_eq!(client.bottom, (721 * dpi + 48) / 96);
+        // Layout dimensions describe the client. Verify the measured outer
+        // window adds only the flat border Windows reserves at its native DPI.
+        use windows_sys::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
+        let mut outer = client;
+        assert_ne!(
+            AdjustWindowRectExForDpi(
+                &mut outer,
+                WS_POPUP | WS_BORDER,
+                0,
+                0,
+                GetDpiForWindow(hwnd)
+            ),
+            0
+        );
+        assert_eq!(bounds.right - bounds.left, outer.right - outer.left);
+        assert_eq!(bounds.bottom - bounds.top, outer.bottom - outer.top);
         native_snapshot::save(hwnd, &format!("editor-{action}-{scale}"));
         assert_ne!(PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE as usize, 0), 0);
         let close_deadline = Instant::now() + Duration::from_secs(8);
