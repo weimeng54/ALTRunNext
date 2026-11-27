@@ -93,7 +93,7 @@ fn clear_error(hwnd: HWND) {
 }
 
 fn search_colours() -> (u32, u32) {
-    (theme::surface(), theme::paper())
+    (theme::dialog_surface(), theme::paper())
 }
 
 fn alias_colours() -> (u32, u32) {
@@ -442,7 +442,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     } else if id == STATUS {
                         theme::chrome()
                     } else {
-                        theme::surface()
+                        theme::dialog_surface()
                     };
                     SetBkColor(w as HDC, background);
                     SetTextColor(
@@ -470,7 +470,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             theme::chrome(),
                             dialog.dpi,
                         ),
-                        _ => ui::button_on(item, false, theme::surface(), dialog.dpi),
+                        _ => ui::button_on(item, false, theme::dialog_surface(), dialog.dpi),
                     }
                     return 1;
                 }
@@ -562,7 +562,7 @@ pub(super) fn open(
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
             ui::wide(&dialog.title).as_ptr(),
-            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
+            crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             0,
             0,
             1,
@@ -579,13 +579,12 @@ pub(super) fn open(
             ui::dialogs::input::notice(owner, "ALTRunNext", "ui.import_preview_failed");
             return Outcome::Cancelled;
         }
-        let dpi = ui::geometry::fit(hwnd, WIDTH, height);
+        let dpi = ui::window_frame::fit(hwnd, WIDTH, height);
         dialog.dpi = dpi;
         dialog.caption = ui::make_font(13, 600, "Microsoft YaHei UI", dpi);
         dialog.font = ui::make_font(14, 400, "Microsoft YaHei UI", dpi);
         let scale = |n| ui::scaled(n, dpi);
-        theme::watch(hwnd);
-        ui::round_panel(hwnd, scale(WIDTH), scale(height), dpi);
+
         let control = |class: &str, text: &str, id: usize, (x, y, w, h), style| {
             let child = CreateWindowExW(
                 0,

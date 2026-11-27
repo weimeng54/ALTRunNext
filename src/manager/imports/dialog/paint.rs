@@ -103,7 +103,7 @@ pub(super) fn draw_mode(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
     let px = |n| ui::scaled(n, dialog.dpi);
     let dc = item.hDC;
     let rect = item.rcItem;
-    ui::fill(dc, &rect, theme::surface());
+    ui::fill(dc, &rect, theme::dialog_surface());
     let side = px(16);
     let top = (rect.top + rect.bottom - side) / 2;
     let bounds = RECT {
@@ -160,7 +160,7 @@ pub(super) fn paint(hwnd: HWND, dialog: &Dialog, dc: HDC) {
     unsafe { GetClientRect(hwnd, &mut bounds) };
     let y = ui::scaled(HEADER, dialog.dpi);
     let footer_y = ui::scaled(dialog.height - FOOTER, dialog.dpi);
-    ui::fill(dc, &bounds, theme::surface());
+    ui::fill(dc, &bounds, theme::dialog_surface());
     ui::fill(
         dc,
         &RECT {

@@ -124,7 +124,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         theme::muted()
                     },
                 );
-                let colour = [theme::surface(), theme::paper(), theme::chrome()][index];
+                let colour = [theme::dialog_surface(), theme::paper(), theme::chrome()][index];
                 SetBkColor(w as HDC, colour);
                 SetDCBrushColor(w as HDC, colour);
                 GetStockObject(DC_BRUSH) as isize
@@ -199,10 +199,10 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
             event: Cell::new(0),
         };
         let hwnd = CreateWindowExW(
-            WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
+            WS_EX_CONTROLPARENT,
             class.as_ptr(),
             wide(&tr(title)).as_ptr(),
-            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
+            crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             WIDTH,
@@ -215,16 +215,9 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
         let result = if hwnd.is_null() {
             None
         } else {
-            theme::watch(hwnd);
-            state.dpi = ui::geometry::fit(hwnd, WIDTH, height);
+            state.dpi = ui::window_frame::fit(hwnd, WIDTH, height);
             state.fonts = [(15, 400), (15, 600), (13, 400)]
                 .map(|(size, weight)| make_font(size, weight, "Microsoft YaHei UI", state.dpi));
-            ui::round_panel(
-                hwnd,
-                scaled(WIDTH, state.dpi),
-                scaled(height, state.dpi),
-                state.dpi,
-            );
             let control = |class: &str,
                            id,
                            value: &str,

@@ -6,30 +6,30 @@
 
 ## [未发布 / Unreleased]
 
-- 设置中的「备份与恢复」采用紧凑按钮，两个菜单项连续排列。备份、新增和工具菜单会按按钮与内容宽度展开，按钮的底色和箭头提示当前展开方向。\
-  The backup button is more compact and groups both actions together. Backup, Add and Tools menus fit their button and contents. The active button stays highlighted and its arrow follows the menu.
+### 新增 / Added
 
-- 修复弹出菜单圆角边框缺边。菜单采用更紧凑的默认字号，可在「字体与颜色」中单独调整菜单字体和字号。\
-  Fixed gaps in popup menu borders. Menus use a smaller default text size. Their font and size can be changed independently in Fonts and Colors.
-- 选择主题会立即预览整个设置窗口。「保存并应用」后，其他窗口同步切换；放弃修改会保留原主题。\
-  Selecting a theme previews it throughout Settings. Save and Apply updates the other windows. Discarding changes keeps the saved theme.
-- 新增繁體中文语言包。\
-  Added a Traditional Chinese language pack.
+- 新增 Windows 安装版。可选择快捷方式、登录时启动和“发送到”菜单。覆盖升级沿用安装目录并保留启动项、设置和历史，卸载时可选择清除个人数据。\
+  Added a Windows installer with options for shortcuts, launch at sign-in and Send to integration. Upgrades reuse the install location and preserve launch items, settings and history. Uninstall offers an option to remove personal data.
+- 在「字体与颜色」中可单独设置菜单字体和字号。\
+  Menu font and size can be set independently under Fonts and Colors.
+- 新增繁體中文界面。\
+  Added Traditional Chinese.
 
-- 托盘、启动面板右键、启动项管理、备份与恢复及参数历史使用同款圆角菜单。菜单按文字宽度排列快捷键和子菜单，管理、导入和修复表格共用选中与焦点样式。\
-  Tray, launcher, management, backup and parameter history menus share a rounded frame and size themselves to their labels and shortcuts. Management, import and repair tables share selection and focus styles.
-- 更改主题后，已打开的工具窗口和对话框同步更新。高对比度下的选中行使用系统高亮文字色。\
-  Open tool windows and dialogs update when the theme changes. Selected rows use the system highlight text color in high contrast.
-- 首次安装可选择开始菜单和桌面快捷方式、登录时启动、“发送到”菜单和安装后打开。覆盖升级保留已有选择。\
-  First-time setup offers Start menu and desktop shortcuts, launch at sign-in, Send to integration and opening the app after installation. Upgrades keep existing preferences.
-- 新增 NSIS 安装包，可直接覆盖此前的 Inno Setup 试装版。升级沿用安装目录，保留启动项、设置和历史。卸载时可选择清除当前用户的安装版数据。便携 ZIP 继续独立使用。\
-  Added an NSIS installer that upgrades the earlier Inno Setup trial, reuses the installation directory on upgrade and preserves launch items, settings and history. Uninstall can optionally clear the current user's installed profile. The portable ZIP remains available.
-- 搜索时启动面板保持固定高度。没有结果时可按回车，用当前输入的快捷项新建启动项。切换到其他窗口时面板自动收起。\
-  The launcher keeps its height while filtering. Press Enter on an empty result to create a launch item with the typed alias. Switching to another window hides the launcher.
-- 从托盘菜单退出时直接舍弃设置和启动项管理窗口中未保存的修改。\
-  Exiting from the tray menu discards unsaved settings and launch item edits without prompting.
-- 修复清空搜索框、恢复完整启动项列表时的短暂闪烁。\
-  Fixed a brief flicker when clearing the search field restored the full launch list.
+### 变更 / Changed
+
+- 搜索时启动面板保持固定高度。没有匹配项时，按 Enter 可用当前输入新建快捷项；切换到其他应用时，启动面板自动收起。\
+  The launcher stays the same height as you search. Press Enter when there are no matches to create an item with the typed alias. Switching to another app hides the launcher.
+- 托盘、右键和按钮菜单统一使用主题配色和紧凑字号。深色弹窗使用略亮的底色和细边，在多层窗口中更易辨认。\
+  Tray, context and button menus use the app theme and a compact text size. Dark dialogs use a lighter surface and a subtle outline so they stand apart from the window beneath them.
+- 选择主题后可在整个设置窗口预览，保存后其他已打开的窗口同步切换。\
+  Theme changes preview throughout Settings and apply to other open windows when saved.
+- 从托盘选择退出时，直接舍弃设置和启动项管理窗口中未保存的更改。\
+  Exiting from the tray discards unsaved changes in Settings and Manage Launch Items.
+
+### 修复 / Fixed
+
+- 修复清空搜索框时启动结果列表短暂闪烁的问题。\
+  Fixed a flicker when clearing the search box restored the full result list.
 
 ## [0.5.0] - 2026-11-24
 
@@ -46,19 +46,19 @@
 - 「发送到」添加启动项弹窗更紧凑，快捷项与名称并排，目标路径保留整行空间。\
   The Send to dialog places the alias and name side by side and gives the target path a full-width field.
 
-### 修复 / Fixed
-
 - 参数弹窗使用统一的圆角输入框，程序的帮助、错误和确认弹框跟随当前主题。\
   Parameter prompts use the shared rounded input, and application help, error, and confirmation dialogs follow the active theme.
-
-- 下拉列表使用主题底色标记当前选项，去掉选项内的虚线框。\
-  Dropdowns highlight the current option with the theme selection color and remove the dotted outline inside the row.
 
 - 统一启动面板、管理窗口、导入和其他对话框的滚动条样式。鼠标移入滚动区域时，滑块加宽并显示淡色轨道。\
   Scrollbars throughout the app share the launcher’s style, with a wider thumb and a subtle track on hover.
 
 - 「发送到」与启动项管理统一使用「测试打开」。\
   Send to and Manage launch items use the same label for testing a launch item.
+
+### 修复 / Fixed
+
+- 下拉列表使用主题底色标记当前选项，去掉选项内的虚线框。\
+  Dropdowns highlight the current option with the theme selection color and remove the dotted outline inside the row.
 
 ## [0.4.7] - 2026-11-24
 
@@ -72,13 +72,13 @@
 - 启动结果默认显示竖向分隔线。设置中的启动面板预览初始显示多条示例结果。\
   Launch results show vertical dividers by default. The launcher preview in Settings opens with several sample results.
 
+- 启动面板的管理、设置和隐藏按钮使用线宽与视觉大小统一的图标。\
+  The launcher’s Manage, Settings, and Hide buttons use icons with matching strokes and visual weight.
+
 ### 修复 / Fixed
 
 - 鼠标移入启动面板右侧滚动区域时，滑块加宽并显示轨道。滑块设有最小高度，整条滚动区域支持点击跳转，可从滑块两侧留白处开始拖动。\
   The launcher widens the scrollbar thumb and shows the track when the pointer enters the scroll area. The thumb has a minimum height, and the full scroll area supports jumping to a position and grabbing the thumb from either side.
-
-- 启动面板的管理、设置和隐藏按钮使用线宽与视觉大小统一的图标。\
-  The launcher’s Manage, Settings, and Hide buttons use icons with matching strokes and visual weight.
 
 - 备份与恢复对话框的键盘焦点提示改为贴近复选框和单选按钮的细环。\
   Backup and restore dialogs show a compact keyboard focus ring around checkboxes and radio buttons.
@@ -139,8 +139,6 @@
   Successful launches update the ranking frequency for the selected item and save usage history in the background.
 - 浏览器收藏夹导入预览复用筛选文本，结果相同时跳过表格重填。\
   The browser bookmark import preview reuses searchable text and keeps the table intact when the matching rows stay the same.
-- 拆分设置与管理窗口的控件和命令处理，并将收藏夹 HTML 解析与导入规则分开。\
-  Separated controls and command handling in Settings and the launch item manager, and split bookmark HTML parsing from the import rules.
 
 ### 修复 / Fixed
 
@@ -204,8 +202,8 @@
 
 - 可直接粘贴含空格的程序路径。程序解析目标和启动参数，并保留参数里的引号。导入原版清单时，会移除可安全省略的目标路径外层引号。\
   Program paths with spaces can be pasted directly. The app separates the target from its arguments and preserves quotes within arguments. Imports from the original ALTRun remove redundant quotes around target paths when safe.
-- 统一界面术语，清理无用译文，并整理启动器、设置、管理和共享 Windows 模块。\
-  Unified interface terminology, removed unused translations, and reorganized the launcher, settings, manager, and shared Windows code.
+- 统一启动器、设置和启动项管理窗口中的界面术语。\
+  Standardized terminology across the launcher, Settings and Manage Launch Items.
 
 ### 修复 / Fixed
 

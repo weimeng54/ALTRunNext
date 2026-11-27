@@ -55,8 +55,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         theme::text()
                     };
                     SetTextColor(dc, color);
-                    SetBkColor(dc, theme::surface());
-                    SetDCBrushColor(dc, theme::surface());
+                    SetBkColor(dc, theme::dialog_surface());
+                    SetDCBrushColor(dc, theme::dialog_surface());
                     return GetStockObject(DC_BRUSH) as isize;
                 }
                 WM_DRAWITEM if l != 0 => {
@@ -94,7 +94,7 @@ unsafe fn paint(hwnd: HWND, dc: HDC, state: &Warning) {
         let mut rect = RECT::default();
         GetClientRect(hwnd, &mut rect);
         let px = |value| scaled(value, state.dpi);
-        ui::fill(dc, &rect, theme::surface());
+        ui::fill(dc, &rect, theme::dialog_surface());
         for bar in [
             RECT {
                 bottom: px(42),
@@ -192,7 +192,7 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
             title.as_ptr(),
-            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
+            crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             0,
             0,
             WIDTH,
@@ -206,11 +206,10 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             UnregisterClassW(class.as_ptr(), instance);
             return false;
         }
-        theme::watch(hwnd);
-        let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
+
+        let dpi = crate::ui::window_frame::fit(hwnd, WIDTH, HEIGHT);
         state.dpi = dpi;
         let px = |value| scaled(value, dpi);
-        ui::round_panel(hwnd, px(WIDTH), px(HEIGHT), dpi);
         let caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
         state.caption = caption;
         let heading = make_font(17, 700, "Microsoft YaHei UI", dpi);

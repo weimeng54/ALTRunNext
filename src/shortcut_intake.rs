@@ -229,7 +229,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
                 let px = |v| scaled(v, (*state).dpi);
-                ui::fill(dc, &rect, theme::surface());
+                ui::fill(dc, &rect, theme::dialog_surface());
                 for bar in [
                     RECT {
                         bottom: px(42),
@@ -259,7 +259,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPAR
                 } else if matches!(id, ALIAS | NAME | PATH | ROWS) {
                     theme::paper()
                 } else {
-                    theme::surface()
+                    theme::dialog_surface()
                 };
                 SetTextColor(
                     w as HDC,
@@ -438,7 +438,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
             ui("ui.add_shortcut").as_ptr(),
-            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
+            crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             rect.left,
             rect.top,
             1,
@@ -458,13 +458,12 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             );
             return;
         }
-        state.dpi = crate::ui::geometry::fit(hwnd, width, height);
+        state.dpi = crate::ui::window_frame::fit(hwnd, width, height);
         let dpi = state.dpi;
         let px = |value| scaled(value, dpi);
         state.caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
-        theme::watch(hwnd);
-        ui::round_panel(hwnd, px(width), px(height), dpi);
+
         let control = |class: &str, text: &str, id, (x, y, w, h), style| {
             let child = CreateWindowExW(
                 0,
@@ -530,7 +529,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             ui::style_edit_with_colours(
                 control("EDIT", "", id, (x, y + 22, w, 34), style),
                 dpi,
-                || (theme::surface(), theme::paper()),
+                || (theme::dialog_surface(), theme::paper()),
             );
         }
         control(

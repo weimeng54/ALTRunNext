@@ -265,7 +265,7 @@ pub(super) fn run(
             WS_EX_CONTROLPARENT,
             class_name.as_ptr(),
             ui("ui.altrunnext_manage_shortcuts").as_ptr(),
-            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
+            crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             450,
             180,
             760,
@@ -278,10 +278,9 @@ pub(super) fn run(
         if hwnd.is_null() {
             return Err("ui.could_not_create_the_shortcut_manager_window".into());
         }
-        theme::watch(hwnd);
+
         let remembered = window_state();
-        let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
-        crate::ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
+        let dpi = crate::ui::window_frame::fit(hwnd, WIDTH, HEIGHT);
         let common = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_LISTVIEW_CLASSES,

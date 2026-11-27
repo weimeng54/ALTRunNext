@@ -198,16 +198,6 @@ pub fn panel_caption(dc: HDC, dpi: i32, font: HFONT, title: &str) {
     }
 }
 
-pub fn round_panel(hwnd: HWND, width: i32, height: i32, dpi: i32) {
-    unsafe {
-        let radius = scaled(22, dpi);
-        let region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius);
-        if !region.is_null() && SetWindowRgn(hwnd, region, 0) == 0 {
-            DeleteObject(region);
-        }
-    }
-}
-
 pub fn line_text(dc: HDC, mut rect: RECT, value: &str, colour: u32, flags: u32) {
     unsafe {
         SetBkMode(dc, TRANSPARENT as i32);

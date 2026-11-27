@@ -45,7 +45,7 @@ pub fn work_area(monitor: HMONITOR) -> Option<RECT> {
     }
 }
 
-pub fn fit(hwnd: HWND, width: i32, height: i32) -> i32 {
+pub(super) fn fit(hwnd: HWND, width: i32, height: i32) -> i32 {
     unsafe {
         let current = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         let monitor = cursor_monitor(hwnd);

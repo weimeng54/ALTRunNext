@@ -12,6 +12,8 @@ mod painting;
 pub(crate) mod popup_frame;
 pub(crate) mod report;
 mod scrollbars;
+pub(crate) mod window_frame;
+mod window_region;
 
 pub(crate) use buttons::{
     CaptionIcon, button_on, caption_button, caption_close, check_option, menu_button,
@@ -24,7 +26,7 @@ pub(crate) use fields::{
 };
 pub(crate) use painting::{
     Chevron, ResultDividers, STATIC_CENTER_IMAGE, app_icon, buffered, chevron, draw_app_icon, fill,
-    launcher_title, line_text, panel_caption, round_panel, rounded, row_focus, window_text,
+    launcher_title, line_text, panel_caption, rounded, row_focus, window_text,
 };
 pub(crate) use scrollbars::{style_list_scrollbar, style_report_scrollbars, style_text_scrollbar};
 

@@ -191,8 +191,8 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
             }
             WM_CTLCOLORSTATIC => {
                 SetTextColor(w as HDC, theme::text());
-                SetBkColor(w as HDC, theme::surface());
-                SetDCBrushColor(w as HDC, theme::surface());
+                SetBkColor(w as HDC, theme::dialog_surface());
+                SetDCBrushColor(w as HDC, theme::dialog_surface());
                 GetStockObject(DC_BRUSH) as LRESULT
             }
             WM_MEASUREITEM if w == LIST && l != 0 => {
@@ -293,7 +293,7 @@ fn paint_report(dc: HDC, dpi: i32, caption: HFONT) {
         bottom: scaled(top + height, dpi),
         ..Default::default()
     };
-    crate::ui::fill(dc, &rect(0, HEIGHT), theme::surface());
+    crate::ui::fill(dc, &rect(0, HEIGHT), theme::dialog_surface());
     for (top, height) in [(0, CAPTION), (FOOTER, HEIGHT - FOOTER)] {
         crate::ui::fill(dc, &rect(top, height), theme::chrome());
     }
@@ -325,7 +325,7 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
             ui("ui.check_missing_paths_2").as_ptr(),
-            WS_POPUP | WS_SYSMENU | WS_CLIPCHILDREN,
+            crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             400,
@@ -340,12 +340,11 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             status("ui.could_not_create_the_shortcut_manager_window", true);
             return;
         }
-        theme::watch(hwnd);
-        let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
+
+        let dpi = crate::ui::window_frame::fit(hwnd, WIDTH, HEIGHT);
         state.dpi = dpi;
         state.font = make_font(14, 400, "Microsoft YaHei UI", dpi);
         state.caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
-        crate::ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);
         let control = |class: &str, label: &str, style, id, (x, y, w, h)| {
             let child = CreateWindowExW(
                 0,

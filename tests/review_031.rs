@@ -6,6 +6,8 @@
 mod menu_frame;
 mod native_snapshot;
 mod review_native_support;
+#[path = "review_031/window_frame.rs"]
+mod window_frame;
 
 use review_native_support::{
     Running, check_edit_drag_past_right_edge, check_edit_selection, command, set, text, wait,
@@ -194,6 +196,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
+    window_frame::check(preview, settings, theme);
     native_snapshot::save(preview, &format!("031-backup-{theme}-{scale}"));
     eprintln!("Confirming the backup preview");
     press(preview, VK_RETURN);
@@ -206,7 +209,14 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     begin(settings, 2366);
     choose_file(pid, &archive);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
+    window_frame::check(preview, settings, theme);
     native_snapshot::save(preview, &format!("031-restore-{theme}-{scale}"));
+    begin(preview, 15);
+    let details = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    window_frame::check(details, preview, theme);
+    native_snapshot::save(details, &format!("031-restore-details-{theme}-{scale}"));
+    press(details, VK_ESCAPE);
+    wait(|| unsafe { IsWindow(details) == 0 });
     press(preview, VK_ESCAPE);
     wait(|| unsafe { IsWindow(preview) == 0 });
     assert_eq!(std::fs::read(data).unwrap(), original);
@@ -489,6 +499,10 @@ fn check_system_contrast(data: &Path) {
             SPIF_SENDCHANGE,
         )
     };
+    command(launcher, 18005);
+    let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);
+    begin(settings, 2365);
+    let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
     assert_ne!(set(previous.dwFlags | HCF_HIGHCONTRASTON), 0);
     let result = std::panic::catch_unwind(|| unsafe {
         wait(|| {
@@ -496,6 +510,12 @@ fn check_system_contrast(data: &Path) {
                 && SendMessageW(list, LVM_GETTEXTCOLOR, 0, 0)
                     == GetSysColor(COLOR_WINDOWTEXT) as isize
         });
+        window_frame::check(preview, settings, "system");
+        native_snapshot::save(preview, "backup-system-contrast");
+        press(preview, VK_ESCAPE);
+        wait(|| IsWindow(preview) == 0);
+        assert_ne!(PostMessageW(settings, WM_CLOSE, 0, 0), 0);
+        wait(|| IsWindow(settings) == 0);
         native_snapshot::save(manager, "manager-system-contrast");
         check_popup(manager, pid, 2140, "menu-new-system-contrast", "system");
     });
@@ -703,6 +723,7 @@ fn windows_031_management_and_import_previews() {
             &format!("menu-new-{theme}-{scale}"),
             theme,
         );
+        menu_frame::check_sort(manager, pid, theme, scale);
         let list = child(manager, 2101);
         let query = child(manager, 2106);
         let cmd = child(manager, 2104);

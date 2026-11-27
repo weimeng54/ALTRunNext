@@ -10,7 +10,7 @@ use windows_sys::Win32::{Graphics::Gdi::*, UI::Controls::NMCUSTOMDRAW};
 
 pub(super) fn draw_frame(state: &Window<'_>, dc: HDC) {
     let bounds = |y, height| rect(state.dpi, 0, y, WIDTH, height);
-    ui::fill(dc, &bounds(0, state.height), theme::surface());
+    ui::fill(dc, &bounds(0, state.height), theme::dialog_surface());
     for (y, height) in [(0, CAPTION), (state.height - FOOTER, FOOTER)] {
         ui::fill(dc, &bounds(y, height), theme::chrome());
     }

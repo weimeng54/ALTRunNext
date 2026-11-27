@@ -1,7 +1,7 @@
 # Copyright (c) 2026 GPT-6
 # Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-"""Keep application popup menus inside the shared Rust UI component."""
+"""Check shared rendering boundaries for application menus and window frames."""
 from pathlib import Path
 import re
 import sys
@@ -13,11 +13,13 @@ def main():
     api = re.compile(r"\b(?:CreatePopupMenu|TrackPopupMenu(?:Ex)?)\s*\(")
     problems = []
     for path in src.rglob("*.rs"):
-        if path == popup.with_suffix(".rs") or popup in path.parents:
-            continue
+        menu_component = path == popup.with_suffix(".rs") or popup in path.parents
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if api.search(line.partition("//")[0]):
+            code = line.partition("//")[0]
+            if not menu_component and api.search(code):
                 problems.append(f"{path.relative_to(src)}:{number}: use ui::menu_style")
+            if re.search(r"\b(?:WS_EX_DLGMODALFRAME|WS_DLGFRAME)\b", code):
+                problems.append(f"{path.relative_to(src)}:{number}: use ui::window_frame for dialog borders")
     if problems:
         print("\n".join(problems), file=sys.stderr)
     return bool(problems)

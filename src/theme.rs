@@ -177,6 +177,27 @@ pub fn chrome() -> u32 {
         rgb(236, 240, 246)
     }
 }
+/// Background behind content cards and fields in configuration dialogs.
+pub(crate) fn dialog_surface() -> u32 {
+    if high_contrast() {
+        surface()
+    } else if is_dark() {
+        rgb(32, 38, 46)
+    } else {
+        rgb(250, 251, 253)
+    }
+}
+
+pub(crate) fn window_outline() -> u32 {
+    if high_contrast() {
+        border()
+    } else if is_dark() {
+        rgb(73, 84, 97)
+    } else {
+        rgb(178, 190, 204)
+    }
+}
+
 pub fn control_surface() -> u32 {
     if high_contrast() {
         surface()
@@ -209,7 +230,11 @@ pub fn frame(hwnd: windows_sys::Win32::Foundation::HWND) {
     let dark = u32::from(DARK.with(std::cell::Cell::get) && !high_contrast());
     let caption = if high_contrast() { u32::MAX } else { chrome() };
     let ink = if high_contrast() { u32::MAX } else { text() };
-    let edge = if high_contrast() { u32::MAX } else { border() };
+    let edge = if high_contrast() {
+        u32::MAX
+    } else {
+        window_outline()
+    };
     for (attribute, value) in [(20, dark), (34, edge), (35, caption), (36, ink)] {
         unsafe { DwmSetWindowAttribute(hwnd, attribute, &value as *const _ as _, 4) };
     }

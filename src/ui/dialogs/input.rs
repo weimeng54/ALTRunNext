@@ -115,7 +115,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let mut client = RECT::default();
                 GetClientRect(hwnd, &mut client);
                 let caption = scaled(ui::geometry::CAPTION, state.dpi);
-                ui::fill(dc, &client, theme::surface());
+                ui::fill(dc, &client, theme::dialog_surface());
                 ui::fill(
                     dc,
                     &RECT {
@@ -140,7 +140,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             WM_ERASEBKGND => unsafe {
                 let mut rect = std::mem::zeroed();
                 GetClientRect(hwnd, &mut rect);
-                ui::fill(w as HDC, &rect, theme::surface());
+                ui::fill(w as HDC, &rect, theme::dialog_surface());
                 return 1;
             },
             WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => unsafe {
@@ -150,7 +150,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 let color = if msg != WM_CTLCOLORSTATIC || read_only_edit {
                     theme::paper()
                 } else {
-                    theme::surface()
+                    theme::dialog_surface()
                 };
                 let error = (*state)
                     .parameter
@@ -169,7 +169,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 } else if item.CtlID == 4 && state.custom_caption {
                     ui::caption_close(item, state.dpi);
                 } else {
-                    ui::button_on(item, item.CtlID == 1, theme::surface(), state.dpi);
+                    ui::button_on(item, item.CtlID == 1, theme::dialog_surface(), state.dpi);
                 }
                 return 1;
             }
@@ -470,21 +470,15 @@ fn open(
             parameter: parameter.map(parameter::Prompt::new),
             launched: false,
         }));
-        let frame = if custom_caption {
-            0
-        } else {
-            WS_EX_DLGMODALFRAME
-        };
         let hwnd = CreateWindowExW(
-            frame | WS_EX_CONTROLPARENT,
+            WS_EX_CONTROLPARENT,
             class.as_ptr(),
             wide(&title).as_ptr(),
             (if custom_caption {
-                WS_POPUP
+                crate::ui::window_frame::STYLE
             } else {
-                WS_OVERLAPPED | WS_CAPTION
-            }) | WS_SYSMENU
-                | WS_CLIPCHILDREN,
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU
+            }) | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             420,
@@ -500,7 +494,6 @@ fn open(
             drop(Box::from_raw(state));
             return (None, false);
         }
-        theme::watch(hwnd);
         let localized_message = message.map(crate::localization::tr);
         let long = if notice {
             localized_message
@@ -554,13 +547,12 @@ fn open(
         } else {
             (110, 32, 66)
         };
-        let dpi = crate::ui::geometry::fit(hwnd, width, height + start_y);
+        let dpi = crate::ui::window_frame::fit(hwnd, width, height + start_y);
         (*state).dpi = dpi;
         let font = make_font(15, 400, "Microsoft YaHei UI", dpi);
         let y = |coordinate| scaled(start_y + coordinate, dpi);
         if custom_caption {
             (*state).caption = make_font(14, 600, "Microsoft YaHei UI", dpi);
-            ui::round_panel(hwnd, scaled(width, dpi), scaled(height + start_y, dpi), dpi);
             let close = CreateWindowExW(
                 0,
                 wide("BUTTON").as_ptr(),
@@ -630,7 +622,7 @@ fn open(
         }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
         if message.is_none() {
-            ui::style_edit_with_colours(content, dpi, || (theme::surface(), theme::paper()));
+            ui::style_edit_with_colours(content, dpi, || (theme::dialog_surface(), theme::paper()));
         } else if long {
             crate::ui::buffer_edit_selection(content);
         }

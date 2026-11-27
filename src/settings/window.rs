@@ -286,7 +286,7 @@ pub(crate) fn open(
                     0,
                     class.as_ptr(),
                     ui("settings.window_title").as_ptr(),
-                    WS_POPUP | WS_SYSMENU,
+                    crate::ui::window_frame::STYLE,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     700,
@@ -299,14 +299,8 @@ pub(crate) fn open(
                 if hwnd.is_null() {
                     return Err("ui.could_not_create_the_settings_window".into());
                 }
-                theme::watch(hwnd);
-                let dpi = crate::ui::geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
-                ui::round_panel(
-                    hwnd,
-                    scaled(layout::WIDTH, dpi),
-                    scaled(layout::HEIGHT, dpi),
-                    dpi,
-                );
+
+                let dpi = crate::ui::window_frame::fit(hwnd, layout::WIDTH, layout::HEIGHT);
                 let Controls {
                     tabs,
                     title,
