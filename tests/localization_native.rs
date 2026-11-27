@@ -41,7 +41,8 @@ fn assert_single_draw(control: HWND) {
             .0
             .iter()
             .zip(reference.bgra.as_chunks::<4>().0)
-            .filter(|(a, b)| a[..3] != b[..3])
+            // ClearType can round a channel by one between a memory DC and a window DC.
+            .filter(|(a, b)| (0..3).any(|channel| a[channel].abs_diff(b[channel]) > 1))
             .count();
         assert_eq!(
             differences,
