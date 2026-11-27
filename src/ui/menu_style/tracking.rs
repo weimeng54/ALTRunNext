@@ -44,6 +44,7 @@ impl PopupStyle {
             };
             SetMenuInfo(self.root, &info);
             let tracking = Tracking {
+                owner: hwnd,
                 popup: self,
                 windows: RefCell::new(Vec::new()),
                 shaping: Cell::new(false),
@@ -63,6 +64,7 @@ impl PopupStyle {
             let result = TrackPopupMenuEx(
                 self.root,
                 TPM_RETURNCMD
+                    | TPM_NOANIMATION
                     | TPM_RIGHTBUTTON
                     | if above { TPM_BOTTOMALIGN } else { TPM_TOPALIGN },
                 point.x,
@@ -70,6 +72,7 @@ impl PopupStyle {
                 hwnd,
                 params.as_ref().map_or(null(), |p| p),
             );
+            KillTimer(hwnd, data);
             for window in tracking.windows.take() {
                 RemoveWindowSubclass(window, Some(frame_proc), data);
             }
@@ -104,13 +107,26 @@ unsafe extern "system" fn owner_proc(
             // procedure, bypassing thread call-window hooks. WM_ENTERIDLE supplies
             // the actual popup HWND once the native tracking loop has displayed it.
             WM_ENTERIDLE if w == MSGF_MENU as usize => {
-                let result = DefSubclassProc(hwnd, msg, w, l);
-                let menu = l as HWND;
-                tracking.attach(menu);
-                if tracking.windows.borrow().contains(&menu) {
-                    draw_window_frame(menu, tracking.popup.dpi);
+                tracking.attach(l as HWND);
+                DefSubclassProc(hwnd, msg, w, l)
+            }
+            WM_TIMER if w == data => {
+                KillTimer(hwnd, data);
+                // The native tracking loop also dispatches owner window timers.
+                // Force a real paint after USER32 has presented the menu. A
+                // posted WM_NCPAINT alone doesn't invalidate its cached frame.
+                let windows = tracking.windows.borrow().clone();
+                for window in windows {
+                    if IsWindowVisible(window) != 0 {
+                        RedrawWindow(
+                            window,
+                            null(),
+                            null_mut(),
+                            RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW,
+                        );
+                    }
                 }
-                result
+                0
             }
             _ => DefSubclassProc(hwnd, msg, w, l),
         }
@@ -118,6 +134,7 @@ unsafe extern "system" fn owner_proc(
 }
 
 struct Tracking<'a> {
+    owner: HWND,
     popup: &'a PopupStyle,
     windows: RefCell<Vec<HWND>>,
     shaping: Cell<bool>,
@@ -150,10 +167,7 @@ impl Tracking<'_> {
             }
             self.windows.borrow_mut().push(hwnd);
             self.shape(hwnd);
-            // The first WM_DRAWITEM can run inside USER32's buffered popup paint.
-            // Its final blit overwrites drawing done directly to the window here.
-            // Draw after it returns, through the subclass's normal NC paint path.
-            PostMessageW(hwnd, WM_NCPAINT, 1, 0);
+            SetTimer(self.owner, data, USER_TIMER_MINIMUM, None);
         }
     }
 }
