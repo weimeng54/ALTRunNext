@@ -226,7 +226,9 @@ pub(super) fn edit_key(hwnd: HWND, control: HWND) -> Option<&'static str> {
         return Some("BGStrength");
     }
     let spec = SPECS.get(id.checked_sub(FIELD)?)?;
-    (matches!(spec.kind, Kind::Font | Kind::Number(..)) && spec.key != "BGStrength")
+    let mut class = [0u16; 8];
+    let len = unsafe { GetClassNameW(control, class.as_mut_ptr(), class.len() as i32) };
+    (len == 4 && String::from_utf16_lossy(&class[..4]).eq_ignore_ascii_case("EDIT"))
         .then_some(spec.key)
 }
 

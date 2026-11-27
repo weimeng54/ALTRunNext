@@ -436,7 +436,10 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             let saved_items = std::fs::read_to_string(&data).unwrap();
             assert!(!saved_items.contains(query));
             let settings_file = data.with_extension("settings.ini");
-            let saved_settings = std::fs::read(&settings_file).unwrap();
+            let mut expected_settings = altrun_probe::preferences::Preferences::parse(
+                &std::fs::read_to_string(&settings_file).unwrap(),
+            )
+            .unwrap();
             SendMessageW(hwnd, WM_COMMAND, 18005, 0);
             let deadline = Instant::now() + Duration::from_secs(8);
             let sound_id = altrun_probe::preferences::SPECS
@@ -451,7 +454,11 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
                 if !sound.is_null() && IsWindowVisible(settings) != 0 {
                     let previous = SendMessageW(sound, BM_GETCHECK, 0, 0);
                     SendMessageW(sound, BM_CLICK, 0, 0);
-                    assert_ne!(previous, SendMessageW(sound, BM_GETCHECK, 0, 0));
+                    let actual = SendMessageW(sound, BM_GETCHECK, 0, 0);
+                    assert_ne!(previous, actual);
+                    expected_settings
+                        .set("PlayPopupNotify", if actual == 0 { "0" } else { "1" })
+                        .unwrap();
                     break;
                 }
                 assert!(Instant::now() < deadline, "settings did not open");
@@ -465,7 +472,13 @@ fn clicking_a_result_keeps_the_search_input_ready_for_typing() {
             }
             assert!(child.0.wait().unwrap().success());
             assert_eq!(std::fs::read_to_string(&data).unwrap(), saved_items);
-            assert_eq!(std::fs::read(&settings_file).unwrap(), saved_settings);
+            assert_eq!(
+                altrun_probe::preferences::Preferences::parse(
+                    &std::fs::read_to_string(&settings_file).unwrap(),
+                )
+                .unwrap(),
+                expected_settings
+            );
         }
     }
 }

@@ -565,33 +565,16 @@ pub(super) fn refresh_colours() {
     previous.install();
 }
 
-pub(super) fn apply_appearance() {
-    let (hwnd, edit, list, title, command, inline_error, prefs, dpi) = STATE.with(|c| {
-        let s = c.borrow();
-        let s = s.as_ref().unwrap();
-        (
-            s.hwnd,
-            s.edit,
-            s.list,
-            s.title,
-            s.command,
-            s.inline_error,
-            s.preferences.clone(),
-            s.dpi,
-        )
+pub(super) fn apply_fonts(previous: Option<&altrun_probe::preferences::Preferences>) {
+    let (list, title, edit, prefs, dpi) = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (s.list, s.title, s.edit, s.preferences.clone(), s.dpi)
     });
-    refresh_colours();
+    let changed =
+        |key: &str| previous.is_none_or(|old| old.values.get(key) != prefs.values.get(key));
+    let _palette = panel_colours();
     unsafe {
-        let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
-        if !error_font.is_null() {
-            SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
-            STATE.with(|c| {
-                DeleteObject(std::mem::replace(
-                    &mut c.borrow_mut().as_mut().unwrap().error_font,
-                    error_font,
-                ))
-            });
-        }
         let definitions = [
             ("ListFont", list),
             ("TitleFont", title),
@@ -599,7 +582,9 @@ pub(super) fn apply_appearance() {
         ];
         let mut fonts = Vec::new();
         for (key, control) in definitions {
-            if let Ok(f) = altrun_probe::preferences::Font::parse(&prefs.get(key)) {
+            if changed(key)
+                && let Ok(f) = altrun_probe::preferences::Font::parse(&prefs.get(key))
+            {
                 let font = CreateFontW(
                     -scaled(f.size_dip(), dpi),
                     0,
@@ -639,15 +624,63 @@ pub(super) fn apply_appearance() {
                 DeleteObject(old);
             }
         });
-        if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("ListFont")) {
+        if changed("ListFont")
+            && let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("ListFont"))
+        {
             let alias = make_font(font.size_dip(), 600, &font.name, dpi);
-            let preview = make_font(12, 400, "Consolas", dpi);
-            SendMessageW(command, WM_SETFONT, preview as usize, 1);
             STATE.with(|c| {
                 let mut s = c.borrow_mut();
                 let s = s.as_mut().unwrap();
                 DeleteObject(std::mem::replace(&mut s.alias_font, alias));
-                DeleteObject(std::mem::replace(&mut s.command_font, preview));
+            });
+        }
+    }
+    STATE.with(|c| {
+        let mut state = c.borrow_mut();
+        let s = state.as_mut().unwrap();
+        s.font_colours = [
+            theme::font_colour(&prefs.get("TitleFont")),
+            theme::font_colour(&prefs.get("KeywordFont")),
+            theme::font_colour(&prefs.get("ListFont")),
+        ];
+    });
+}
+
+pub(super) fn apply_appearance() {
+    let (hwnd, edit, list, command, inline_error, prefs, dpi) = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (
+            s.hwnd,
+            s.edit,
+            s.list,
+            s.command,
+            s.inline_error,
+            s.preferences.clone(),
+            s.dpi,
+        )
+    });
+    refresh_colours();
+    apply_fonts(None);
+    unsafe {
+        let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
+        if !error_font.is_null() {
+            SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
+            STATE.with(|c| {
+                DeleteObject(std::mem::replace(
+                    &mut c.borrow_mut().as_mut().unwrap().error_font,
+                    error_font,
+                ))
+            });
+        }
+        let preview = make_font(12, 400, "Consolas", dpi);
+        if !preview.is_null() {
+            SendMessageW(command, WM_SETFONT, preview as usize, 1);
+            STATE.with(|c| {
+                DeleteObject(std::mem::replace(
+                    &mut c.borrow_mut().as_mut().unwrap().command_font,
+                    preview,
+                ))
             });
         }
         let hint = search_hint(prefs.flag("ShowOperationHint"));
@@ -697,7 +730,7 @@ pub(super) fn sync_tray(hwnd: HWND, prefs: &altrun_probe::preferences::Preferenc
     );
 }
 
-fn load_skin() {
+pub(super) fn load_skin() {
     let task = STATE.with(|c| {
         let mut state = c.borrow_mut();
         let s = state.as_mut().unwrap();

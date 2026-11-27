@@ -72,7 +72,9 @@ pub(super) fn prepare(token: u64, next: Preferences) -> Result<(), String> {
         s.hotkeys = keys;
         s.pending_settings = Some((token, previous.clone(), old));
     });
-    update(hwnd, &previous, &next);
+    if previous != next {
+        update(hwnd, &previous, &next);
+    }
     Ok(())
 }
 
@@ -135,68 +137,71 @@ fn update(hwnd: HWND, old: &Preferences, next: &Preferences) {
 
     let fonts = any(&["TitleFont", "KeywordFont", "ListFont"]);
     if fonts {
-        apply_appearance();
-    } else {
-        if any(&[
-            "TitleColor",
-            "KeywordColor",
-            "ListColor",
-            "SelectionColor",
-            "TextColor",
-            "UseCustomTextColor",
-            "ResultDividerColor",
-            "VerticalResultDividers",
-            "HorizontalResultDividers",
-            "ShowSkin",
-            "BGFileName",
-            "BGStrength",
-            "BGCrop",
-        ]) {
-            panel::refresh_colours();
-            unsafe {
-                RedrawWindow(
-                    hwnd,
-                    std::ptr::null(),
-                    null_mut(),
-                    RDW_INVALIDATE | RDW_ALLCHILDREN,
-                );
-            }
-        }
-        if any(&["ShowTrayIcon", "HotKey1", "HotKey2", "LastItemHotKey"]) {
-            panel::sync_tray(hwnd, next);
-        }
-        let (edit, list, command, dpi) = STATE.with(|c| {
-            let state = c.borrow();
-            let s = state.as_ref().unwrap();
-            (s.edit, s.list, s.command, s.dpi)
-        });
+        panel::apply_fonts(Some(old));
+    }
+
+    let colours = any(&[
+        "TitleColor",
+        "KeywordColor",
+        "ListColor",
+        "SelectionColor",
+        "TextColor",
+        "UseCustomTextColor",
+        "ResultDividerColor",
+        "VerticalResultDividers",
+        "HorizontalResultDividers",
+    ]);
+    let skin = any(&["ShowSkin", "BGFileName", "BGStrength", "BGCrop"]);
+    if colours {
+        panel::refresh_colours();
+    } else if skin {
+        let _palette = panel::panel_colours();
+        panel::load_skin();
+    }
+    if colours || skin || fonts {
         unsafe {
-            if any(&["RowHeight"]) {
-                SendMessageW(
-                    list,
-                    LB_SETITEMHEIGHT,
-                    0,
-                    scaled(next.number("RowHeight"), dpi) as isize,
-                );
-            }
-            if any(&["ShowCommandLine"]) {
-                ShowWindow(
-                    command,
-                    if next.flag("ShowCommandLine") {
-                        SW_SHOWNOACTIVATE
-                    } else {
-                        SW_HIDE
-                    },
-                );
-            }
-            if any(&["ShowOperationHint"]) {
-                SendMessageW(
-                    edit,
-                    EM_SETCUEBANNER,
-                    0,
-                    search_hint(next.flag("ShowOperationHint")).as_ptr() as isize,
-                );
-            }
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                null_mut(),
+                RDW_INVALIDATE | RDW_ALLCHILDREN,
+            );
+        }
+    }
+    if any(&["ShowTrayIcon", "HotKey1", "HotKey2", "LastItemHotKey"]) {
+        panel::sync_tray(hwnd, next);
+    }
+    let (edit, list, command, dpi) = STATE.with(|c| {
+        let state = c.borrow();
+        let s = state.as_ref().unwrap();
+        (s.edit, s.list, s.command, s.dpi)
+    });
+    unsafe {
+        if any(&["RowHeight"]) {
+            SendMessageW(
+                list,
+                LB_SETITEMHEIGHT,
+                0,
+                scaled(next.number("RowHeight"), dpi) as isize,
+            );
+        }
+        if any(&["ShowCommandLine"]) {
+            ShowWindow(
+                command,
+                if next.flag("ShowCommandLine") {
+                    SW_SHOWNOACTIVATE
+                } else {
+                    SW_HIDE
+                },
+            );
+        }
+        if any(&["ShowOperationHint"]) {
+            SendMessageW(
+                edit,
+                EM_SETCUEBANNER,
+                0,
+                search_hint(next.flag("ShowOperationHint")).as_ptr() as isize,
+            );
         }
     }
     if any(&["MatchAnywhere", "RememberFavouratMatch"]) {
