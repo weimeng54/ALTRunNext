@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "檢查失效路徑",
     "ui.choose": "選擇…",
     "ui.choose_a_different_backup_file_select_save": "請選擇其他備份檔。若要儲存資料，請按「儲存」。",
+    "ui.confirm_replace_export": "「{file}」已存在。要取代這個檔案嗎？",
     "ui.choose_a_font_size_from_5_to": "字型大小必須介於 5 到 96 之間",
     "ui.choose_a_function_key_from_f1_to": "功能鍵範圍為 F1–F24",
     "ui.choose_a_light_dark_or_system_theme": "佈景主題必須是 light、dark 或 system",

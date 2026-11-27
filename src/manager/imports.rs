@@ -4,7 +4,10 @@
 mod dialog;
 
 use super::{EDITOR, show_selected_in_list, status};
-use crate::{localization, ui, windows::file_picker::pick_path_filtered};
+use crate::{
+    localization,
+    windows::file_picker::{file_types, open_file},
+};
 use altrun_probe::{Entry, browser_bookmarks, library};
 use windows_sys::Win32::Foundation::HWND;
 
@@ -90,24 +93,21 @@ pub(super) fn bookmarks(owner: HWND) {
 }
 
 fn import(owner: HWND, bookmarks: bool) {
-    let (title, picker_label, extensions) = if bookmarks {
+    let (title, filters) = if bookmarks {
         (
             "ui.browser_bookmarks_title",
-            "ui.browser_bookmarks_html",
-            "*.html;*.htm",
+            file_types(&[("ui.browser_bookmarks_html", "*.html;*.htm")]),
         )
     } else {
         (
             "ui.import_launch_items_title",
-            "ui.import_launch_items_files",
-            "*.tsv;*.txt",
+            file_types(&[
+                ("ui.import_launch_items_files", "*.tsv;*.txt"),
+                ("ui.all_files", "*.*"),
+            ]),
         )
     };
-    let filters = ui::wide(&format!(
-        "{} ({extensions})\0{extensions}\0",
-        localization::tr(picker_label)
-    ));
-    while let Some(path) = pick_path_filtered(owner, false, false, Some(&filters)) {
+    while let Some(path) = open_file(owner, &filters) {
         let current = draft();
         let preview = if bookmarks {
             browser_bookmarks::read(&path).map(|items| Preview::Bookmarks {

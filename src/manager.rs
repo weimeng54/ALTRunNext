@@ -39,6 +39,7 @@ use editor::{
 };
 mod actions;
 use actions::tool;
+mod export;
 mod imports;
 mod intake;
 use intake::{add_paths, apply_intake};

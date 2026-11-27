@@ -14,24 +14,33 @@ pub struct TextFile {
 }
 impl TextFile {
     pub fn open(path: &Path) -> Result<(Self, String), String> {
-        let original = match std::fs::read(path) {
-            Ok(b) => Some(b),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => return Err(e.to_string()),
-        };
-        let text = original
+        let file = Self::snapshot(path)?;
+        let text = file
+            .original
             .as_ref()
             .map(|b| crate::library::decode(b))
             .transpose()?
             .unwrap_or_default();
-        Ok((
-            Self {
-                path: path.into(),
-                original,
-            },
-            text,
-        ))
+        Ok((file, text))
     }
+
+    /// Capture the bytes used for conflict detection, without decoding a replacement target.
+    pub fn snapshot(path: &Path) -> Result<Self, String> {
+        let original = match std::fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.to_string()),
+        };
+        Ok(Self {
+            path: path.into(),
+            original,
+        })
+    }
+
+    pub fn existed(&self) -> bool {
+        self.original.is_some()
+    }
+
     pub fn save(&mut self, text: &str) -> Result<(), String> {
         use std::io::Write;
         let current = match std::fs::read(&self.path) {

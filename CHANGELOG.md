@@ -28,6 +28,8 @@
 
 ### 修复 / Fixed
 
+- 导出的启动项统一保存为 `.tsv`。导入时可选择「所有文件」，直接打开以前导出的无扩展名或自定义扩展名文件。\
+  Launch item exports now use the `.tsv` extension. Select All files when importing older exports with a custom extension or no extension.
 - 修复重新呼出启动面板时，标题、输入框和结果列表短暂闪白的问题。\
   Fixed a white flash in the title, search box and results when reopening the launcher.
 - 修复清空搜索框时启动结果列表短暂闪烁的问题。\

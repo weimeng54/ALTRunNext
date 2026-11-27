@@ -434,6 +434,38 @@ fn check_restore_and_restart(running: &mut Running, launcher: HWND, data: &Path)
     }));
 }
 
+fn check_shortcut_export(manager: HWND, pid: u32, dir: &Path, active: &Path) {
+    let stem = altrun_probe::library::new_id();
+    let typed = dir.join(format!("工作清单.{stem}.csv"));
+    let target = typed.with_extension("tsv");
+    std::fs::write(&typed, b"original CSV").unwrap();
+    std::fs::write(&target, b"original TSV").unwrap();
+    for accept in [false, true] {
+        begin(manager, 2128);
+        choose_file(pid, &typed);
+        let prompt = ready_window(pid, "ALTRun.Native.Confirmation", 10);
+        assert!(text(child(prompt, 10)).contains(target.file_name().unwrap().to_str().unwrap()));
+        press(prompt, if accept { VK_RETURN } else { VK_ESCAPE });
+        wait(|| unsafe { IsWindow(prompt) == 0 });
+        assert_eq!(std::fs::read(&typed).unwrap(), b"original CSV");
+        if !accept {
+            assert_eq!(std::fs::read(&target).unwrap(), b"original TSV");
+        }
+    }
+    wait(|| std::fs::read(&target).unwrap() != b"original TSV");
+    let export = altrun_probe::library::import_shortcuts(&target).unwrap();
+    assert_eq!(export.entries.len(), 3);
+    let saved = std::fs::read(active).unwrap();
+    let previous = altrun_probe::library::import_shortcuts(active).unwrap();
+    assert_eq!(export.entries[0].id, previous.entries[0].id);
+    begin(manager, 2128);
+    choose_file(pid, &active.with_extension("csv"));
+    wait(|| unsafe {
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(manager) != 0
+    });
+    assert_eq!(std::fs::read(active).unwrap(), saved);
+}
+
 fn check_legacy_import(manager: HWND, pid: u32, dir: &Path, list: HWND) {
     let invalid = dir.join("unreadable.txt");
     std::fs::write(&invalid, "This file does not contain launch items.").unwrap();
@@ -788,6 +820,7 @@ fn windows_031_management_and_import_previews() {
         assert_eq!(std::fs::read_to_string(&data).unwrap(), original);
 
         if theme == "light" && scale == "100" {
+            check_shortcut_export(manager, pid, &dir, &data);
             check_legacy_import(manager, pid, &dir, list);
             check_large_bookmark_preview(manager, pid, &dir.join("large-bookmarks.html"));
         }

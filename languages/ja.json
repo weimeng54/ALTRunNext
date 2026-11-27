@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "リンク切れの確認",
     "ui.choose": "選択…",
     "ui.choose_a_different_backup_file_select_save": "別のバックアップファイルを指定してください。データの保存には「保存」を使います。",
+    "ui.confirm_replace_export": "「{file}」は既に存在します。置き換えますか？",
     "ui.choose_a_font_size_from_5_to": "フォントサイズは 5～96 の範囲で指定してください。",
     "ui.choose_a_function_key_from_f1_to": "ファンクションキーは F1～F24 の範囲で指定してください。",
     "ui.choose_a_light_dark_or_system_theme": "テーマには light、dark、system のいずれかを指定してください。",

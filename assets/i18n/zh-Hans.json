@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "检查失效路径",
     "ui.choose": "选择…",
     "ui.choose_a_different_backup_file_select_save": "请选择不同的备份文件；保存数据请使用“保存”。",
+    "ui.confirm_replace_export": "“{file}”已存在。要替换这个文件吗？",
     "ui.choose_a_font_size_from_5_to": "字号应在 5–96 之间",
     "ui.choose_a_function_key_from_f1_to": "功能键范围为 F1–F24",
     "ui.choose_a_light_dark_or_system_theme": "主题应为 light、dark 或 system",

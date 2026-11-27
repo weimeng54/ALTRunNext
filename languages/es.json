@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "Buscar rutas que no existen",
     "ui.choose": "Elegir…",
     "ui.choose_a_different_backup_file_select_save": "Elige otro archivo de respaldo. Para actualizar los datos, pulsa «Guardar».",
+    "ui.confirm_replace_export": "«{file}» ya existe. ¿Quieres reemplazar el archivo?",
     "ui.choose_a_font_size_from_5_to": "Introduce un tamaño de 5 a 96.",
     "ui.choose_a_function_key_from_f1_to": "Las teclas de función van de F1 a F24.",
     "ui.choose_a_light_dark_or_system_theme": "El tema debe ser light, dark o system.",

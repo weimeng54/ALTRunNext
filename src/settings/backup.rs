@@ -95,21 +95,26 @@ fn work(hwnd: HWND, job: impl FnOnce() -> Complete + Send + 'static) {
 }
 
 fn selection(hwnd: HWND, save: bool) -> Option<PathBuf> {
-    use crate::windows::file_picker::{pick_path_filtered, save_file};
+    use crate::windows::file_picker::{SaveExtension, open_file, save_file};
 
     if save {
         let filter = wide(&format!(
             "{}\0*.zip\0",
             localization::tr("backup.zip_filter")
         ));
-        save_file(hwnd, &filter, "ALTRunNext-backup.zip", "zip")
+        save_file(
+            hwnd,
+            &filter,
+            "ALTRunNext-backup.zip",
+            SaveExtension::Default("zip"),
+        )
     } else {
         let filter = wide(&format!(
             "{}\0*.zip;*.ini\0{}\0*.*\0",
             localization::tr("backup.restore_filter"),
             localization::tr("ui.all_files"),
         ));
-        pick_path_filtered(hwnd, false, false, Some(&filter))
+        open_file(hwnd, &filter)
     }
 }
 

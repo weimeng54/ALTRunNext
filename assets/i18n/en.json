@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "Check missing paths",
     "ui.choose": "Choose...",
     "ui.choose_a_different_backup_file_select_save": "Choose a different backup file. Select Save to update your launch items.",
+    "ui.confirm_replace_export": "“{file}” already exists. Replace it?",
     "ui.choose_a_font_size_from_5_to": "Choose a font size from 5 to 96.",
     "ui.choose_a_function_key_from_f1_to": "Choose a function key from F1 to F24.",
     "ui.choose_a_light_dark_or_system_theme": "Choose a light, dark or system theme.",

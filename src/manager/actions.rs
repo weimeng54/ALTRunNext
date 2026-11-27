@@ -38,7 +38,7 @@ fn change_open_with(hwnd: HWND, use_default: bool) {
 }
 
 fn choose_command_target(hwnd: HWND) {
-    let Some(path) = pick_path(hwnd, false, false) else {
+    let Some(path) = pick_path(hwnd, false) else {
         return;
     };
     let Ok(path) = altrun_probe::management::absolute_path(&path) else {
@@ -107,7 +107,7 @@ pub(super) fn tool(hwnd: HWND, id: usize) {
         return;
     }
     if id == ADD_FILE || id == ADD_FOLDER {
-        if let Some(path) = pick_path(hwnd, false, id == ADD_FOLDER) {
+        if let Some(path) = pick_path(hwnd, id == ADD_FOLDER) {
             add_paths(vec![path]);
         }
         return;
@@ -127,26 +127,7 @@ pub(super) fn tool(hwnd: HWND, id: usize) {
         VALIDATE => {
             repair::inspect(hwnd, &rows, base);
         }
-        EXPORT => {
-            if let Some(destination) = pick_path(hwnd, true, false) {
-                if destination == path
-                    || std::fs::canonicalize(&destination)
-                        .ok()
-                        .is_some_and(|p| Some(p) == std::fs::canonicalize(&path).ok())
-                {
-                    status("ui.choose_a_different_backup_file_select_save", true);
-                    return;
-                }
-                let result = library::serialize(&rows).and_then(|text| {
-                    altrun_probe::state_store::TextFile::open(&destination)
-                        .and_then(|(mut file, _)| file.save(&text))
-                });
-                match result {
-                    Ok(()) => status("ui.shortcut_draft_exported", false),
-                    Err(e) => status(&e, true),
-                }
-            }
-        }
+        EXPORT => super::export::launch_items(hwnd, &path, &rows),
         RESTORE => super::imports::launch_items(hwnd),
         IMPORT_BOOKMARKS => super::imports::bookmarks(hwnd),
         _ => {}

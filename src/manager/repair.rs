@@ -91,14 +91,9 @@ fn pick_replacement(owner: HWND, target: RepairTarget) -> Result<Option<PathBuf>
         RepairTarget::Program => {
             let filter =
                 wide("Programs (*.exe;*.com;*.bat;*.cmd;*.lnk)\0*.exe;*.com;*.bat;*.cmd;*.lnk\0");
-            Ok(crate::windows::file_picker::pick_path_filtered(
-                owner,
-                false,
-                false,
-                Some(&filter),
-            ))
+            Ok(crate::windows::file_picker::open_file(owner, &filter))
         }
-        _ => Ok(pick_path(owner, false, target == RepairTarget::Folder)),
+        _ => Ok(pick_path(owner, target == RepairTarget::Folder)),
     }
 }
 

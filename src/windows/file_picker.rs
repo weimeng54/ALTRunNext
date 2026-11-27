@@ -5,67 +5,92 @@
 use std::{mem::zeroed, path::PathBuf};
 use windows_sys::Win32::{Foundation::HWND, UI::Controls::Dialogs::*};
 
-pub(crate) fn pick_path(hwnd: HWND, save: bool, folder: bool) -> Option<PathBuf> {
-    pick_path_filtered(hwnd, save, folder, None)
+pub(crate) fn pick_path(hwnd: HWND, folder: bool) -> Option<PathBuf> {
+    if !folder {
+        return pick_file(hwnd, None, None);
+    }
+    unsafe {
+        use windows_sys::Win32::{System::Com::*, UI::Shell::*};
+        let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+        let mut info: BROWSEINFOW = zeroed();
+        info.hwndOwner = hwnd;
+        info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        let pidl = SHBrowseForFolderW(&info);
+        let mut b = vec![0u16; 32768];
+        let ok = !pidl.is_null() && SHGetPathFromIDListW(pidl, b.as_mut_ptr()) != 0;
+        if !pidl.is_null() {
+            CoTaskMemFree(pidl as _);
+        }
+        if hr >= 0 {
+            CoUninitialize();
+        }
+        if !ok {
+            return None;
+        }
+        Some(PathBuf::from(String::from_utf16_lossy(
+            &b[..b.iter().position(|v| *v == 0).unwrap_or(0)],
+        )))
+    }
 }
 
-pub(crate) fn pick_path_filtered(
-    hwnd: HWND,
-    save: bool,
-    folder: bool,
-    filter: Option<&[u16]>,
-) -> Option<PathBuf> {
-    unsafe {
-        if folder {
-            use windows_sys::Win32::{System::Com::*, UI::Shell::*};
-            let hr = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
-            let mut info: BROWSEINFOW = zeroed();
-            info.hwndOwner = hwnd;
-            info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-            let pidl = SHBrowseForFolderW(&info);
-            let mut b = vec![0u16; 32768];
-            let ok = !pidl.is_null() && SHGetPathFromIDListW(pidl, b.as_mut_ptr()) != 0;
-            if !pidl.is_null() {
-                CoTaskMemFree(pidl as _);
-            }
-            if hr >= 0 {
-                CoUninitialize();
-            }
-            if !ok {
-                return None;
-            }
-            return Some(PathBuf::from(String::from_utf16_lossy(
-                &b[..b.iter().position(|v| *v == 0).unwrap_or(0)],
-            )));
-        }
-        pick_file(hwnd, save, filter, None)
+pub(crate) fn open_file(owner: HWND, filter: &[u16]) -> Option<PathBuf> {
+    pick_file(owner, Some(filter), None)
+}
+
+pub(crate) fn file_types(types: &[(&str, &str)]) -> Vec<u16> {
+    let mut filter = Vec::new();
+    for &(key, pattern) in types {
+        let label = crate::localization::tr(key);
+        filter.extend(crate::ui::wide(&format!("{label} ({pattern})")));
+        filter.extend(crate::ui::wide(pattern));
     }
+    filter.push(0);
+    filter
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SaveExtension<'a> {
+    Default(&'a str),
+    // The caller confirms replacement after the final path has been resolved.
+    Required(&'a str),
 }
 
 pub(crate) fn save_file(
     owner: HWND,
     filter: &[u16],
     filename: &str,
-    extension: &str,
+    extension: SaveExtension<'_>,
 ) -> Option<PathBuf> {
-    pick_file(owner, true, Some(filter), Some((filename, extension)))
+    let mut path = pick_file(owner, Some(filter), Some((filename, extension)))?;
+    if let SaveExtension::Required(ext) = extension
+        && !path
+            .extension()
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(ext))
+    {
+        path.set_extension(ext);
+    }
+    Some(path)
 }
 
 fn pick_file(
     owner: HWND,
-    save: bool,
     filter: Option<&[u16]>,
-    suggested: Option<(&str, &str)>,
+    suggested: Option<(&str, SaveExtension<'_>)>,
 ) -> Option<PathBuf> {
     use std::os::windows::ffi::OsStringExt;
 
     unsafe {
         let mut path = vec![0u16; 32768];
-        let default_extension = suggested.map(|(name, extension)| {
+        let (flags, default_extension) = if let Some((name, extension)) = suggested {
             let name = crate::ui::wide(name);
             path[..name.len()].copy_from_slice(&name);
-            crate::ui::wide(extension)
-        });
+            match extension {
+                SaveExtension::Default(ext) => (OFN_OVERWRITEPROMPT, Some(crate::ui::wide(ext))),
+                SaveExtension::Required(_) => (OFN_NOTESTFILECREATE, None),
+            }
+        } else {
+            (OFN_FILEMUSTEXIST, None)
+        };
         let mut dialog = OPENFILENAMEW {
             lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
             hwndOwner: owner,
@@ -75,16 +100,11 @@ fn pick_file(
             lpstrDefExt: default_extension
                 .as_ref()
                 .map_or(std::ptr::null(), |ext| ext.as_ptr()),
-            Flags: OFN_NOCHANGEDIR
-                | OFN_EXPLORER
-                | if save {
-                    OFN_OVERWRITEPROMPT
-                } else {
-                    OFN_FILEMUSTEXIST
-                },
+            nFilterIndex: 1,
+            Flags: OFN_NOCHANGEDIR | OFN_EXPLORER | flags,
             ..zeroed()
         };
-        let accepted = if save {
+        let accepted = if suggested.is_some() {
             GetSaveFileNameW(&mut dialog)
         } else {
             GetOpenFileNameW(&mut dialog)
@@ -121,7 +141,7 @@ pub(crate) fn pick_program(owner: HWND) -> Result<Option<String>, String> {
     let mut filter = crate::ui::ui("ui.executable_programs");
     filter.extend(crate::ui::wide("*.exe"));
     filter.push(0);
-    let Some(path) = pick_path_filtered(owner, false, false, Some(&filter)) else {
+    let Some(path) = open_file(owner, &filter) else {
         return Ok(None);
     };
     if !path.is_file() || !altrun_probe::management::is_executable(&path) {

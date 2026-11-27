@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "Vérifier les chemins manquants",
     "ui.choose": "Choisir…",
     "ui.choose_a_different_backup_file_select_save": "Choisissez un autre fichier de sauvegarde. Utilisez Enregistrer pour sauvegarder les données.",
+    "ui.confirm_replace_export": "Le fichier « {file} » existe déjà. Voulez-vous le remplacer ?",
     "ui.choose_a_font_size_from_5_to": "La taille doit être comprise entre 5 et 96.",
     "ui.choose_a_function_key_from_f1_to": "Les touches de fonction vont de F1 à F24.",
     "ui.choose_a_light_dark_or_system_theme": "Le thème doit être light, dark ou system.",

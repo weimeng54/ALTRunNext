@@ -141,6 +141,7 @@
     "ui.check_missing_paths": "끊어진 경로 검사",
     "ui.choose": "선택…",
     "ui.choose_a_different_backup_file_select_save": "다른 백업 파일을 선택하세요. 데이터를 저장하려면 「저장」을 사용하세요.",
+    "ui.confirm_replace_export": "“{file}” 파일이 이미 있습니다. 바꾸시겠습니까?",
     "ui.choose_a_font_size_from_5_to": "글자 크기를 5~96 사이로 입력하세요.",
     "ui.choose_a_function_key_from_f1_to": "기능 키는 F1~F24 범위에서 선택하세요.",
     "ui.choose_a_light_dark_or_system_theme": "테마 값은 light, dark 또는 system이어야 합니다.",
