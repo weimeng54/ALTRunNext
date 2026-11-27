@@ -197,7 +197,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             let s = state.as_ref().unwrap();
             unsafe {
                 let id = GetDlgCtrlID(l as HWND) as usize;
-                let form = (2170..=2174).contains(&id) || id == NOTE_LABEL;
+                let form = (ALIAS_LABEL..=OPEN_LABEL).contains(&id) || id == NOTE_LABEL;
                 let color = if msg != WM_CTLCOLORSTATIC {
                     theme::paper()
                 } else if form {

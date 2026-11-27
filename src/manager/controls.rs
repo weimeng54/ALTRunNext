@@ -34,60 +34,11 @@ pub(super) fn create(
         let tools_width = menu_width("ui.tools");
         let add_width = menu_width("ui.add");
         let tools_x = RAIL - 16 - tools_width;
-        let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
-            let id = if class == "STATIC" && id == 0 {
-                match label {
-                    "ui.alias" => 2170,
-                    "ui.name" => 2171,
-                    "ui.command_label" => 2172,
-                    "ui.input_format" => 2173,
-                    _ => id,
-                }
-            } else {
-                id
-            };
+        let control = |class: &str, label: &str, style: u32, (x, y, width, height), id: usize| {
             let style = if class == "COMBOBOX" {
                 style | (CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32
-            } else if class == "EDIT" {
-                style & !WS_BORDER
             } else {
                 style
-            };
-            let (x, y, width, height) = match id {
-                CAPTION_CLOSE => (WIDTH - 47, 1, 46, CAPTION - 1),
-                NEW_MENU => (tools_x - 8 - add_width, 62, add_width, 32),
-                TOOLS_MENU => (tools_x, 62, tools_width, 32),
-                FILTER => (17, 103, RAIL - 34, 35),
-                FILTER_HINT => (
-                    FORM_LEFT,
-                    FORM_TOP + COMMAND_FORM_HEIGHT + 16,
-                    FIELD_WIDTH,
-                    34,
-                ),
-                LIST => (17, TABLE_TOP + 1, RAIL - 34, 0),
-                DELETE => (17, FOOTER_TOP + 13, 86, 37),
-                CLOSE => (WIDTH - 338, FOOTER_TOP + 13, 65, 37),
-                TEST => (WIDTH - 265, FOOTER_TOP + 13, 110, 37),
-                SAVE => (WIDTH - 147, FOOTER_TOP + 13, 130, 37),
-                NOTE_LABEL => (FIELD_LEFT, 128, FIELD_WIDTH, 21),
-                EMPTY_HELP => (FIELD_LEFT, 128, FIELD_WIDTH, 40),
-                ALIAS => (FIELD_LEFT, 154, HALF_FIELD, 36),
-                NAME => (FIELD_RIGHT - HALF_FIELD, 154, HALF_FIELD, 36),
-                COMMAND => (FIELD_LEFT, 238, FIELD_WIDTH - 116, 36),
-                CHOOSE_TARGET => (FIELD_RIGHT - 106, 238, 106, 36),
-                KIND => (FIELD_LEFT, 378, FIELD_WIDTH, 190),
-                ASK_PARAMETER => (FIELD_LEFT, 293, FIELD_WIDTH, 40),
-                RUN_AS_ADMIN => (FIELD_LEFT, 343, FIELD_WIDTH, 40),
-                OPEN_LABEL => (FIELD_LEFT, 296, FIELD_WIDTH, 21),
-                OPEN_WITH => (FIELD_LEFT, 322, FIELD_WIDTH - 144, 36),
-                OPEN_DEFAULT => (FIELD_RIGHT - 128, 322, 128, 36),
-                _ if label == "ui.save_to_apply_your_changes" => (112, FOOTER_TOP + 13, 600, 37),
-                _ if label == "ui.manage_shortcuts" => (RAIL + 25, 60, FIELD_WIDTH, 41),
-                _ if label == "ui.alias" => (FIELD_LEFT, 128, HALF_FIELD, 21),
-                _ if label == "ui.name" => (FIELD_RIGHT - HALF_FIELD, 128, HALF_FIELD, 21),
-                _ if label == "ui.command_label" => (FIELD_LEFT, 212, FIELD_WIDTH, 21),
-                _ if label == "ui.input_format" => (FIELD_LEFT, 352, FIELD_WIDTH, 21),
-                _ => (x, y, width, height),
             };
             let mut rect = crate::ui::geometry::BoxRect::new(x, y, width, height).pixels(dpi);
             if id == LIST {
@@ -108,22 +59,41 @@ pub(super) fn create(
             }
             child
         };
-        let close_caption = control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
+        let close_caption = control(
+            "BUTTON",
+            "ui.close",
+            WS_TABSTOP,
+            (WIDTH - 47, 1, 46, CAPTION - 1),
+            CAPTION_CLOSE,
+        );
         crate::ui::style_caption_close(close_caption);
-        let title = control("STATIC", "ui.edit_shortcut", 0, 280, 12, 300, 25, 0);
-        control("BUTTON", "ui.add", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
+        let title = control(
+            "STATIC",
+            "ui.edit_shortcut",
+            0,
+            (FORM_LEFT, 60, FIELD_WIDTH, 41),
+            FORM_HEADING,
+        );
         control(
-            "BUTTON", "ui.tools", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU,
+            "BUTTON",
+            "ui.add",
+            WS_TABSTOP,
+            (tools_x - 8 - add_width, 62, add_width, 32),
+            NEW_MENU,
+        );
+        control(
+            "BUTTON",
+            "ui.tools",
+            WS_TABSTOP,
+            (tools_x, 62, tools_width, 32),
+            TOOLS_MENU,
         );
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
         let filter = control(
             "EDIT",
             "",
             WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            0,
-            0,
-            0,
-            0,
+            (17, 103, RAIL - 34, 35),
             FILTER,
         );
         SendMessageW(
@@ -137,10 +107,12 @@ pub(super) fn create(
             "STATIC",
             "ui.filtered_launch_item",
             0,
-            0,
-            0,
-            0,
-            0,
+            (
+                FORM_LEFT,
+                FORM_TOP + COMMAND_FORM_HEIGHT + 16,
+                FIELD_WIDTH,
+                34,
+            ),
             FILTER_HINT,
         );
         ShowWindow(filter_hint, SW_HIDE);
@@ -153,67 +125,67 @@ pub(super) fn create(
             "SysListView32",
             "",
             report::STYLE | LVS_NOSORTHEADER,
-            12,
-            52,
-            250,
-            304,
+            (17, TABLE_TOP + 1, RAIL - 34, 0),
             LIST,
         );
         if list.is_null() {
             return None;
         }
         table::configure(list, dpi);
-        control("STATIC", "ui.alias", 0, 280, 52, 210, 20, 0);
-        control("STATIC", "ui.name", 0, 512, 52, 232, 20, 0);
+        control(
+            "STATIC",
+            "ui.alias",
+            0,
+            (FIELD_LEFT, 128, HALF_FIELD, 21),
+            ALIAS_LABEL,
+        );
+        control(
+            "STATIC",
+            "ui.name",
+            0,
+            (FIELD_RIGHT - HALF_FIELD, 128, HALF_FIELD, 21),
+            NAME_LABEL,
+        );
         let alias = control(
             "EDIT",
             "",
-            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            280,
-            76,
-            216,
-            28,
+            WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            (FIELD_LEFT, 154, HALF_FIELD, 36),
             ALIAS,
         );
         let name = control(
             "EDIT",
             "",
-            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            512,
-            76,
-            232,
-            28,
+            WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            (FIELD_RIGHT - HALF_FIELD, 154, HALF_FIELD, 36),
             NAME,
         );
-        control("STATIC", "ui.command_label", 0, 280, 118, 464, 20, 0);
+        control(
+            "STATIC",
+            "ui.command_label",
+            0,
+            (FIELD_LEFT, 212, FIELD_WIDTH, 21),
+            COMMAND_LABEL,
+        );
         let command = control(
             "EDIT",
             "",
-            WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            280,
-            142,
-            464,
-            28,
+            WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            (FIELD_LEFT, 238, FIELD_WIDTH - 116, 36),
             COMMAND,
         );
         control(
             "BUTTON",
             "ui.browse_command_target",
             WS_TABSTOP,
-            0,
-            0,
-            0,
-            0,
+            (FIELD_RIGHT - 106, 238, 106, 36),
             CHOOSE_TARGET,
         );
         let ask_parameter = control(
             "BUTTON",
             "ui.ask_for_input_on_launch",
             BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-            0,
-            0,
-            0,
-            0,
+            (FIELD_LEFT, 293, FIELD_WIDTH, 40),
             ASK_PARAMETER,
         );
         crate::ui::switch(ask_parameter, dpi);
@@ -221,22 +193,22 @@ pub(super) fn create(
             "BUTTON",
             "ui.run_as_administrator",
             BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-            0,
-            0,
-            0,
-            0,
+            (FIELD_LEFT, 343, FIELD_WIDTH, 40),
             RUN_AS_ADMIN,
         );
         crate::ui::switch(run_as_admin, dpi);
-        control("STATIC", "ui.input_format", 0, 0, 0, 0, 0, 0);
+        control(
+            "STATIC",
+            "ui.input_format",
+            0,
+            (FIELD_LEFT, 352, FIELD_WIDTH, 21),
+            FORMAT_LABEL,
+        );
         let kind = control(
             "COMBOBOX",
             "",
             WS_TABSTOP | CBS_DROPDOWNLIST as u32 | WS_VSCROLL,
-            280,
-            208,
-            300,
-            220,
+            (FIELD_LEFT, 378, FIELD_WIDTH, 190),
             KIND,
         );
         crate::ui::language::combo(kind, PARAMETER_CHOICES.iter().map(|(_, label)| *label));
@@ -248,52 +220,75 @@ pub(super) fn create(
                 wide(&crate::localization::tr(label)).as_ptr() as LPARAM,
             );
         }
-        control("STATIC", "ui.open_with", 0, 0, 0, 0, 0, OPEN_LABEL);
-        control("BUTTON", "ui.choose_app", WS_TABSTOP, 0, 0, 0, 0, OPEN_WITH);
+        control(
+            "STATIC",
+            "ui.open_with",
+            0,
+            (FIELD_LEFT, 296, FIELD_WIDTH, 21),
+            OPEN_LABEL,
+        );
+        control(
+            "BUTTON",
+            "ui.choose_app",
+            WS_TABSTOP,
+            (FIELD_LEFT, 322, FIELD_WIDTH - 144, 36),
+            OPEN_WITH,
+        );
         control(
             "BUTTON",
             "ui.system_default",
             WS_TABSTOP,
-            0,
-            0,
-            0,
-            0,
+            (FIELD_RIGHT - 128, 322, 128, 36),
             OPEN_DEFAULT,
         );
-        control("STATIC", "ui.note_text", 0, 0, 0, 0, 0, NOTE_LABEL);
+        control(
+            "STATIC",
+            "ui.note_text",
+            0,
+            (FIELD_LEFT, 128, FIELD_WIDTH, 21),
+            NOTE_LABEL,
+        );
         control(
             "STATIC",
             "ui.select_new_to_create_your_first_shortcut",
             0,
-            0,
-            0,
-            0,
-            0,
+            (FIELD_LEFT, 128, FIELD_WIDTH, 40),
             EMPTY_HELP,
         );
         let status = control(
             "STATIC",
-            "ui.save_to_apply_your_changes",
+            "",
             crate::ui::STATIC_CENTER_IMAGE,
-            0,
-            0,
-            0,
-            0,
+            (112, FOOTER_TOP + 13, 600, 37),
             0,
         );
-        SetWindowTextW(status, wide("").as_ptr());
 
-        let delete = control("BUTTON", "ui.delete", WS_TABSTOP, 92, 374, 72, 30, DELETE);
-        control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CLOSE);
-        control("BUTTON", "ui.try_opening", WS_TABSTOP, 0, 0, 0, 0, TEST);
+        let delete = control(
+            "BUTTON",
+            "ui.delete",
+            WS_TABSTOP,
+            (17, FOOTER_TOP + 13, 86, 37),
+            DELETE,
+        );
+        control(
+            "BUTTON",
+            "ui.close",
+            WS_TABSTOP,
+            (WIDTH - 338, FOOTER_TOP + 13, 65, 37),
+            CLOSE,
+        );
+        control(
+            "BUTTON",
+            "ui.try_opening",
+            WS_TABSTOP,
+            (WIDTH - 265, FOOTER_TOP + 13, 110, 37),
+            TEST,
+        );
         let save = control(
             "BUTTON",
             "ui.save",
             WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
-            560,
-            374,
-            88,
-            30,
+            (WIDTH - 147, FOOTER_TOP + 13, 130, 37),
             SAVE,
         );
         Some(Controls {
@@ -363,10 +358,10 @@ pub(super) fn sync_kind_layout() {
             (KIND, parameter_visible),
             (ASK_PARAMETER, parameter_supported),
             (RUN_AS_ADMIN, true),
-            (2170, true),
-            (2171, true),
-            (2172, true),
-            (2173, parameter_visible),
+            (ALIAS_LABEL, true),
+            (NAME_LABEL, true),
+            (COMMAND_LABEL, true),
+            (FORMAT_LABEL, parameter_visible),
             (OPEN_LABEL, document),
             (OPEN_WITH, document),
             (OPEN_DEFAULT, document),

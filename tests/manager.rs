@@ -335,6 +335,13 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         );
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2140)), 0);
         assert_ne!(IsWindowVisible(GetDlgItem(manager, 2141)), 0);
+        let mut heading = RECT::default();
+        assert_ne!(GetWindowRect(GetDlgItem(manager, 2162), &mut heading), 0);
+        let mut origin = POINT::default();
+        ClientToScreen(manager, &mut origin);
+        assert_eq!(heading.left - origin.x, (401 * dpi + 48) / 96);
+        assert_eq!(heading.top - origin.y, (60 * dpi + 48) / 96);
+        assert!(heading.bottom - origin.y < (112 * dpi + 48) / 96);
         let editor_list = GetDlgItem(manager, 2101);
         let header = SendMessageW(editor_list, LVM_GETHEADER, 0, 0) as HWND;
         assert!(
