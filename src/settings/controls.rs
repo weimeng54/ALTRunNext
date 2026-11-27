@@ -37,28 +37,14 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             dwICC: ICC_BAR_CLASSES | ICC_LINK_CLASS,
         };
         InitCommonControlsEx(&common);
+        let children = ui::ChildControls {
+            parent: hwnd,
+            instance,
+            font,
+        };
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id| {
-            let style = if class == "BUTTON" && style & 15 != BS_AUTOCHECKBOX as u32 {
-                (style & !15) | BS_OWNERDRAW as u32
-            } else {
-                style
-            };
-            let h = CreateWindowExW(
-                0,
-                wide(class).as_ptr(),
-                wide(&crate::localization::tr(label)).as_ptr(),
-                WS_CHILD | WS_VISIBLE | style,
-                scaled(x, dpi),
-                scaled(y, dpi),
-                (scaled(x + width, dpi) - scaled(x, dpi)).max(1),
-                (scaled(y + height, dpi) - scaled(y, dpi)).max(1),
-                hwnd,
-                id as HMENU,
-                instance,
-                std::ptr::null(),
-            );
-            SendMessageW(h, WM_SETFONT, font as usize, 0);
-            h
+            let rect = ui::geometry::BoxRect::new(x, y, width, height).pixels(dpi);
+            children.create(class, label, style, rect, id)
         };
         let tabs = control(
             "LISTBOX",

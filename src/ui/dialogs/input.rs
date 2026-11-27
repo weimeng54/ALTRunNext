@@ -28,8 +28,6 @@ struct Input {
     edit: HWND,
     old_edit: isize,
     composing: bool,
-    background: HBRUSH,
-    paper: HBRUSH,
     report: Option<Report>,
     custom_caption: bool,
     parameter: Option<parameter::Prompt>,
@@ -142,17 +140,17 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             WM_ERASEBKGND => unsafe {
                 let mut rect = std::mem::zeroed();
                 GetClientRect(hwnd, &mut rect);
-                FillRect(w as HDC, &rect, (*state).background);
+                ui::fill(w as HDC, &rect, theme::surface());
                 return 1;
             },
             WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => unsafe {
                 let control = l as HWND;
                 let read_only_edit = GetDlgCtrlID(control) == 10
                     && GetWindowLongW(control, GWL_STYLE) as u32 & ES_READONLY as u32 != 0;
-                let (color, brush) = if msg != WM_CTLCOLORSTATIC || read_only_edit {
-                    (theme::paper(), (*state).paper)
+                let color = if msg != WM_CTLCOLORSTATIC || read_only_edit {
+                    theme::paper()
                 } else {
-                    (theme::surface(), (*state).background)
+                    theme::surface()
                 };
                 let error = (*state)
                     .parameter
@@ -160,7 +158,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     .is_some_and(|prompt| control == prompt.error);
                 SetTextColor(w as HDC, if error { theme::error() } else { theme::text() });
                 SetBkColor(w as HDC, color);
-                return brush as isize;
+                SetDCBrushColor(w as HDC, color);
+                return GetStockObject(DC_BRUSH) as isize;
             },
             WM_DRAWITEM if l != 0 => {
                 let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
@@ -403,7 +402,7 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
                     ..rect
                 },
                 value,
-                theme::text(),
+                theme::row_ink(selected, theme::text()),
                 0,
             );
         }
@@ -415,9 +414,7 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
             };
             ui::fill(item.hDC, &line, theme::divider());
         }
-        if item.itemState & ODS_FOCUS != 0 {
-            DrawFocusRect(item.hDC, &rect);
-        }
+        ui::row_focus(item, &rect);
     }
 }
 
@@ -453,8 +450,6 @@ fn open(
         wc.lpfnWndProc = Some(procedure);
         wc.hInstance = instance;
         wc.lpszClassName = class.as_ptr();
-        let background = CreateSolidBrush(theme::surface());
-        let paper = CreateSolidBrush(theme::paper());
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         RegisterClassW(&wc);
         let inline_error = parameter
@@ -470,8 +465,6 @@ fn open(
             edit: null_mut(),
             old_edit: 0,
             composing: false,
-            background,
-            paper,
             report,
             custom_caption,
             parameter: parameter.map(parameter::Prompt::new),
@@ -503,12 +496,11 @@ fn open(
         );
         if hwnd.is_null() {
             UnregisterClassW(class.as_ptr(), instance);
-            DeleteObject(background);
-            DeleteObject(paper);
+
             drop(Box::from_raw(state));
             return (None, false);
         }
-        theme::frame(hwnd);
+        theme::watch(hwnd);
         let localized_message = message.map(crate::localization::tr);
         let long = if notice {
             localized_message
@@ -626,8 +618,7 @@ fn open(
             DestroyWindow(hwnd);
             DeleteObject(font);
             UnregisterClassW(class.as_ptr(), instance);
-            DeleteObject(background);
-            DeleteObject(paper);
+
             drop(Box::from_raw(state));
             return (None, false);
         }
@@ -864,8 +855,7 @@ fn open(
             DeleteObject((*state).caption);
         }
         UnregisterClassW(class.as_ptr(), instance);
-        DeleteObject(background);
-        DeleteObject(paper);
+
         let state = Box::from_raw(state);
         (state.value, state.alternate)
     }

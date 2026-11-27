@@ -149,25 +149,14 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 } < 0
             {
                 unsafe {
-                    table::select(list, row);
+                    report::select(list, row);
                 }
             }
             0
         }
         WM_COMMAND => handle_command(hwnd, w),
-        WM_MEASUREITEM if l != 0 => {
-            let item = unsafe { &mut *(l as *mut MEASUREITEMSTRUCT) };
-            if menu_style::measure(item) {
-                1
-            } else {
-                unsafe { DefWindowProcW(hwnd, msg, w, l) }
-            }
-        }
         WM_DRAWITEM if l != 0 => {
             let d = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-            if menu_style::draw(d) {
-                return 1;
-            }
             if d.CtlType == ODT_BUTTON {
                 if matches!(d.CtlID as usize, NEW_MENU | TOOLS_MENU) {
                     let dpi = EDITOR.with(|c| c.borrow().as_ref().unwrap().dpi);
@@ -198,7 +187,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                     else {
                         return;
                     };
-                    table::draw_row(d, &entry.alias, &entry.name, s.font, s.dpi);
+                    report::draw_columns(d, &[&entry.alias, &entry.name], s.font, s.dpi);
                 });
             }
             1
@@ -289,7 +278,7 @@ pub(super) fn run(
         if hwnd.is_null() {
             return Err("ui.could_not_create_the_shortcut_manager_window".into());
         }
-        theme::frame(hwnd);
+        theme::watch(hwnd);
         let remembered = window_state();
         let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
         crate::ui::round_panel(hwnd, scaled(WIDTH, dpi), scaled(HEIGHT, dpi), dpi);

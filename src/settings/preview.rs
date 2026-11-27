@@ -24,6 +24,7 @@ pub struct Preview {
     bitmap: Option<skin::Bitmap>,
     sender: mpsc::Sender<ResultImage>,
     results: mpsc::Receiver<ResultImage>,
+    pub(super) palette: theme::Snapshot,
     pub prefs: Preferences,
     pub selected: usize,
     pub input_colours: (u32, u32, u32),
@@ -33,6 +34,7 @@ impl Preview {
     pub fn new(prefs: Preferences) -> Self {
         let (sender, results) = mpsc::channel();
         Self {
+            palette: theme::Snapshot::capture(),
             result_dividers: ui::ResultDividers::from_preferences(&prefs),
             request: None,
             bitmap: None,
@@ -45,14 +47,16 @@ impl Preview {
     }
 
     pub fn update(&mut self, prefs: Preferences, data: &Path, hwnd: HWND) {
+        let previous = theme::Snapshot::capture();
         theme::install(&prefs);
+        self.palette = theme::Snapshot::capture();
         self.input_colours = (
             theme::surface(),
             theme::keyword(),
             theme::font_colour(&prefs.get("KeywordFont")),
         );
         let request = skin::Request::for_settings(&prefs, data, theme::surface());
-        theme::install_chrome(&prefs);
+        previous.install();
         self.result_dividers = ui::ResultDividers::from_preferences(&prefs);
         self.prefs = prefs;
         if request == self.request {
@@ -187,7 +191,7 @@ impl Preview {
     }
 
     pub fn paint(&self, item: &DRAWITEMSTRUCT, dpi: i32, query: &str) {
-        theme::install(&self.prefs);
+        let _preview = self.palette.enter();
         let dc = item.hDC;
         let px = |n| scaled(n, dpi);
         let rect = item.rcItem;
@@ -279,7 +283,7 @@ impl Preview {
                     dc,
                     area(16, y, 19, row_height),
                     &(i + 1).to_string(),
-                    theme::muted(),
+                    theme::row_ink(active, theme::muted()),
                     0,
                 );
                 SelectObject(dc, alias_font);
@@ -287,7 +291,7 @@ impl Preview {
                     dc,
                     area(43, y, (bounds.w - 68) * 3 / 7, row_height),
                     alias,
-                    theme::font_colour(&self.prefs.get("ListFont")),
+                    theme::row_ink(active, theme::font_colour(&self.prefs.get("ListFont"))),
                     0,
                 );
                 SelectObject(dc, row_font);
@@ -300,7 +304,7 @@ impl Preview {
                         row_height,
                     ),
                     &crate::localization::tr(name),
-                    theme::font_colour(&self.prefs.get("ListFont")),
+                    theme::row_ink(active, theme::font_colour(&self.prefs.get("ListFont"))),
                     0,
                 );
                 y += row_height;
@@ -340,6 +344,5 @@ impl Preview {
             DeleteObject(alias_font);
             DeleteObject(command_font);
         }
-        theme::install_chrome(&self.prefs);
     }
 }

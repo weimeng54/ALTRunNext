@@ -6,6 +6,10 @@
 
 ## [未发布 / Unreleased]
 
+- 托盘、启动面板右键、启动项管理、备份与恢复及参数历史使用同款圆角菜单。菜单按文字宽度排列快捷键和子菜单，管理、导入和修复表格共用选中与焦点样式。\
+  Tray, launcher, management, backup and parameter history menus share a rounded frame and size themselves to their labels and shortcuts. Management, import and repair tables share selection and focus styles.
+- 更改主题后，已打开的工具窗口和对话框同步更新。高对比度下的选中行使用系统高亮文字色。\
+  Open tool windows and dialogs update when the theme changes. Selected rows use the system highlight text color in high contrast.
 - 首次安装可选择开始菜单和桌面快捷方式、登录时启动、“发送到”菜单和安装后打开。覆盖升级保留已有选择。\
   First-time setup offers Start menu and desktop shortcuts, launch at sign-in, Send to integration and opening the app after installation. Upgrades keep existing preferences.
 - 新增 NSIS 安装包，可直接覆盖此前的 Inno Setup 试装版。升级沿用安装目录，保留启动项、设置和历史。卸载时可选择清除当前用户的安装版数据。便携 ZIP 继续独立使用。\

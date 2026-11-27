@@ -7,14 +7,31 @@ use super::{
 };
 use crate::theme;
 use windows_sys::Win32::{
-    Foundation::*, Graphics::Gdi::*, System::LibraryLoader::GetModuleHandleW,
-    UI::WindowsAndMessaging::*,
+    Foundation::*,
+    Graphics::Gdi::*,
+    System::LibraryLoader::GetModuleHandleW,
+    UI::{Controls::*, Input::KeyboardAndMouse::GetFocus, WindowsAndMessaging::*},
 };
 
 mod result_dividers;
 pub(crate) use result_dividers::ResultDividers;
 
 pub const STATIC_CENTER_IMAGE: u32 = 0x0200;
+
+/// Draw a row cue only while its native list owns keyboard focus.
+pub(crate) fn row_focus(item: &DRAWITEMSTRUCT, bounds: &RECT) {
+    unsafe {
+        if item.itemState & ODS_FOCUS != 0
+            && GetFocus() == item.hwndItem
+            && (theme::high_contrast()
+                || item.itemState & ODS_NOFOCUSRECT == 0
+                    && SendMessageW(item.hwndItem, WM_QUERYUISTATE, 0, 0) as u32 & UISF_HIDEFOCUS
+                        == 0)
+        {
+            DrawFocusRect(item.hDC, bounds);
+        }
+    }
+}
 
 /// Compose a dirty rectangle before presenting it to the clipped window DC.
 pub(crate) fn buffered(dc: HDC, rect: RECT, draw: impl FnOnce(HDC)) {

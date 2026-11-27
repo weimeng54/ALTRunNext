@@ -46,6 +46,7 @@ pub(crate) fn run() -> Result<(), String> {
     drop(settings_file);
     let preferences = altrun_probe::preferences::Preferences::parse(&settings_text)?;
     crate::localization::set_active(&preferences.get("Lang"));
+    theme::publish(&preferences);
     theme::install(&preferences);
     let seed_defaults = !data_path.try_exists().map_err(|error| error.to_string())?
         && (explicit_data.is_none() || crate::installed::is_installed_profile(&data_path));
@@ -141,7 +142,6 @@ pub(crate) fn run() -> Result<(), String> {
         DwmSetWindowAttribute(hwnd, 33, &rounded as *const _ as *const _, 4);
         let no_transitions = 1i32;
         DwmSetWindowAttribute(hwnd, 3, &no_transitions as *const _ as _, 4);
-        DwmSetWindowAttribute(hwnd, 34, &theme::border() as *const _ as *const _, 4);
         let font = CreateFontW(
             -scaled(13, dpi),
             0,
@@ -335,6 +335,7 @@ pub(crate) fn run() -> Result<(), String> {
                 library_updates,
             })
         });
+        theme::watch(hwnd);
         crate::ui::style_list_scrollbar(list, ID_SCROLLBAR, 0);
         refresh();
         let prefs = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.clone());

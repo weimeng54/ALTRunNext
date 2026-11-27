@@ -470,33 +470,23 @@ pub(super) fn paint_panel(hwnd: HWND) {
     }
 }
 
-pub(super) fn apply_appearance() {
-    let (hwnd, edit, list, title, command, inline_error, prefs, dpi) = STATE.with(|c| {
-        let s = c.borrow();
-        let s = s.as_ref().unwrap();
-        (
-            s.hwnd,
-            s.edit,
-            s.list,
-            s.title,
-            s.command,
-            s.inline_error,
-            s.preferences.clone(),
-            s.dpi,
-        )
-    });
+thread_local! {
+    static PANEL_PALETTE: Cell<Option<theme::Snapshot>> = const { Cell::new(None) };
+}
+
+pub(super) fn panel_colours() -> Option<theme::Restore> {
+    PANEL_PALETTE.get().map(theme::Snapshot::enter)
+}
+
+pub(super) fn refresh_colours() {
+    let mut prefs = STATE.with(|state| state.borrow().as_ref().unwrap().preferences.clone());
+    if let Some(mode) = theme::applied_mode() {
+        let _ = prefs.set("Theme", &mode);
+    }
+    let previous = theme::Snapshot::capture();
     theme::install(&prefs);
+    PANEL_PALETTE.set(Some(theme::Snapshot::capture()));
     unsafe {
-        let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
-        if !error_font.is_null() {
-            SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
-            STATE.with(|c| {
-                DeleteObject(std::mem::replace(
-                    &mut c.borrow_mut().as_mut().unwrap().error_font,
-                    error_font,
-                ))
-            });
-        }
         STATE.with(|c| {
             let mut s = c.borrow_mut();
             let s = s.as_mut().unwrap();
@@ -524,6 +514,38 @@ pub(super) fn apply_appearance() {
                 theme::font_colour(&prefs.get("ListFont")),
             ];
         });
+    }
+    load_skin();
+    previous.install();
+}
+
+pub(super) fn apply_appearance() {
+    let (hwnd, edit, list, title, command, inline_error, prefs, dpi) = STATE.with(|c| {
+        let s = c.borrow();
+        let s = s.as_ref().unwrap();
+        (
+            s.hwnd,
+            s.edit,
+            s.list,
+            s.title,
+            s.command,
+            s.inline_error,
+            s.preferences.clone(),
+            s.dpi,
+        )
+    });
+    refresh_colours();
+    unsafe {
+        let error_font = make_font(12, 400, "Microsoft YaHei UI", dpi);
+        if !error_font.is_null() {
+            SendMessageW(inline_error, WM_SETFONT, error_font as WPARAM, 0);
+            STATE.with(|c| {
+                DeleteObject(std::mem::replace(
+                    &mut c.borrow_mut().as_mut().unwrap().error_font,
+                    error_font,
+                ))
+            });
+        }
         let definitions = [
             ("ListFont", list),
             ("TitleFont", title),
@@ -616,7 +638,6 @@ pub(super) fn apply_appearance() {
             scaled(prefs.number("RowHeight"), dpi) as isize,
         );
     }
-    load_skin();
     unsafe {
         RedrawWindow(
             hwnd,

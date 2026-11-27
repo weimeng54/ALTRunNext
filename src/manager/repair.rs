@@ -206,13 +206,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                 match item.CtlID as usize {
                     LIST => {
                         if let Some(finding) = state.findings.get(item.itemID as usize) {
-                            let cells = &finding.cells;
-                            table::draw_columns(
-                                item,
-                                &[&cells[0], &cells[1], &cells[2], &cells[3]],
-                                state.font,
-                                state.dpi,
-                            );
+                            report::draw_columns(item, &finding.cells, state.font, state.dpi);
                         }
                     }
                     CAPTION_CLOSE => crate::ui::caption_close(item, state.dpi),
@@ -346,7 +340,7 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             status("ui.could_not_create_the_shortcut_manager_window", true);
             return;
         }
-        theme::frame(hwnd);
+        theme::watch(hwnd);
         let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
         state.dpi = dpi;
         state.font = make_font(14, 400, "Microsoft YaHei UI", dpi);
@@ -382,23 +376,22 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
         let list = control(
             "SysListView32",
             "",
-            WS_TABSTOP
-                | WS_CLIPSIBLINGS
-                | LVS_REPORT
-                | LVS_SINGLESEL
-                | LVS_SHOWSELALWAYS
-                | LVS_NOSORTHEADER
-                | LVS_OWNERDRAWFIXED,
+            report::STYLE | LVS_NOSORTHEADER,
             LIST,
             (17, CAPTION + 44, WIDTH - 34, FOOTER - CAPTION - 59),
         );
-        table::configure_report(list, dpi, &COLUMNS, 0);
+        report::configure(list, dpi, &COLUMNS);
         let rows = state
             .findings
             .iter()
             .map(|f| f.cells.clone())
             .collect::<Vec<_>>();
-        table::replace_report_rows(list, &rows, Some(0), scaled(ROW_HEIGHT, dpi));
+        report::replace_rows(
+            list,
+            rows.iter().map(|row| row.iter().map(String::as_str)),
+            Some(0),
+            scaled(ROW_HEIGHT, dpi),
+        );
         for (id, key, x, width) in [
             (CLOSE, "ui.close", WIDTH - 401, 81),
             (REMOVE, "ui.remove_missing_items", WIDTH - 311, 142),

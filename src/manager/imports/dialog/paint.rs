@@ -2,7 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::{Dialog, FOOTER, HEADER, Preview, REPLACE, alias_bounds};
-use crate::{manager::table, theme, ui};
+use crate::{
+    theme,
+    ui::{self, report},
+};
 use altrun_probe::browser_bookmarks::BookmarkStatus;
 use std::ptr::null_mut;
 use windows_sys::Win32::{
@@ -15,8 +18,7 @@ pub(super) fn draw_row(item: &DRAWITEMSTRUCT, dialog: &Dialog) {
     let Some(row) = dialog.model.borrow().display_row(item.itemID as usize) else {
         return;
     };
-    let columns = row.cells.iter().map(String::as_str).collect::<Vec<_>>();
-    table::draw_columns(item, &columns, dialog.font, dialog.dpi);
+    report::draw_columns(item, &row.cells, dialog.font, dialog.dpi);
     if let Some((status, checked, alias)) = row.bookmark {
         draw_alias_cell(item, dialog, status, &alias);
         let px = |n| ui::scaled(n, dialog.dpi);
@@ -70,7 +72,7 @@ fn draw_alias_cell(item: &DRAWITEMSTRUCT, dialog: &Dialog, status: BookmarkStatu
             ui::rounded(dc, bounds, px(12), theme::paper(), theme::border());
             theme::text()
         } else {
-            theme::muted()
+            theme::row_ink(item.itemState & ODS_SELECTED != 0, theme::muted())
         };
         let old = SelectObject(dc, dialog.font);
         ui::line_text(

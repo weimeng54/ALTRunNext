@@ -206,7 +206,7 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             UnregisterClassW(class.as_ptr(), instance);
             return false;
         }
-        theme::frame(hwnd);
+        theme::watch(hwnd);
         let dpi = crate::ui::geometry::fit(hwnd, WIDTH, HEIGHT);
         state.dpi = dpi;
         let px = |value| scaled(value, dpi);

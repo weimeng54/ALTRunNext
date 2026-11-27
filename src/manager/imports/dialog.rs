@@ -5,7 +5,10 @@ mod model;
 mod paint;
 
 use super::{Accepted, Preview};
-use crate::{localization as l10n, manager::table, theme, ui};
+use crate::{
+    localization as l10n, theme,
+    ui::{self, report},
+};
 use altrun_probe::browser_bookmarks::BookmarkStatus;
 use model::Model;
 use paint::{draw_mode, draw_row, paint};
@@ -78,8 +81,6 @@ struct Dialog {
     row_height: i32,
     caption: HFONT,
     font: HFONT,
-    surface: HBRUSH,
-    paper: HBRUSH,
     title: String,
 }
 
@@ -192,9 +193,9 @@ fn refresh_rows(hwnd: HWND, shared: &Dialog) {
     unsafe {
         let list = child(hwnd, TABLE);
         if let Some(rows) = launch_rows {
-            table::replace_report_rows(
+            report::replace_rows(
                 list,
-                &rows,
+                rows.iter().map(|row| row.iter().map(String::as_str)),
                 selected,
                 ui::scaled(shared.row_height, shared.dpi),
             );
@@ -211,7 +212,7 @@ fn refresh_rows(hwnd: HWND, shared: &Dialog) {
             );
             SendMessageW(list, LVM_SETITEMCOUNT, count, LVSICF_NOSCROLL as LPARAM);
             if let Some(row) = selected {
-                table::select(list, row);
+                report::select(list, row);
                 SendMessageW(list, LVM_ENSUREVISIBLE, row, 0);
             }
             InvalidateRect(list, null(), 0);
@@ -454,14 +455,8 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                             theme::text()
                         },
                     );
-                    if id == STATUS {
-                        SetDCBrushColor(w as HDC, background);
-                        return GetStockObject(DC_BRUSH) as isize;
-                    }
-                    if edit {
-                        return dialog.paper as isize;
-                    }
-                    return dialog.surface as isize;
+                    SetDCBrushColor(w as HDC, background);
+                    return GetStockObject(DC_BRUSH) as isize;
                 }
                 WM_DRAWITEM if l != 0 => {
                     let item = &*(l as *const DRAWITEMSTRUCT);
@@ -549,8 +544,6 @@ pub(super) fn open(
             },
             caption: null_mut(),
             font: null_mut(),
-            surface: CreateSolidBrush(theme::surface()),
-            paper: CreateSolidBrush(theme::paper()),
             title,
         });
         let common = INITCOMMONCONTROLSEX {
@@ -583,8 +576,6 @@ pub(super) fn open(
             if registration != 0 {
                 UnregisterClassW(class.as_ptr(), instance);
             }
-            DeleteObject(dialog.surface);
-            DeleteObject(dialog.paper);
             ui::dialogs::input::notice(owner, "ALTRunNext", "ui.import_preview_failed");
             return Outcome::Cancelled;
         }
@@ -593,7 +584,7 @@ pub(super) fn open(
         dialog.caption = ui::make_font(13, 600, "Microsoft YaHei UI", dpi);
         dialog.font = ui::make_font(14, 400, "Microsoft YaHei UI", dpi);
         let scale = |n| ui::scaled(n, dpi);
-        theme::frame(hwnd);
+        theme::watch(hwnd);
         ui::round_panel(hwnd, scale(WIDTH), scale(height), dpi);
         let control = |class: &str, text: &str, id: usize, (x, y, w, h), style| {
             let child = CreateWindowExW(
@@ -679,16 +670,10 @@ pub(super) fn open(
                 "",
                 TABLE,
                 (20, TABLE_TOP, WIDTH - 40, 312),
-                WS_TABSTOP
-                    | WS_CLIPSIBLINGS
-                    | LVS_REPORT
-                    | LVS_OWNERDRAWFIXED
-                    | LVS_SINGLESEL
-                    | LVS_SHOWSELALWAYS
-                    | if is_bookmarks { LVS_OWNERDATA } else { 0 },
+                report::STYLE | if is_bookmarks { LVS_OWNERDATA } else { 0 },
             );
             if !list.is_null() {
-                table::configure_report(
+                report::configure(
                     list,
                     dpi,
                     if is_bookmarks {
@@ -696,7 +681,6 @@ pub(super) fn open(
                     } else {
                         IMPORT_COLUMNS
                     },
-                    0,
                 );
             }
             control(
@@ -787,8 +771,6 @@ pub(super) fn open(
         modal_owner.restore(true);
         DeleteObject(dialog.caption);
         DeleteObject(dialog.font);
-        DeleteObject(dialog.surface);
-        DeleteObject(dialog.paper);
         if registration != 0 {
             UnregisterClassW(class.as_ptr(), instance);
         }

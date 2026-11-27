@@ -43,7 +43,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                 item,
                 item.rcItem,
                 if selected {
-                    theme::text()
+                    theme::selection_text()
                 } else {
                     theme::muted()
                 },
@@ -127,7 +127,13 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             unsafe {
                 let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
                 let old = SelectObject(item.hDC, font);
-                ui::line_text(item.hDC, rect, &label, theme::text(), DT_CENTER);
+                ui::line_text(
+                    item.hDC,
+                    rect,
+                    &label,
+                    theme::row_ink(active, theme::text()),
+                    DT_CENTER,
+                );
                 SelectObject(item.hDC, old);
             }
         } else if id == FONT_FAMILY {
@@ -156,7 +162,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                     right: rect.right - scaled(9, dpi),
                     ..rect
                 },
-                theme::text(),
+                theme::row_ink(item.itemState & ODS_SELECTED != 0, theme::text()),
                 0,
             );
         } else if id == TITLE_CLOSE {
@@ -188,7 +194,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             );
             let mut label = rect;
             label.left += scaled(31, dpi);
-            draw_button_text(item, label, theme::text(), 0);
+            draw_button_text(item, label, theme::row_ink(pressed, theme::text()), 0);
             ui::chevron(
                 item.hDC,
                 POINT {
@@ -337,6 +343,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                     theme::accent(),
                 );
             }
+            ui::row_focus(item, &bounds);
             bounds.left += scaled(15, s.dpi);
             unsafe {
                 let old = SelectObject(item.hDC, s.font);
@@ -344,7 +351,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                     item.hDC,
                     bounds,
                     &crate::localization::tr(page.name),
-                    theme::text(),
+                    theme::row_ink(selected, theme::text()),
                     0,
                 );
                 SelectObject(item.hDC, old);

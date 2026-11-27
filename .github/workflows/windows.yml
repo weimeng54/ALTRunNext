@@ -55,6 +55,8 @@ jobs:
           }
       - name: Check formatting
         run: cargo fmt --all --check
+      - name: Check shared UI boundaries
+        run: python scripts/check-ui-boundaries.py
       - name: Run tests
         timeout-minutes: 4
         run: python scripts/test_watchdog.py
@@ -98,6 +100,7 @@ jobs:
           "${{ github.sha }}" | Set-Content dist/COMMIT.txt
           @(Get-ChildItem dist -Recurse -File | ForEach-Object { @{Name=[IO.Path]::GetRelativePath((Join-Path $PWD dist),$_.FullName);Hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash} }) | ConvertTo-Json | Set-Content dist/SHA256.json
       - name: Build and verify NSIS and portable packages
+        if: ${{ !contains(github.event.head_commit.message, '[portable-only]') }}
         shell: pwsh
         timeout-minutes: 9
         env:

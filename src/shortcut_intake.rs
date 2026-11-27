@@ -171,7 +171,7 @@ fn draw_row(item: &DRAWITEMSTRUCT, state: &Dialog) {
         };
         unsafe {
             SetBkMode(item.hDC, TRANSPARENT as i32);
-            SetTextColor(item.hDC, theme::text());
+            SetTextColor(item.hDC, theme::row_ink(selected, theme::text()));
             DrawTextW(
                 item.hDC,
                 wide(value).as_ptr(),
@@ -181,11 +181,7 @@ fn draw_row(item: &DRAWITEMSTRUCT, state: &Dialog) {
             );
         }
     }
-    if item.itemState & ODS_FOCUS != 0 {
-        unsafe {
-            DrawFocusRect(item.hDC, &rect);
-        }
-    }
+    ui::row_focus(item, &rect);
 }
 
 unsafe extern "system" fn procedure(hwnd: HWND, message: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -467,7 +463,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
         let px = |value| scaled(value, dpi);
         state.caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
         let font = make_font(14, 400, "Microsoft YaHei UI", dpi);
-        theme::frame(hwnd);
+        theme::watch(hwnd);
         ui::round_panel(hwnd, px(width), px(height), dpi);
         let control = |class: &str, text: &str, id, (x, y, w, h), style| {
             let child = CreateWindowExW(

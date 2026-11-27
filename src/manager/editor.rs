@@ -166,7 +166,13 @@ pub(super) fn refresh_list_rows() {
             !s.query.trim().is_empty() && s.draft.get(s.selected).is_some() && selected.is_none(),
         )
     });
-    table::replace_rows(list, &rows, selected, scaled(ROW_HEIGHT, dpi));
+    report::replace_rows(
+        list,
+        rows.iter()
+            .map(|(alias, name)| [alias.as_str(), name.as_str()]),
+        selected,
+        scaled(ROW_HEIGHT, dpi),
+    );
     EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().refreshing_list = false);
     unsafe {
         ShowWindow(

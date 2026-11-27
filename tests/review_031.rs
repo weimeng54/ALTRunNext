@@ -62,6 +62,28 @@ fn press(hwnd: HWND, key: u16) {
     }
 }
 
+fn check_popup(owner: HWND, pid: u32, button: usize, capture: &str) {
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion,
+    };
+    begin(owner, button);
+    let mut popup = null_mut();
+    unsafe {
+        let region = CreateRectRgn(0, 0, 0, 0);
+        assert!(!region.is_null());
+        wait(|| {
+            popup = window("#32768", pid);
+            !popup.is_null() && IsWindowVisible(popup) != 0 && GetWindowRgn(popup, region) > 1
+        });
+        assert_eq!(PtInRegion(region, 0, 0), 0);
+        assert_ne!(PtInRegion(region, 12, 12), 0);
+        DeleteObject(region);
+        native_snapshot::save(popup, capture);
+        PostMessageW(owner, WM_CANCELMODE, 0, 0);
+        wait(|| IsWindowVisible(popup) == 0);
+    }
+}
+
 fn file_name_field(picker: HWND) -> HWND {
     unsafe extern "system" fn find(hwnd: HWND, context: LPARAM) -> i32 {
         let mut name = [0; 32];
@@ -140,6 +162,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);
     check_settings_layout(settings, theme, scale);
+    check_popup(settings, pid, 2312, &format!("menu-backup-{theme}-{scale}"));
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
@@ -160,6 +183,37 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     wait(|| unsafe { IsWindow(preview) == 0 });
     assert_eq!(std::fs::read(data).unwrap(), original);
     unsafe { assert_ne!(PostMessageW(settings, WM_CLOSE, 0, 0), 0) };
+    wait(|| unsafe { IsWindow(settings) == 0 });
+}
+
+fn check_open_report_theme(launcher: HWND, pid: u32, manager_list: HWND, report_list: HWND) {
+    command(launcher, 18005);
+    let settings = ready_window(pid, "ALTRun.Native.Settings", 2310);
+    let tabs = child(settings, 2301);
+    unsafe {
+        SendMessageW(tabs, LB_SETCURSEL, 3, 0);
+        SendMessageW(
+            settings,
+            WM_COMMAND,
+            (LBN_SELCHANGE as usize) << 16 | 2301,
+            tabs as LPARAM,
+        );
+    }
+    let selection =
+        |list| unsafe { SendMessageW(list, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as LPARAM) };
+    let paper = |list| unsafe { SendMessageW(list, LVM_GETBKCOLOR, 0, 0) };
+    let selected = (selection(manager_list), selection(report_list));
+    let light = paper(report_list);
+    assert_eq!(paper(manager_list), light);
+    for (segment, expected) in [(2332, 23 | (29 << 8) | (36 << 16)), (2331, light)] {
+        let before = paper(report_list);
+        command(settings, segment);
+        assert_eq!(paper(report_list), before);
+        command(settings, 2310);
+        wait(|| paper(manager_list) == expected && paper(report_list) == expected);
+        assert_eq!((selection(manager_list), selection(report_list)), selected);
+    }
+    unsafe { PostMessageW(settings, WM_CLOSE, 0, 0) };
     wait(|| unsafe { IsWindow(settings) == 0 });
 }
 
@@ -481,6 +535,7 @@ fn windows_031_management_and_import_previews() {
         let launcher = ready_window(pid, "ALTRun.Native.PerformanceProbe", 1001);
         command(launcher, 18003);
         let manager = ready_window(pid, "ALTRun.Native.ShortcutManager", 2113);
+        check_popup(manager, pid, 2140, &format!("menu-new-{theme}-{scale}"));
         let list = child(manager, 2101);
         let query = child(manager, 2106);
         let cmd = child(manager, 2104);
@@ -508,6 +563,9 @@ fn windows_031_management_and_import_previews() {
         begin(manager, 2124);
         let report = ready_window(pid, "ALTRun.Native.MissingPaths", 2180);
         assert_eq!(count(child(report, 2180)), 1);
+        if theme == "light" && scale == "100" {
+            check_open_report_theme(launcher, pid, list, child(report, 2180));
+        }
         native_snapshot::save(report, &format!("031-missing-paths-{theme}-{scale}"));
         press(report, VK_RETURN);
         choose_file(pid, &available);

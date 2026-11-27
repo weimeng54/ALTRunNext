@@ -4,7 +4,7 @@
 //! On-demand shortcut editor, isolated from the resident launcher's UI thread.
 use crate::{
     theme,
-    ui::{make_font, scaled, ui, wide},
+    ui::{make_font, report, scaled, ui, wide},
     windows::file_picker::{drop_paths, pick_path},
 };
 use altrun_probe::{

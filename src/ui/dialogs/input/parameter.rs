@@ -44,7 +44,12 @@ impl Prompt {
             VK_UP | VK_DOWN if unsafe { GetKeyState(VK_CONTROL as i32) } < 0 => {
                 Some(if key == VK_UP { -1 } else { 1 })
             }
-            VK_DOWN if unsafe { GetKeyState(VK_MENU as i32) } < 0 => Some(0),
+            VK_DOWN
+                if (msg.message == WM_SYSKEYDOWN && msg.lParam & (1 << 29) != 0)
+                    || unsafe { GetKeyState(VK_MENU as i32) } < 0 =>
+            {
+                Some(0)
+            }
             _ => None,
         }
     }
@@ -61,7 +66,7 @@ pub(super) unsafe fn history_key(state: *mut Input, dialog: HWND, edit: HWND, ms
         };
         let index = if step == 0 {
             let values = (*state).parameter.as_ref().unwrap().options.history.clone();
-            let Some(index) = history_menu(dialog, edit, &values) else {
+            let Some(index) = history_menu(dialog, edit, (*state).dpi, &values) else {
                 return true;
             };
             index
@@ -82,32 +87,17 @@ pub(super) unsafe fn history_key(state: *mut Input, dialog: HWND, edit: HWND, ms
     }
 }
 
-fn history_menu(dialog: HWND, edit: HWND, values: &[String]) -> Option<usize> {
-    unsafe {
-        let menu = CreatePopupMenu();
-        if menu.is_null() {
-            return None;
-        }
-        for (index, value) in values.iter().take(1000).enumerate() {
-            let label = value
-                .chars()
-                .take(80)
-                .collect::<String>()
-                .replace('&', "&&");
-            AppendMenuW(menu, MF_STRING, index + 1, wide(&label).as_ptr());
-        }
-        let mut rect = RECT::default();
-        GetWindowRect(edit, &mut rect);
-        let selected = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_NONOTIFY,
-            rect.left,
-            rect.bottom,
-            0,
-            dialog,
-            std::ptr::null(),
-        );
-        DestroyMenu(menu);
-        (selected as usize).checked_sub(1)
+fn history_menu(dialog: HWND, edit: HWND, dpi: i32, values: &[String]) -> Option<usize> {
+    let mut style = ui::menu_style::PopupStyle::new(dpi)?;
+    for (index, value) in values.iter().take(1000).enumerate() {
+        let label = value.chars().take(80).collect::<String>();
+        style.raw(index + 1, &label);
     }
+    let mut rect = RECT::default();
+    unsafe {
+        GetWindowRect(edit, &mut rect);
+    }
+    style
+        .track(dialog, ui::menu_style::Anchor::Below(rect))
+        .checked_sub(1)
 }

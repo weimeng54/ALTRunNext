@@ -3,12 +3,18 @@
 
 use super::*;
 
-pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
+pub(super) fn show_menu(
+    hwnd: HWND,
+    tray: bool,
+    allow_selection: bool,
+    anchor: crate::ui::menu_style::Anchor,
+) {
     unsafe {
-        let menu = CreatePopupMenu();
-        if menu.is_null() {
+        let dpi = STATE.with(|c| c.borrow().as_ref().unwrap().dpi);
+        let Some(mut style) = crate::ui::menu_style::PopupStyle::new(dpi) else {
             return;
-        }
+        };
+        let menu = style.root();
         let items: &[(usize, &str)] = if tray {
             &[
                 (ID_SHOW, "ui.show_launcher"),
@@ -37,7 +43,7 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
         });
         for &(id, label) in items {
             if id == 0 {
-                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                style.separator(menu);
             } else {
                 let unavailable = (matches!(
                     id,
@@ -48,23 +54,14 @@ pub(super) fn show_menu(hwnd: HWND, tray: bool, allow_selection: bool) {
                         | ID_OPEN_FOLDER
                 ) && !has_selection)
                     || (id == ID_DELETE_COMMAND && crate::manager::is_open());
-                let flags = MF_STRING | if unavailable { MF_GRAYED } else { 0 };
-                AppendMenuW(menu, flags, id, ui(label).as_ptr());
+                style.add(menu, id, label, false, unavailable);
             }
         }
-        let mut point: POINT = zeroed();
-        GetCursorPos(&mut point);
         SetForegroundWindow(hwnd);
-        TrackPopupMenu(
-            menu,
-            TPM_RIGHTBUTTON,
-            point.x,
-            point.y,
-            0,
-            hwnd,
-            std::ptr::null(),
-        );
-        DestroyMenu(menu);
+        let command = style.track(hwnd, anchor);
+        if command != 0 {
+            SendMessageW(hwnd, WM_COMMAND, command, 0);
+        }
         PostMessageW(hwnd, WM_NULL, 0, 0);
     }
 }

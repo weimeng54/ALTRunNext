@@ -10,6 +10,22 @@ use super::{
 
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
+        theme::CHECK_PREVIEW => {
+            if EDITOR.with(|state| {
+                state
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|s| s.preview.prefs.get("Theme") == "system")
+            }) {
+                super::appearance::refresh_preview(true);
+            }
+            0
+        }
+        theme::CHANGED => {
+            refresh_style();
+            super::appearance::refresh_preview(true);
+            0
+        }
         WM_ERASEBKGND => 1,
         WM_PAINT => unsafe {
             let mut paint = PAINTSTRUCT::default();
@@ -45,14 +61,9 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         WM_DRAWITEM if l != 0 => {
             let item = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-            if !ui::menu_style::draw(item) {
-                draw(item);
-            }
+            draw(item);
             1
         }
-        WM_MEASUREITEM if l != 0 => isize::from(ui::menu_style::measure(unsafe {
-            &mut *(l as *mut MEASUREITEMSTRUCT)
-        })),
         WM_NOTIFY if l != 0 => {
             let header = unsafe { &*(l as *const NMHDR) };
             if header.idFrom == EMAIL_LINK && matches!(header.code, NM_CLICK | NM_RETURN) {
@@ -293,7 +304,7 @@ pub(crate) fn open(
                 if hwnd.is_null() {
                     return Err("ui.could_not_create_the_settings_window".into());
                 }
-                theme::frame(hwnd);
+                theme::watch(hwnd);
                 let dpi = crate::ui::geometry::fit(hwnd, layout::WIDTH, layout::HEIGHT);
                 ui::round_panel(
                     hwnd,

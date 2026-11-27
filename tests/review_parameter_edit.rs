@@ -25,8 +25,24 @@ fn parameter_edit_keeps_apostrophes_semicolons_delete_and_frozen_target() {
         ),
     )
     .unwrap();
+    let prefix = format!("合成&参数\t{}", "A".repeat(80));
+    let second = format!("{prefix}-second");
+    let mut history = altrun_probe::usage::Usage::default();
+    history
+        .parameters
+        .insert("*".into(), vec![format!("{prefix}-first"), second.clone()]);
+    std::fs::write(data.with_extension("state.tsv"), history.text()).unwrap();
     let (process, launcher) = start(&data, Some("--enable-launch"));
     unsafe {
+        // Explorer sends this callback to the launcher when the notification icon is clicked.
+        PostMessageW(launcher, WM_APP + 4, 0, WM_RBUTTONUP as isize);
+        let mut tray = std::ptr::null_mut();
+        wait(|| {
+            tray = window("#32768", process.0.id());
+            !tray.is_null() && IsWindowVisible(tray) != 0
+        });
+        PostMessageW(launcher, WM_CANCELMODE, 0, 0);
+        wait(|| IsWindowVisible(tray) == 0);
         let search = GetDlgItem(launcher, 1001);
         set(search, "param");
         SendMessageW(search, WM_KEYDOWN, VK_RETURN as usize, 0);
@@ -36,6 +52,17 @@ fn parameter_edit_keeps_apostrophes_semicolons_delete_and_frozen_target() {
             !dialog.is_null() && IsWindowVisible(dialog) != 0
         });
         let edit = GetDlgItem(dialog, 10);
+        PostMessageW(edit, WM_SYSKEYDOWN, VK_DOWN as usize, 1 << 29);
+        let mut popup = std::ptr::null_mut();
+        wait(|| {
+            popup = window("#32768", process.0.id());
+            !popup.is_null() && IsWindowVisible(popup) != 0
+        });
+        for key in [VK_HOME, VK_DOWN, VK_RETURN] {
+            PostMessageW(dialog, WM_KEYDOWN, key as usize, 1);
+        }
+        wait(|| IsWindowVisible(popup) == 0 && text(edit) == second);
+        set(edit, "");
         for c in "O'Brien;a".encode_utf16() {
             SendMessageW(edit, WM_CHAR, c as usize, 0);
         }

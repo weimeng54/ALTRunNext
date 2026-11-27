@@ -47,33 +47,16 @@ fn draw_button(
     let rect = item.rcItem;
     let pressed = item.itemState & ODS_SELECTED != 0;
     let disabled = item.itemState & ODS_DISABLED != 0;
-    let colour = if disabled && primary && !theme::high_contrast() {
-        if theme::is_dark() {
-            theme::rgb(32, 38, 46)
-        } else {
-            theme::rgb(227, 234, 242)
-        }
+    let (colour, text) = if disabled && primary {
+        theme::disabled_primary()
     } else if disabled {
-        theme::surface()
+        (theme::surface(), theme::disabled_text())
     } else if primary && !pressed {
-        theme::accent()
+        (theme::accent(), theme::on_accent())
     } else if pressed {
-        theme::selection()
+        (theme::selection(), theme::selection_text())
     } else {
-        theme::control_surface()
-    };
-    let text = if disabled && primary && !theme::high_contrast() {
-        if theme::is_dark() {
-            theme::rgb(139, 152, 166)
-        } else {
-            theme::rgb(105, 122, 142)
-        }
-    } else if disabled {
-        theme::muted()
-    } else if primary && !pressed {
-        theme::on_accent()
-    } else {
-        theme::text()
+        (theme::control_surface(), theme::text())
     };
     fill(dc, &rect, backdrop);
     rounded(
@@ -190,7 +173,11 @@ pub fn caption_close(item: &DRAWITEMSTRUCT, dpi: i32) {
         let x = (rect.left + rect.right) / 2;
         let y = (rect.top + rect.bottom) / 2;
         let r = scaled(5, dpi).max(3);
-        let pen = CreatePen(PS_SOLID, scaled(1, dpi).max(1), theme::text());
+        let pen = CreatePen(
+            PS_SOLID,
+            scaled(1, dpi).max(1),
+            theme::row_ink(hovered, theme::text()),
+        );
         let old = SelectObject(item.hDC, pen);
         for (from, to) in [(x - r, x + r), (x + r, x - r)] {
             MoveToEx(item.hDC, from, y - r, std::ptr::null_mut());

@@ -26,10 +26,11 @@ pub(super) fn apply_intake(hwnd: HWND) {
         if let Ok((_, text)) = altrun_probe::state_store::TextFile::open(&settings_path)
             && let Ok(prefs) = altrun_probe::preferences::Preferences::parse(&text)
         {
+            theme::publish(&prefs);
             theme::install_chrome(&prefs);
             theme::frame(hwnd);
             let list = EDITOR.with(|c| c.borrow().as_ref().unwrap().list);
-            table::set_background(list);
+            report::set_background(list);
             unsafe {
                 RedrawWindow(
                     hwnd,

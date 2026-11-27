@@ -115,36 +115,19 @@ fn selection(hwnd: HWND, save: bool) -> Option<PathBuf> {
 
 pub(super) fn menu(hwnd: HWND) {
     stop_capture();
-    let (dpi, font) = EDITOR.with(|editor| {
-        let editor = editor.borrow();
-        let editor = editor.as_ref().unwrap();
-        (editor.dpi, editor.font)
-    });
-    let id = unsafe {
-        let menu = CreatePopupMenu();
-        if menu.is_null() {
-            return;
-        }
-        let style = ui::menu_style::PopupStyle::new(dpi, font);
-        let width = 285;
-        style.add(menu, CREATE_BACKUP, "backup.create", width, false, false);
-        style.add(menu, 0, "", width, false, true);
-        style.add(menu, RESTORE_BACKUP, "backup.restore", width, false, false);
-        style.background(menu);
-        let mut rect = RECT::default();
-        GetWindowRect(GetDlgItem(hwnd, BACKUP_MENU as i32), &mut rect);
-        let id = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_BOTTOMALIGN,
-            rect.left,
-            rect.top,
-            0,
-            hwnd,
-            std::ptr::null(),
-        ) as usize;
-        DestroyMenu(menu);
-        id
+    let dpi = EDITOR.with(|editor| editor.borrow().as_ref().unwrap().dpi);
+    let Some(mut style) = ui::menu_style::PopupStyle::new(dpi) else {
+        return;
     };
+    let menu = style.root();
+    style.add(menu, CREATE_BACKUP, "backup.create", false, false);
+    style.separator(menu);
+    style.add(menu, RESTORE_BACKUP, "backup.restore", false, false);
+    let mut rect = RECT::default();
+    unsafe {
+        GetWindowRect(GetDlgItem(hwnd, BACKUP_MENU as i32), &mut rect);
+    }
+    let id = style.track(hwnd, ui::menu_style::Anchor::Above(rect));
     if matches!(id, CREATE_BACKUP | RESTORE_BACKUP) {
         open(hwnd, id == RESTORE_BACKUP);
     }

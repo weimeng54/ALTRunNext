@@ -19,13 +19,12 @@ pub(super) fn preset(index: usize) -> String {
         return SPECS[spec_index("TitleColor")].default.into();
     }
     let (_, light, dark) = PRESETS[index - 1];
+    let _preview = EDITOR.with(|state| state.borrow().as_ref().unwrap().preview.palette.enter());
     if theme::is_dark() { dark } else { light }.into()
 }
 
 pub(super) fn swatch_colour(key: &str, value: &str) -> u32 {
-    if theme::high_contrast() {
-        return theme::paper();
-    }
+    let _preview = EDITOR.with(|state| state.borrow().as_ref().unwrap().preview.palette.enter());
     if value == SPECS[spec_index(key)].default {
         match key {
             "TitleColor" => theme::surface(),
@@ -204,22 +203,32 @@ pub(super) fn align_preview() {
 }
 
 pub(super) fn update_preview() {
+    refresh_preview(false);
+}
+
+pub(super) fn refresh_preview(force: bool) {
     let (page, controls, dpi) = EDITOR.with(|c| {
         let editor = c.borrow();
         let editor = editor.as_ref().unwrap();
         (editor.page, editor.preview_controls, editor.dpi)
     });
-    if !matches!(page, 3 | 4) {
+    if !force && !matches!(page, 3 | 4) {
         return;
     }
-    let Ok(prefs) = read_form() else {
-        return;
+    let prefs = match read_form() {
+        Ok(prefs) => prefs,
+        Err(_) if force => {
+            EDITOR.with(|state| state.borrow().as_ref().unwrap().preview.prefs.clone())
+        }
+        Err(_) => return,
     };
-    if EDITOR.with(|c| {
-        let state = c.borrow();
-        let s = state.as_ref().unwrap();
-        s.preview.prefs == prefs && !s.preview_font.is_null()
-    }) {
+    if !force
+        && EDITOR.with(|c| {
+            let state = c.borrow();
+            let s = state.as_ref().unwrap();
+            s.preview.prefs == prefs && !s.preview_font.is_null()
+        })
+    {
         return;
     }
     let input_changed = EDITOR.with(|c| {
@@ -239,8 +248,9 @@ pub(super) fn update_preview() {
         }
         previous != editor.preview.input_colours
     });
-    refresh_style(&prefs);
-    align_preview();
+    if matches!(page, 3 | 4) {
+        align_preview();
+    }
     unsafe {
         let key = prefs.get("KeywordFont");
         let changed = EDITOR.with(|c| c.borrow().as_ref().unwrap().preview_font_key != key);
@@ -351,40 +361,25 @@ pub(super) fn adjust_number(hwnd: HWND, id: usize, delta: i32) {
     }
 }
 
-pub(super) fn refresh_style(prefs: &Preferences) {
-    theme::install_chrome(prefs);
+pub(super) fn refresh_style() {
     let colours = chrome_colors();
-    let hwnd = EDITOR.with(|c| {
-        let mut state = c.borrow_mut();
-        let s = state.as_mut().unwrap();
-        if s.chrome_colors == colours {
-            return None;
+    EDITOR.with(|state| {
+        let mut editor = state.borrow_mut();
+        let editor = editor.as_mut().unwrap();
+        if editor.chrome_colors == colours {
+            return;
         }
-        s.chrome_colors = colours;
-        Some(s.hwnd)
+        editor.chrome_colors = colours;
+        unsafe {
+            for (slot, colour) in [
+                (&mut editor.background, theme::surface()),
+                (&mut editor.paper, theme::paper()),
+                (&mut editor.rail, theme::chrome()),
+            ] {
+                DeleteObject(std::mem::replace(slot, CreateSolidBrush(colour)));
+            }
+        }
     });
-    let Some(hwnd) = hwnd else { return };
-    theme::frame(hwnd);
-    unsafe {
-        let background = CreateSolidBrush(crate::theme::surface());
-        let paper = CreateSolidBrush(crate::theme::paper());
-        EDITOR.with(|c| {
-            let mut s = c.borrow_mut();
-            let s = s.as_mut().unwrap();
-            DeleteObject(std::mem::replace(&mut s.background, background));
-            DeleteObject(std::mem::replace(&mut s.paper, paper));
-            DeleteObject(std::mem::replace(
-                &mut s.rail,
-                CreateSolidBrush(theme::chrome()),
-            ));
-        });
-        RedrawWindow(
-            hwnd,
-            std::ptr::null(),
-            null_mut(),
-            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
-        );
-    }
 }
 
 pub(super) fn chrome_colors() -> [u32; 5] {

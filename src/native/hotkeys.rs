@@ -176,7 +176,7 @@ pub(super) fn apply_settings_messages() {
                 }
             }
             crate::settings::Change::Commit(token) => {
-                let accepted = STATE.with(|c| {
+                let needs_full_refresh = STATE.with(|c| {
                     let mut s = c.borrow_mut();
                     let s = s.as_mut().unwrap();
                     if !s.pending_settings.as_ref().is_some_and(|p| p.0 == token) {
@@ -190,6 +190,12 @@ pub(super) fn apply_settings_messages() {
                             }
                         }
                     }
+                    let theme_only = s.preferences.get("Theme") != prefs.get("Theme")
+                        && altrun_probe::preferences::SPECS.iter().all(|spec| {
+                            spec.key == "Theme"
+                                || s.preferences.get(spec.key) == prefs.get(spec.key)
+                        });
+                    theme::publish(&prefs);
                     s.preferences = prefs;
                     (
                         s.context.base_directory,
@@ -201,9 +207,9 @@ pub(super) fn apply_settings_messages() {
                         s.preferences.flag("EnglishSearch"),
                     );
                     s.hotkeys = keys;
-                    true
+                    !theme_only
                 });
-                if accepted {
+                if needs_full_refresh {
                     let language =
                         STATE.with(|c| c.borrow().as_ref().unwrap().preferences.get("Lang"));
                     crate::localization::set_active(&language);

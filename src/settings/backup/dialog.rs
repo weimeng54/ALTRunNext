@@ -58,7 +58,6 @@ struct Window<'a> {
     first_row: i32,
     title: &'a str,
     fonts: [HFONT; 3],
-    brushes: [HBRUSH; 3],
     event: Cell<usize>,
 }
 
@@ -125,11 +124,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                         theme::muted()
                     },
                 );
-                SetBkColor(
-                    w as HDC,
-                    [theme::surface(), theme::paper(), theme::chrome()][index],
-                );
-                state.brushes[index] as isize
+                let colour = [theme::surface(), theme::paper(), theme::chrome()][index];
+                SetBkColor(w as HDC, colour);
+                SetDCBrushColor(w as HDC, colour);
+                GetStockObject(DC_BRUSH) as isize
             }
             WM_DRAWITEM if l != 0 => {
                 let item = &*(l as *const DRAWITEMSTRUCT);
@@ -198,8 +196,6 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
             first_row,
             title,
             fonts: [null_mut(); 3],
-            brushes: [theme::surface(), theme::paper(), theme::chrome()]
-                .map(|c| CreateSolidBrush(c)),
             event: Cell::new(0),
         };
         let hwnd = CreateWindowExW(
@@ -219,7 +215,7 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
         let result = if hwnd.is_null() {
             None
         } else {
-            theme::frame(hwnd);
+            theme::watch(hwnd);
             state.dpi = ui::geometry::fit(hwnd, WIDTH, height);
             state.fonts = [(15, 400), (15, 600), (13, 400)]
                 .map(|(size, weight)| make_font(size, weight, "Microsoft YaHei UI", state.dpi));
@@ -378,9 +374,6 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
             DestroyWindow(hwnd);
             result
         };
-        for brush in state.brushes {
-            DeleteObject(brush);
-        }
         for font in state.fonts {
             DeleteObject(font);
         }

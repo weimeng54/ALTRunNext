@@ -9,6 +9,17 @@ pub(super) unsafe extern "system" fn window_proc(
     w: WPARAM,
     l: LPARAM,
 ) -> LRESULT {
+    let _panel = if matches!(
+        msg,
+        WM_PAINT | WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX
+    ) || (msg == WM_DRAWITEM
+        && l != 0
+        && unsafe { (*(l as *const DRAWITEMSTRUCT)).CtlType } != ODT_MENU)
+    {
+        super::panel::panel_colours()
+    } else {
+        None
+    };
     if RESTORING_BACKUP.get() {
         match msg {
             WM_DROPFILES => {
@@ -153,12 +164,33 @@ pub(super) unsafe extern "system" fn window_proc(
             } else {
                 true
             };
-            show_menu(hwnd, false, allow_selection);
+            let anchor = if l == -1 {
+                let mut bounds = RECT::default();
+                unsafe {
+                    GetWindowRect(if w == 0 { hwnd } else { w as HWND }, &mut bounds);
+                }
+                crate::ui::menu_style::Anchor::Below(bounds)
+            } else {
+                crate::ui::menu_style::Anchor::Pointer(POINT {
+                    x: l as i16 as i32,
+                    y: (l >> 16) as i16 as i32,
+                })
+            };
+            show_menu(hwnd, false, allow_selection, anchor);
             0
         }
         TRAY => {
             if l as u32 == WM_RBUTTONUP {
-                show_menu(hwnd, true, true);
+                let mut point = POINT::default();
+                unsafe {
+                    GetCursorPos(&mut point);
+                }
+                show_menu(
+                    hwnd,
+                    true,
+                    true,
+                    crate::ui::menu_style::Anchor::Pointer(point),
+                );
             } else if l as u32 == WM_LBUTTONUP {
                 unsafe {
                     SendMessageW(hwnd, SHOW, 0, 0);
@@ -223,9 +255,8 @@ pub(super) unsafe extern "system" fn window_proc(
             }
             0
         }
-        WM_SETTINGCHANGE | WM_THEMECHANGED => {
-            apply_appearance();
-            render_hits();
+        theme::CHANGED => {
+            super::panel::refresh_colours();
             0
         }
         WM_DPICHANGED => {
@@ -433,7 +464,7 @@ pub(super) unsafe extern "system" fn window_proc(
                         FillRect(d.hDC, &rail, s.accent);
                     }
                     SetBkMode(d.hDC, TRANSPARENT as i32);
-                    SetTextColor(d.hDC, theme::muted());
+                    SetTextColor(d.hDC, theme::row_ink(selected, theme::muted()));
                     SelectObject(d.hDC, s.font);
                     let number = format!(
                         "{}{}",
@@ -458,7 +489,7 @@ pub(super) unsafe extern "system" fn window_proc(
                         a.as_ptr(),
                         (a.len() - 1) as i32,
                     );
-                    SetTextColor(d.hDC, s.font_colours[2]);
+                    SetTextColor(d.hDC, theme::row_ink(selected, s.font_colours[2]));
                     SelectObject(d.hDC, s.alias_font);
                     let mut rect = RECT {
                         left: scaled(34, s.dpi),
@@ -483,6 +514,7 @@ pub(super) unsafe extern "system" fn window_proc(
                         &mut rect,
                         DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
                     );
+                    crate::ui::row_focus(d, &d.rcItem);
                 }
             });
             1

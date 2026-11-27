@@ -2,6 +2,9 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 //! Shared native theme; COLORREF values are written through rgb() to avoid BGR mistakes.
+mod windows;
+pub(crate) use windows::{CHANGED, CHECK_PREVIEW, applied_mode, publish, watch};
+
 pub const fn rgb(r: u32, g: u32, b: u32) -> u32 {
     r | (g << 8) | (b << 16)
 }
@@ -16,7 +19,7 @@ pub const ROW: i32 = 22;
 pub const LIST_Y: i32 = 65;
 pub const BASE_HEIGHT: i32 = 94;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Palette {
     surface: u32,
     paper: u32,
@@ -42,16 +45,49 @@ pub fn muted() -> u32 {
 pub fn selection() -> u32 {
     PALETTE.with(|p| p.get().selection)
 }
+/// Text painted onto a selected surface must use the system highlight pair in high contrast.
+pub(crate) fn selection_text() -> u32 {
+    if high_contrast() { accent() } else { text() }
+}
+
+pub(crate) fn row_ink(selected: bool, normal: u32) -> u32 {
+    if selected && high_contrast() {
+        selection_text()
+    } else {
+        normal
+    }
+}
+
 pub fn accent() -> u32 {
     PALETTE.with(|p| p.get().accent)
 }
 pub fn border() -> u32 {
     PALETTE.with(|p| p.get().border)
 }
+pub(crate) fn disabled_text() -> u32 {
+    if high_contrast() {
+        use windows_sys::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, GetSysColor};
+        unsafe { GetSysColor(COLOR_GRAYTEXT) }
+    } else {
+        muted()
+    }
+}
+
+pub(crate) fn disabled_primary() -> (u32, u32) {
+    if high_contrast() {
+        (surface(), disabled_text())
+    } else if is_dark() {
+        (rgb(32, 38, 46), rgb(139, 152, 166))
+    } else {
+        (rgb(227, 234, 242), rgb(105, 122, 142))
+    }
+}
 thread_local! {static KEYWORD:std::cell::Cell<u32>=const{std::cell::Cell::new(PAPER)};static CONTRAST:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
 thread_local! {static DARK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };}
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Snapshot {
+    keyword: u32,
     palette: Palette,
     dark: bool,
     contrast: bool,
@@ -60,17 +96,32 @@ pub(crate) struct Snapshot {
 impl Snapshot {
     pub(crate) fn capture() -> Self {
         Self {
+            keyword: keyword(),
             palette: PALETTE.with(std::cell::Cell::get),
             dark: is_dark(),
             contrast: high_contrast(),
         }
     }
 
+    pub(crate) fn enter(self) -> Restore {
+        let previous = Restore(Self::capture());
+        self.install();
+        previous
+    }
+
     pub(crate) fn install(self) {
         PALETTE.with(|p| p.set(self.palette));
         DARK.with(|dark| dark.set(self.dark));
         CONTRAST.with(|contrast| contrast.set(self.contrast));
-        KEYWORD.with(|keyword| keyword.set(self.palette.paper));
+        KEYWORD.with(|keyword| keyword.set(self.keyword));
+    }
+}
+
+pub(crate) struct Restore(Snapshot);
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        self.0.install();
     }
 }
 
@@ -152,7 +203,8 @@ pub fn frame(hwnd: windows_sys::Win32::Foundation::HWND) {
     let dark = u32::from(DARK.with(std::cell::Cell::get) && !high_contrast());
     let caption = if high_contrast() { u32::MAX } else { chrome() };
     let ink = if high_contrast() { u32::MAX } else { text() };
-    for (attribute, value) in [(20, dark), (35, caption), (36, ink)] {
+    let edge = if high_contrast() { u32::MAX } else { border() };
+    for (attribute, value) in [(20, dark), (34, edge), (35, caption), (36, ink)] {
         unsafe { DwmSetWindowAttribute(hwnd, attribute, &value as *const _ as _, 4) };
     }
 }

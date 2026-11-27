@@ -25,6 +25,11 @@ pub(super) fn create(
     heading: HFONT,
 ) -> Option<Controls> {
     unsafe {
+        let children = crate::ui::ChildControls {
+            parent: hwnd,
+            instance,
+            font,
+        };
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
             let id = if class == "STATIC" && id == 0 {
                 match label {
@@ -37,9 +42,7 @@ pub(super) fn create(
             } else {
                 id
             };
-            let style = if class == "BUTTON" && style & 15 != BS_AUTOCHECKBOX as u32 {
-                (style & !15) | BS_OWNERDRAW as u32
-            } else if class == "COMBOBOX" {
+            let style = if class == "COMBOBOX" {
                 style | (CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32
             } else if class == "EDIT" {
                 style & !WS_BORDER
@@ -82,25 +85,11 @@ pub(super) fn create(
                 _ if label == "ui.input_format" => (FIELD_LEFT, 352, FIELD_WIDTH, 21),
                 _ => (x, y, width, height),
             };
-            let child = CreateWindowExW(
-                0,
-                wide(class).as_ptr(),
-                ui(label).as_ptr(),
-                WS_CHILD | WS_VISIBLE | style,
-                scaled(x, dpi),
-                scaled(y, dpi),
-                (scaled(x + width, dpi) - scaled(x, dpi)).max(1),
-                if id == LIST {
-                    table::list_height(dpi)
-                } else {
-                    (scaled(y + height, dpi) - scaled(y, dpi)).max(1)
-                },
-                hwnd,
-                id as HMENU,
-                instance,
-                std::ptr::null(),
-            );
-            SendMessageW(child, WM_SETFONT, font as WPARAM, 0);
+            let mut rect = crate::ui::geometry::BoxRect::new(x, y, width, height).pixels(dpi);
+            if id == LIST {
+                rect.bottom = rect.top + table::list_height(dpi);
+            }
+            let child = children.create(class, label, style, rect, id);
             if class == "COMBOBOX" {
                 SendMessageW(
                     child,
@@ -159,13 +148,7 @@ pub(super) fn create(
         let list = control(
             "SysListView32",
             "",
-            WS_CLIPSIBLINGS
-                | WS_TABSTOP
-                | LVS_REPORT
-                | LVS_SINGLESEL
-                | LVS_SHOWSELALWAYS
-                | LVS_NOSORTHEADER
-                | LVS_OWNERDRAWFIXED,
+            report::STYLE | LVS_NOSORTHEADER,
             12,
             52,
             250,

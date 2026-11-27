@@ -47,7 +47,6 @@ pub(super) fn apply() {
                 .with(|c| c.borrow().as_ref().unwrap().saved.get("Lang") != prefs.get("Lang"));
             EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().saved = prefs.clone());
             load_form(&prefs);
-            refresh_style(&prefs);
             update_preview();
             sync_save_button(EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd));
             status(if language_changed {

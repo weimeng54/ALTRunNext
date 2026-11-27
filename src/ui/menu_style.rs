@@ -1,316 +1,210 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-//! Win32 owns popup placement, keyboard navigation and cascading.
-//! Owner-drawn items use the selected ALTRunNext theme.
+//! USER32 tracks the real HMENU, including its keyboard, accessibility and cascade behavior.
+//! A thread-local hook frames only the #32768 windows belonging to this tracking call.
 use crate::{
     theme,
     ui::{self, scaled, wide},
 };
-use std::cell::RefCell;
+use std::{cell::Cell, collections::HashMap, mem::size_of, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
-    UI::{Controls::*, WindowsAndMessaging::*},
+    UI::{
+        Accessibility::{MSAA_MENU_SIG, MSAAMENUINFO},
+        Controls::*,
+        WindowsAndMessaging::*,
+    },
 };
 
+pub(crate) enum Anchor {
+    Pointer(POINT),
+    Below(RECT),
+    Above(RECT),
+}
+
+#[derive(Default)]
+struct Columns {
+    label: i32,
+    shortcut: i32,
+    cascade: bool,
+}
+
 struct Item {
+    // USER32 exposes this allocation to MSAA through dwItemData. Both allocations
+    // must remain stable until DestroyMenu, including during nested modal loops.
+    _access: Box<MSAAMENUINFO>,
+    _name: Vec<u16>,
+    menu: HMENU,
     label: String,
-    width: i32,
-    height: i32,
+    shortcut: String,
     child: bool,
     rule: bool,
 }
 
-struct Appearance {
-    dpi: i32,
+pub(crate) struct PopupStyle {
+    root: HMENU,
+    background: HBRUSH,
     font: HFONT,
-    items: Vec<Item>,
+    dc: HDC,
+    old_font: HGDIOBJ,
+    dpi: i32,
+    columns: HashMap<HMENU, Columns>,
+    items: HashMap<usize, Item>,
+    max_width: Cell<i32>,
 }
-
-thread_local! {
-    static CURRENT: RefCell<Option<Appearance>> = const { RefCell::new(None) };
-}
-
-pub struct PopupStyle(HBRUSH);
 
 impl PopupStyle {
-    pub fn new(dpi: i32, font: HFONT) -> Self {
-        CURRENT.with(|current| {
-            *current.borrow_mut() = Some(Appearance {
+    pub(crate) fn new(dpi: i32) -> Option<Self> {
+        unsafe {
+            let root = CreatePopupMenu();
+            if root.is_null() {
+                return None;
+            }
+            let font = ui::make_font(15, 400, "Microsoft YaHei UI", dpi);
+            let dc = CreateCompatibleDC(null_mut());
+            let old_font = SelectObject(dc, font);
+            Some(Self {
+                root,
                 dpi,
                 font,
-                items: Vec::new(),
+                dc,
+                old_font,
+                background: CreateSolidBrush(theme::control_surface()),
+                columns: HashMap::new(),
+                items: HashMap::new(),
+                max_width: Cell::new(i32::MAX),
             })
-        });
-        Self(unsafe { CreateSolidBrush(theme::control_surface()) })
-    }
-
-    pub fn background(&self, menu: HMENU) {
-        unsafe {
-            SetMenuInfo(
-                menu,
-                &MENUINFO {
-                    cbSize: std::mem::size_of::<MENUINFO>() as u32,
-                    fMask: MIM_BACKGROUND | MIM_APPLYTOSUBMENUS,
-                    hbrBack: self.0,
-                    ..Default::default()
-                },
-            );
         }
     }
 
-    pub fn add(
-        &self,
-        menu: HMENU,
-        id: usize,
-        label: &str,
-        width: i32,
-        checked: bool,
-        disabled: bool,
-    ) {
+    pub(crate) fn root(&self) -> HMENU {
+        self.root
+    }
+
+    pub(crate) fn add(&mut self, menu: HMENU, id: usize, key: &str, checked: bool, disabled: bool) {
         let state =
             (if checked { MFS_CHECKED } else { 0 }) | (if disabled { MFS_DISABLED } else { 0 });
-        self.insert(menu, id, label, width, state, std::ptr::null_mut());
+        self.insert(
+            menu,
+            id,
+            &crate::localization::tr(key),
+            state,
+            null_mut(),
+            false,
+        );
     }
 
-    pub fn submenu(&self, menu: HMENU, child: HMENU, label: &str) {
-        self.insert(menu, 0, label, 183, 0, child);
+    pub(crate) fn raw(&mut self, id: usize, value: &str) {
+        self.insert(self.root, id, value, 0, null_mut(), true);
     }
 
-    fn insert(&self, menu: HMENU, id: usize, label: &str, width: i32, state: u32, child: HMENU) {
-        let rule = label.is_empty();
-        let label = crate::localization::tr(label);
-        let mut text = wide(&label);
-        let data = CURRENT.with(|current| {
-            let mut state = current.borrow_mut();
-            let skin = state.as_mut().unwrap();
-            skin.items.push(Item {
-                label,
-                width,
-                height: if rule { 7 } else { 29 },
-                child: !child.is_null(),
-                rule,
-            });
-            skin.items.len()
+    pub(crate) fn separator(&mut self, menu: HMENU) {
+        self.insert(menu, 0, "", MFS_DISABLED, null_mut(), false);
+    }
+
+    pub(crate) fn submenu(&mut self, key: &str) -> Option<HMENU> {
+        unsafe {
+            let child = CreatePopupMenu();
+            if child.is_null() {
+                return None;
+            }
+            if self.insert(self.root, 0, &crate::localization::tr(key), 0, child, false) {
+                Some(child)
+            } else {
+                DestroyMenu(child);
+                None
+            }
+        }
+    }
+
+    fn text_width(&self, value: &str) -> i32 {
+        let value = wide(value);
+        let mut size = SIZE::default();
+        unsafe {
+            GetTextExtentPoint32W(self.dc, value.as_ptr(), (value.len() - 1) as i32, &mut size)
+        };
+        size.cx
+    }
+
+    fn insert(
+        &mut self,
+        menu: HMENU,
+        id: usize,
+        name: &str,
+        state: u32,
+        child: HMENU,
+        raw: bool,
+    ) -> bool {
+        let rule = !raw && id == 0 && child.is_null();
+        let (label, shortcut) = if raw {
+            (name, "")
+        } else {
+            name.split_once('\t').unwrap_or((name, ""))
+        };
+        let label = label.replace('\t', "    ");
+        let mut name = wide(name);
+        let mut access = Box::new(MSAAMENUINFO {
+            dwMSAASignature: MSAA_MENU_SIG as u32,
+            cchWText: (name.len() - 1) as u32,
+            pszWText: name.as_mut_ptr(),
         });
+        let data = (&mut *access as *mut MSAAMENUINFO) as usize;
         let info = MENUITEMINFOW {
-            cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+            cbSize: size_of::<MENUITEMINFOW>() as u32,
             fMask: MIIM_FTYPE
                 | MIIM_DATA
                 | MIIM_STATE
                 | MIIM_ID
                 | MIIM_STRING
                 | if child.is_null() { 0 } else { MIIM_SUBMENU },
-            fType: MFT_OWNERDRAW,
-            fState: state | if rule { MFS_DISABLED } else { 0 },
+            fType: MFT_OWNERDRAW | if rule { MFT_SEPARATOR } else { 0 },
+            fState: state,
             wID: id as u32,
             hSubMenu: child,
             dwItemData: data,
-            dwTypeData: text.as_mut_ptr(),
+            dwTypeData: name.as_mut_ptr(),
             ..Default::default()
         };
-        unsafe {
-            InsertMenuItemW(menu, GetMenuItemCount(menu).max(0) as u32, 1, &info);
+        if unsafe { InsertMenuItemW(menu, u32::MAX, 1, &info) } == 0 {
+            return false;
         }
+        let label_width = self.text_width(&label);
+        let shortcut_width = self.text_width(shortcut);
+        let columns = self.columns.entry(menu).or_default();
+        columns.label = columns.label.max(label_width);
+        columns.shortcut = columns.shortcut.max(shortcut_width);
+        columns.cascade |= !child.is_null();
+        self.items.insert(
+            data,
+            Item {
+                _access: access,
+                _name: name,
+                menu,
+                label,
+                shortcut: shortcut.to_owned(),
+                child: !child.is_null(),
+                rule,
+            },
+        );
+        true
     }
 }
 
 impl Drop for PopupStyle {
     fn drop(&mut self) {
-        CURRENT.with(|current| *current.borrow_mut() = None);
         unsafe {
-            DeleteObject(self.0);
+            DestroyMenu(self.root);
+            SelectObject(self.dc, self.old_font);
+            DeleteDC(self.dc);
+            DeleteObject(self.font);
+            DeleteObject(self.background);
         }
     }
 }
 
-pub fn measure(info: &mut MEASUREITEMSTRUCT) -> bool {
-    if info.CtlType != ODT_MENU {
-        return false;
-    }
-    CURRENT.with(|current| {
-        let state = current.borrow();
-        let Some(skin) = state.as_ref() else {
-            return false;
-        };
-        let Some(item) = skin.items.get(info.itemData.wrapping_sub(1)) else {
-            return false;
-        };
-        info.itemWidth = scaled(item.width, skin.dpi) as u32;
-        info.itemHeight = scaled(item.height, skin.dpi) as u32;
-        true
-    })
-}
-
-pub fn draw(info: &DRAWITEMSTRUCT) -> bool {
-    if info.CtlType != ODT_MENU {
-        return false;
-    }
-    CURRENT.with(|current| {
-        let state = current.borrow();
-        let Some(skin) = state.as_ref() else {
-            return false;
-        };
-        let Some(item) = skin.items.get(info.itemData.wrapping_sub(1)) else {
-            return false;
-        };
-        let px = |value| scaled(value, skin.dpi);
-        let rect = info.rcItem;
-        let dc = info.hDC;
-        let surface = theme::control_surface();
-        ui::fill(dc, &rect, surface);
-        if item.rule {
-            let top = (rect.top + rect.bottom) / 2;
-            ui::fill(
-                dc,
-                &RECT {
-                    left: rect.left + px(6),
-                    right: rect.right - px(6),
-                    top,
-                    bottom: top + 1,
-                },
-                theme::divider(),
-            );
-            return true;
-        }
-        let disabled = info.itemState & (ODS_GRAYED | ODS_DISABLED) != 0;
-        if !disabled && info.itemState & ODS_SELECTED != 0 {
-            let hover = RECT {
-                left: rect.left + px(3),
-                right: rect.right - px(3),
-                ..rect
-            };
-            ui::rounded(dc, hover, px(8), theme::selection(), theme::selection());
-        }
-        let ink = if disabled {
-            theme::muted()
-        } else {
-            theme::text()
-        };
-        let body = RECT {
-            left: rect.left + px(25),
-            right: rect.right - px(if item.child { 26 } else { 14 }),
-            ..rect
-        };
-        unsafe {
-            let font = SelectObject(dc, skin.font);
-            ui::line_text(dc, body, &item.label, ink, 0);
-            if info.itemState & ODS_CHECKED != 0 {
-                let tick = RECT {
-                    left: rect.left + px(5),
-                    right: body.left,
-                    ..rect
-                };
-                ui::line_text(dc, tick, "✓", theme::accent(), DT_CENTER);
-            }
-            if item.child {
-                ui::chevron(
-                    dc,
-                    POINT {
-                        x: rect.right - px(14),
-                        y: (rect.top + rect.bottom) / 2,
-                    },
-                    ui::Chevron::Right,
-                    skin.dpi,
-                    ink,
-                );
-            }
-            SelectObject(dc, font);
-            if item.child {
-                // USER32 draws an additional cascade glyph after this callback.
-                // Exclude only this row's indicator gutter from that draw.
-                ExcludeClipRect(
-                    dc,
-                    rect.right - px(23),
-                    rect.top,
-                    rect.right + px(12),
-                    rect.bottom,
-                );
-            }
-        }
-        true
-    })
-}
-
+mod painting;
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ptr::null_mut;
-
-    #[test]
-    fn cascade_arrow_is_a_single_shape_inside_each_scaled_row() {
-        for dpi in [96, 120, 144, 168, 192, 240] {
-            unsafe {
-                let dc = CreateCompatibleDC(null_mut());
-                assert!(!dc.is_null());
-                let bitmap_info = BITMAPINFO {
-                    bmiHeader: BITMAPINFOHEADER {
-                        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                        biWidth: 540,
-                        biHeight: -100,
-                        biPlanes: 1,
-                        biBitCount: 32,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
-                let mut pixels = null_mut();
-                let bitmap =
-                    CreateDIBSection(dc, &bitmap_info, DIB_RGB_COLORS, &mut pixels, null_mut(), 0);
-                assert!(!bitmap.is_null());
-                let previous = SelectObject(dc, bitmap);
-                let style = PopupStyle::new(dpi, GetStockObject(DEFAULT_GUI_FONT));
-                let menu = CreatePopupMenu();
-                style.submenu(menu, CreatePopupMenu(), "Sort");
-                let rect = RECT {
-                    left: 0,
-                    top: 0,
-                    right: scaled(195, dpi),
-                    bottom: scaled(29, dpi),
-                };
-                let center = POINT {
-                    x: rect.right - scaled(14, dpi),
-                    y: rect.bottom / 2,
-                };
-                assert!(draw(&DRAWITEMSTRUCT {
-                    CtlType: ODT_MENU,
-                    hDC: dc,
-                    rcItem: rect,
-                    itemData: 1,
-                    ..Default::default()
-                }));
-                assert_eq!(PtVisible(dc, rect.right - scaled(5, dpi), center.y), 0);
-                assert_ne!(
-                    PtVisible(dc, rect.right - scaled(5, dpi), rect.bottom + 1),
-                    0
-                );
-                assert_ne!(PtVisible(dc, scaled(30, dpi), center.y), 0);
-                SelectClipRgn(dc, null_mut());
-                let radius = scaled(4, dpi);
-                let mut ink_rows = 0;
-                for y in center.y - radius..center.y + radius {
-                    let ink = (center.x - radius..=center.x + radius)
-                        .filter(|x| GetPixel(dc, *x, y) == theme::text())
-                        .collect::<Vec<_>>();
-                    if !ink.is_empty() {
-                        ink_rows += 1;
-                        assert!(
-                            ink.windows(2).all(|pair| pair[1] == pair[0] + 1),
-                            "{dpi} DPI"
-                        );
-                    }
-                }
-                assert!(ink_rows >= scaled(6, dpi), "{dpi} DPI");
-                assert_eq!(
-                    GetPixel(dc, rect.right - scaled(5, dpi), center.y),
-                    theme::control_surface()
-                );
-                DestroyMenu(menu);
-                SelectObject(dc, previous);
-                DeleteObject(bitmap);
-                DeleteDC(dc);
-            }
-        }
-    }
-}
+mod tests;
+mod tracking;

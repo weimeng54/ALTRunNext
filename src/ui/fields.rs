@@ -54,7 +54,7 @@ pub fn combo(item: &DRAWITEMSTRUCT, dpi: i32) {
             dc,
             rect,
             &String::from_utf16_lossy(&label[..n as usize]),
-            theme::text(),
+            theme::row_ink(selected, theme::text()),
             0,
         );
         SelectObject(dc, old);
@@ -458,10 +458,8 @@ unsafe extern "system" fn slider_proc(
             );
             let ink = if enabled {
                 theme::accent()
-            } else if theme::high_contrast() {
-                theme::muted()
             } else {
-                theme::rgb(89, 94, 101)
+                theme::disabled_text()
             };
             if x > left {
                 rounded(dc, RECT { right: x, ..track }, width, ink, ink);
@@ -514,6 +512,21 @@ unsafe extern "system" fn combo_proc(
     dpi: usize,
 ) -> LRESULT {
     unsafe {
+        if msg == theme::CHANGED {
+            let mut info = COMBOBOXINFO {
+                cbSize: size_of::<COMBOBOXINFO>() as u32,
+                ..Default::default()
+            };
+            if GetComboBoxInfo(hwnd, &mut info) != 0 && IsWindowVisible(info.hwndList) != 0 {
+                RedrawWindow(
+                    info.hwndList,
+                    std::ptr::null(),
+                    null_mut(),
+                    RDW_INVALIDATE | RDW_FRAME,
+                );
+            }
+            return 0;
+        }
         if msg == WM_ERASEBKGND {
             return 1;
         }

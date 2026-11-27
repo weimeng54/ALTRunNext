@@ -60,7 +60,9 @@ pub(crate) fn check_option(
         } else {
             backdrop
         };
-        let border = if marked && !high_contrast {
+        let border = if !active {
+            theme::disabled_text()
+        } else if marked && !high_contrast {
             theme::accent()
         } else {
             theme::border()
@@ -106,7 +108,7 @@ pub(crate) fn check_option(
                 bottom: top + px(13),
             };
             rounded(info.hdc, dot, px(9), border, border);
-        } else if marked && active {
+        } else if marked {
             let mark = [
                 POINT {
                     x: left + px(4),
@@ -121,7 +123,9 @@ pub(crate) fn check_option(
                     y: top + px(5),
                 },
             ];
-            let mark_colour = if high_contrast {
+            let mark_colour = if !active {
+                theme::disabled_text()
+            } else if high_contrast {
                 theme::accent()
             } else {
                 theme::on_accent()
@@ -144,7 +148,7 @@ pub(crate) fn check_option(
             if active {
                 theme::text()
             } else {
-                theme::muted()
+                theme::disabled_text()
             },
             0,
         );

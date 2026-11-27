@@ -36,6 +36,7 @@ pub(in crate::ui) fn style_combo_scrollbar(combo: HWND, dpi: i32) {
 }
 
 fn paint(hwnd: HWND, dc: HDC, dpi: i32, active: bool) {
+    crate::ui::popup_frame::draw(hwnd, dc, dpi);
     let Some(bar) = scrollbar_info(hwnd, Axis::Vertical) else {
         return;
     };
@@ -73,6 +74,9 @@ unsafe extern "system" fn procedure(
         } else {
             DefSubclassProc(hwnd, msg, w, l)
         };
+        if msg == WM_SIZE || (msg == WM_SHOWWINDOW && w != 0) {
+            crate::ui::popup_frame::shape(hwnd, dpi as i32);
+        }
         if matches!(msg, WM_WINDOWPOSCHANGED | WM_SHOWWINDOW) {
             let flags = match msg {
                 WM_WINDOWPOSCHANGED => (*(l as *const WINDOWPOS)).flags,
