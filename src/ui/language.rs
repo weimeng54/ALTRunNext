@@ -133,7 +133,10 @@ pub(crate) fn refresh(hwnd: HWND, update_window: impl FnOnce() -> LRESULT) -> LR
         let result = update_window();
         if visible && IsWindow(hwnd) != 0 {
             let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_COMPOSITED as i32);
+            let compose = style as u32 & WS_EX_COMPOSITED == 0;
+            if compose {
+                SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_COMPOSITED as i32);
+            }
             SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
             RedrawWindow(
                 hwnd,
@@ -141,7 +144,9 @@ pub(crate) fn refresh(hwnd: HWND, update_window: impl FnOnce() -> LRESULT) -> LR
                 std::ptr::null_mut(),
                 RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_NOERASE | RDW_UPDATENOW,
             );
-            SetWindowLongW(hwnd, GWL_EXSTYLE, style);
+            if compose {
+                SetWindowLongW(hwnd, GWL_EXSTYLE, style);
+            }
         }
         result
     }

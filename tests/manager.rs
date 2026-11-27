@@ -419,10 +419,7 @@ fn management_save_persists_drafts_and_refreshes_resident_search() {
         assert_eq!(saved.entries[1].alias, "new");
         assert_eq!(saved.entries[1].name, "修改后的中文名称");
         assert_eq!(saved.entries[1].param_type.name(), "auto");
-        assert_eq!(
-            std::fs::read_to_string(path.with_extension("tsv.bak")).unwrap(),
-            original
-        );
+        assert!(!path.with_extension("tsv.bak").exists());
         let edit = GetDlgItem(root, 1001);
         let list = GetDlgItem(root, 1002);
         set(edit, "new");

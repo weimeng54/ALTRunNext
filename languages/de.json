@@ -356,7 +356,7 @@
     "ui.save_and_close_the_shortcut_manager_or": "Schließen Sie zuerst die Starteintragsverwaltung oder die Einstellungen.",
     "ui.save_diagnostic_log": "Diagnoseprotokoll speichern",
     "ui.save_to_apply_your_changes": "Zum Übernehmen speichern.",
-    "ui.saved_the_launcher_is_updated_and_a": "Starteintrage gespeichert und Starter aktualisiert. Die vorige Fassung liegt in der .bak-Datei.",
+    "ui.saved_launcher_updated": "Starteinträge gespeichert und Starter aktualisiert.",
     "ui.saving": "Wird gespeichert…",
     "ui.search_and_launch": "Suche und Start",
     "ui.search_size": "Schriftgröße der Suche",

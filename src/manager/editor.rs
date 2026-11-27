@@ -390,7 +390,7 @@ pub(super) fn save() {
             unsafe {
                 PostMessageW(parent as HWND, UPDATED, 0, 0);
             }
-            status("ui.saved_the_launcher_is_updated_and_a", false);
+            status("ui.saved_launcher_updated", false);
             sync_fields();
         }
         Err(error) => status(&error, true),

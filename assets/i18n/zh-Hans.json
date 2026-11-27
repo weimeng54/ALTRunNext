@@ -356,7 +356,7 @@
     "ui.save_and_close_the_shortcut_manager_or": "请先关闭启动项管理窗口或设置窗口。",
     "ui.save_diagnostic_log": "保存诊断日志",
     "ui.save_to_apply_your_changes": "修改后点击保存。",
-    "ui.saved_the_launcher_is_updated_and_a": "已保存。启动面板已更新，上一版保存在 .bak 文件。",
+    "ui.saved_launcher_updated": "已保存并更新启动面板。",
     "ui.saving": "正在保存…",
     "ui.search_and_launch": "搜索与执行",
     "ui.search_size": "输入字号",

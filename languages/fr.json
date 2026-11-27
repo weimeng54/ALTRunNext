@@ -356,7 +356,7 @@
     "ui.save_and_close_the_shortcut_manager_or": "Fermez d’abord le gestionnaire des éléments de lancement ou les paramètres.",
     "ui.save_diagnostic_log": "Enregistrer le journal de diagnostic",
     "ui.save_to_apply_your_changes": "Enregistrez pour appliquer les modifications.",
-    "ui.saved_the_launcher_is_updated_and_a": "Éléments de lancement enregistrés et lanceur mis à jour. La version précédente est dans le fichier .bak.",
+    "ui.saved_launcher_updated": "Éléments de lancement enregistrés et lanceur mis à jour.",
     "ui.saving": "Enregistrement…",
     "ui.search_and_launch": "Recherche",
     "ui.search_size": "Taille du champ de recherche",

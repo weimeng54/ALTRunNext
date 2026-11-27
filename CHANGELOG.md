@@ -23,6 +23,8 @@
   Tray, context and button menus use the app theme and a compact text size. Dark dialogs use a lighter surface and a subtle outline so they stand apart from the window beneath them.
 - 设置更改会自动写入配置文件，写入成功后生效。主题和显示语言会同步更新已打开的窗口；数值输入按 Enter 或离开输入框后生效。\
   Settings save automatically and take effect after a successful write. Open windows follow theme and display language changes. Press Enter or leave a numeric field to apply its value.
+- 保存设置、启动项或使用记录时不再生成 `.bak` 文件。需要备份时，可在「备份与恢复」中创建 ZIP。\
+  Saving settings, launch items or usage history no longer creates `.bak` files. Use Backup and restore to create a ZIP backup.
 - 从托盘退出时会等待设置写入完成，并舍弃启动项管理窗口中未保存的更改。\
   Exiting from the tray waits for pending settings writes and discards unsaved changes in Manage Launch Items.
 

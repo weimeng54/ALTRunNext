@@ -102,20 +102,12 @@ pub(crate) fn replace(stage: &Path, destination: &Path, existed: bool) -> Result
         };
         let stage = wide(stage);
         let target = wide(destination);
-        let extension = format!(
-            "{}.bak",
-            destination
-                .extension()
-                .and_then(|p| p.to_str())
-                .unwrap_or("data")
-        );
-        let backup = wide(&destination.with_extension(extension));
         let ok = unsafe {
             if existed {
                 ReplaceFileW(
                     target.as_ptr(),
                     stage.as_ptr(),
-                    backup.as_ptr(),
+                    std::ptr::null(),
                     0,
                     std::ptr::null(),
                     std::ptr::null(),

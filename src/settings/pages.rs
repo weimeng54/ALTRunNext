@@ -84,7 +84,7 @@ pub(super) fn show_page(page: usize) {
             window,
             &content,
             null_mut(),
-            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE | RDW_UPDATENOW,
         );
     }
 }

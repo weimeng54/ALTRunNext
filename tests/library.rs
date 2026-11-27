@@ -144,22 +144,21 @@ fn migrated_ids_match_across_shortcuts_and_saved_history() {
 }
 
 #[test]
-fn save_creates_backup_and_rejects_external_changes() {
+fn save_preserves_legacy_backup_and_rejects_external_changes() {
     let dir = std::env::current_dir()
         .unwrap()
         .join("target/library-save-test");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("shortcuts.tsv");
+    let backup = path.with_extension("tsv.bak");
+    std::fs::write(&backup, b"legacy backup").unwrap();
     let initial = "np\t记事本\tnotepad.exe\t7\n";
     std::fs::write(&path, initial).unwrap();
     let mut snapshot = Snapshot::open(&path).unwrap();
     let mut edited = snapshot.entries.clone();
     edited[0].name = "新名称".into();
     snapshot.save(&edited).unwrap();
-    assert_eq!(
-        std::fs::read(path.with_extension("tsv.bak")).unwrap(),
-        initial.as_bytes()
-    );
+    assert_eq!(std::fs::read(backup).unwrap(), b"legacy backup");
     assert_eq!(Snapshot::open(&path).unwrap().entries[0].name, "新名称");
     std::fs::write(&path, "external edit").unwrap();
     assert!(snapshot.save(&edited).is_err());

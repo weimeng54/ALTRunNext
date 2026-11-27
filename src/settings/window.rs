@@ -311,7 +311,7 @@ pub(crate) fn open(
                 wc.hbrBackground = null_mut();
                 RegisterClassW(&wc);
                 let hwnd = CreateWindowExW(
-                    0,
+                    WS_EX_COMPOSITED,
                     class.as_ptr(),
                     ui("settings.window_title").as_ptr(),
                     crate::ui::window_frame::STYLE,

@@ -356,7 +356,7 @@
     "ui.save_and_close_the_shortcut_manager_or": "Close the launch item manager or Settings first.",
     "ui.save_diagnostic_log": "Save diagnostic log",
     "ui.save_to_apply_your_changes": "Save to apply your changes.",
-    "ui.saved_the_launcher_is_updated_and_a": "Saved. The launcher is updated and a backup was kept.",
+    "ui.saved_launcher_updated": "Saved. The launcher is updated.",
     "ui.saving": "Saving...",
     "ui.search_and_launch": "Search and Launch",
     "ui.search_size": "Search size",

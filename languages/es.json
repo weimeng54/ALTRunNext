@@ -356,7 +356,7 @@
     "ui.save_and_close_the_shortcut_manager_or": "Cierra primero el gestor de elementos de inicio o la configuración.",
     "ui.save_diagnostic_log": "Guardar registro de diagnóstico",
     "ui.save_to_apply_your_changes": "Guarda para aplicar los cambios.",
-    "ui.saved_the_launcher_is_updated_and_a": "Se actualizó el lanzador y se guardó una copia en el archivo .bak.",
+    "ui.saved_launcher_updated": "Se guardaron los elementos y se actualizó el lanzador.",
     "ui.saving": "Guardando…",
     "ui.search_and_launch": "Búsqueda e inicio",
     "ui.search_size": "Tamaño de búsqueda",
