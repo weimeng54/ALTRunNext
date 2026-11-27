@@ -20,6 +20,7 @@ fn system_and_manual_selection_with_regional_fallback() {
         ("fr", "Français"),
         ("de", "Deutsch"),
         ("es", "Español"),
+        ("zh-Hant", "繁體中文"),
     ] {
         assert!(
             catalog
@@ -32,7 +33,16 @@ fn system_and_manual_selection_with_regional_fallback() {
         catalog.resolve("system", ["xx-XX", "zh-CN"]).locale(),
         "zh-Hans"
     );
-    assert_eq!(catalog.resolve("system", ["zh-TW", "fr-CA"]).locale(), "fr");
+    for tag in ["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-TW"] {
+        let language = catalog.resolve("system", [tag, "fr-CA"]);
+        assert_eq!(language.locale(), "zh-Hant");
+    }
+    let simplified = catalog.resolve("system", ["zh-Hans-TW"]);
+    assert_eq!(simplified.locale(), "zh-Hans");
+    let traditional = catalog.resolve("zh-Hant", ["en"]);
+    assert_eq!(traditional.text("ui.notepad"), "記事本");
+    let missing = Catalog::default().resolve("system", ["zh-TW", "en"]);
+    assert_eq!(missing.locale(), "en");
     assert_eq!(catalog.resolve("system", ["en-GB", "ja-JP"]).locale(), "en");
     assert_eq!(catalog.resolve("system", ["xx-XX"]).locale(), "en");
     assert_eq!(catalog.resolve("en", ["zh-CN"]).locale(), "en");
@@ -49,6 +59,7 @@ fn external_packs_use_declared_codes_and_fall_back_per_message() {
     let language = catalog.resolve("system", ["ja-JP"]);
     assert_eq!(language.text("about.title"), "バージョン情報");
     assert_eq!(language.text("about.open_repository"), "Open repository");
+    assert_eq!(language.text("settings.menu_font_size"), "Menu font size");
     fs::write(
         root.join("ja-JP.json"),
         japanese.replace("\"ja\"", "\"ja-JP\""),

@@ -42,6 +42,7 @@ pub(super) fn apply() {
     });
     match result {
         Ok(()) => {
+            theme::finish_preview();
             let _ = sender.send(Change::Commit(token));
             let language_changed = EDITOR
                 .with(|c| c.borrow().as_ref().unwrap().saved.get("Lang") != prefs.get("Lang"));

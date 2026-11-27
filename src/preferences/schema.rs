@@ -17,7 +17,7 @@ pub struct Spec {
     pub default: &'static str,
 }
 macro_rules! spec {
-    ($key:literal,$label:literal,$kind:ident,$default:literal) => {
+    ($key:literal,$label:literal,$kind:ident,$default:expr) => {
         Spec {
             key: $key,
             label: $label,
@@ -27,6 +27,7 @@ macro_rules! spec {
     };
 }
 pub const DEFAULT_POPUP_SOUND: &str = "Popup.wav";
+pub const DEFAULT_MENU_FONT: &str = "Microsoft YaHei UI|[]|9|3812384|0";
 
 pub const SPECS: &[Spec] = &[
     spec!("AutoRun", "ui.run_at_sign_in", Bool, "0"),
@@ -165,5 +166,11 @@ pub const SPECS: &[Spec] = &[
         "ui.recent_list_hotkey",
         Hotkey,
         "Ctrl+Alt+L"
+    ),
+    spec!(
+        "MenuFont",
+        "settings.menu_font_size",
+        Font,
+        DEFAULT_MENU_FONT
     ),
 ];

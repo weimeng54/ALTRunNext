@@ -115,8 +115,12 @@ fn selection(hwnd: HWND, save: bool) -> Option<PathBuf> {
 
 pub(super) fn menu(hwnd: HWND) {
     stop_capture();
-    let dpi = EDITOR.with(|editor| editor.borrow().as_ref().unwrap().dpi);
-    let Some(mut style) = ui::menu_style::PopupStyle::new(dpi) else {
+    let (dpi, font) = EDITOR.with(|editor| {
+        let state = editor.borrow();
+        let state = state.as_ref().unwrap();
+        (state.dpi, state.preview.prefs.get("MenuFont"))
+    });
+    let Some(mut style) = ui::menu_style::PopupStyle::with_font(dpi, &font) else {
         return;
     };
     let menu = style.root();

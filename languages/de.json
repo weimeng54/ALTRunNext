@@ -74,6 +74,8 @@
     "launcher.startup_error": "Startfehler: {detail}",
     "settings.display_language": "Anzeigesprache",
     "settings.follow_system": "Wie System",
+    "settings.menu_font": "Menüschrift",
+    "settings.menu_font_size": "Menüschriftgröße",
     "settings.window_title": "ALTRunNext · Einstellungen",
     "shortcut.unreadable_link": "Das Ziel von „{file}“ konnte nicht gelesen werden. Wählen Sie die Originaldatei oder den Ordner.",
     "ui.a_setting_cannot_contain_line_breaks_or": "Ein Einstellungswert darf keine Zeilenumbrüche oder Nullzeichen enthalten.",

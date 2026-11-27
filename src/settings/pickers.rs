@@ -25,7 +25,7 @@ pub fn choose(owner: HWND, key: &str, current: &str) -> Option<String> {
             dialog.lStructSize = std::mem::size_of_val(&dialog) as u32;
             dialog.hwndOwner = owner;
             dialog.lpLogFont = &mut definition;
-            dialog.Flags = CF_INITTOLOGFONTSTRUCT | CF_SCREENFONTS | CF_EFFECTS;
+            dialog.Flags = CF_INITTOLOGFONTSTRUCT | CF_SCREENFONTS | CF_NOSIZESEL | CF_NOSTYLESEL;
             dialog.rgbColors = font.colour;
             if ChooseFontW(&mut dialog) == 0 {
                 return None;

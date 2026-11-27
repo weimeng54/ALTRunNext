@@ -104,8 +104,13 @@ unsafe extern "system" fn owner_proc(
             // procedure, bypassing thread call-window hooks. WM_ENTERIDLE supplies
             // the actual popup HWND once the native tracking loop has displayed it.
             WM_ENTERIDLE if w == MSGF_MENU as usize => {
-                tracking.attach(l as HWND);
-                DefSubclassProc(hwnd, msg, w, l)
+                let result = DefSubclassProc(hwnd, msg, w, l);
+                let menu = l as HWND;
+                tracking.attach(menu);
+                if tracking.windows.borrow().contains(&menu) {
+                    draw_window_frame(menu, tracking.popup.dpi);
+                }
+                result
             }
             _ => DefSubclassProc(hwnd, msg, w, l),
         }
@@ -145,7 +150,10 @@ impl Tracking<'_> {
             }
             self.windows.borrow_mut().push(hwnd);
             self.shape(hwnd);
-            draw_window_frame(hwnd, self.popup.dpi);
+            // The first WM_DRAWITEM can run inside USER32's buffered popup paint.
+            // Its final blit overwrites drawing done directly to the window here.
+            // Draw after it returns, through the subclass's normal NC paint path.
+            PostMessageW(hwnd, WM_NCPAINT, 1, 0);
         }
     }
 }

@@ -206,6 +206,22 @@ pub(super) fn update_preview() {
     refresh_preview(false);
 }
 
+fn selected_theme() -> Option<&'static str> {
+    let selected = unsafe { SendMessageW(field("Theme").value, CB_GETCURSEL, 0, 0) };
+    choices("Theme")
+        .get(selected as usize)
+        .map(|(mode, _)| *mode)
+}
+
+pub(super) fn preview_window_theme(hwnd: HWND) {
+    if let Some(mode) = selected_theme() {
+        let saved = EDITOR.with(|state| state.borrow().as_ref().unwrap().saved.get("Theme"));
+        let preview =
+            (mode != saved || theme::applied_mode().as_deref() != Some(mode)).then_some(mode);
+        theme::preview_mode(hwnd, preview);
+    }
+}
+
 pub(super) fn refresh_preview(force: bool) {
     let (page, controls, dpi) = EDITOR.with(|c| {
         let editor = c.borrow();
@@ -218,7 +234,12 @@ pub(super) fn refresh_preview(force: bool) {
     let prefs = match read_form() {
         Ok(prefs) => prefs,
         Err(_) if force => {
-            EDITOR.with(|state| state.borrow().as_ref().unwrap().preview.prefs.clone())
+            let mut prefs =
+                EDITOR.with(|state| state.borrow().as_ref().unwrap().preview.prefs.clone());
+            if let Some(mode) = selected_theme() {
+                let _ = prefs.set("Theme", mode);
+            }
+            prefs
         }
         Err(_) => return,
     };
@@ -292,26 +313,28 @@ pub(super) fn strength_label(field: Field, strength: i32) {
 }
 
 pub(super) fn refresh_font_family(prefs: &Preferences) {
-    if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get("TitleFont")) {
-        let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd);
-        unsafe {
-            SetWindowTextW(
-                GetDlgItem(hwnd, FONT_FAMILY as i32),
-                wide(&font.name).as_ptr(),
-            );
+    let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd);
+    for (button, key) in [(FONT_FAMILY, "TitleFont"), (MENU_FONT_FAMILY, "MenuFont")] {
+        if let Ok(font) = altrun_probe::preferences::Font::parse(&prefs.get(key)) {
+            unsafe { SetWindowTextW(GetDlgItem(hwnd, button as i32), wide(&font.name).as_ptr()) };
         }
     }
 }
 
-pub(super) fn choose_panel_font(hwnd: HWND) {
+pub(super) fn choose_font_family(hwnd: HWND, button: usize) {
+    let keys: &[&str] = if button == MENU_FONT_FAMILY {
+        &["MenuFont"]
+    } else {
+        &["TitleFont", "KeywordFont", "ListFont"]
+    };
     let draft = EDITOR.with(|c| c.borrow().as_ref().unwrap().draft.clone());
-    if let Some(choice) = pickers::choose(hwnd, "TitleFont", &draft.get("TitleFont"))
+    if let Some(choice) = pickers::choose(hwnd, keys[0], &draft.get(keys[0]))
         && let Ok(font) = altrun_probe::preferences::Font::parse(&choice)
     {
         let prefs = EDITOR.with(|c| {
             let mut editor = c.borrow_mut();
             let draft = &mut editor.as_mut().unwrap().draft;
-            for key in ["TitleFont", "KeywordFont", "ListFont"] {
+            for &key in keys {
                 let value = draft.get(key);
                 if let Some((_, rest)) = value.split_once('|') {
                     let _ = draft.set(key, &format!("{}|{rest}", font.name));

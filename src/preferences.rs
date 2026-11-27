@@ -5,7 +5,7 @@ mod ini;
 mod schema;
 
 pub use ini::SETTINGS_IMPORT_FORMAT_ERROR;
-pub use schema::{DEFAULT_POPUP_SOUND, Kind, SPECS, Spec};
+pub use schema::{DEFAULT_MENU_FONT, DEFAULT_POPUP_SOUND, Kind, SPECS, Spec};
 
 use std::collections::BTreeMap;
 #[derive(Clone, Debug, PartialEq, Eq)]

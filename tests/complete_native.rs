@@ -247,6 +247,13 @@ fn settings_design(hwnd: HWND) {
             assert_eq!(text(title), (size + 1).to_string());
             SendMessageW(title, WM_KEYDOWN, 0x28, 0);
             assert_eq!(text(title), size.to_string());
+            let menu_size = setting(hwnd, "MenuFont");
+            assert_ne!(IsWindowVisible(menu_size), 0);
+            assert_eq!(text(menu_size), "12");
+            SendMessageW(menu_size, WM_KEYDOWN, 0x26, 0);
+            assert_eq!(text(menu_size), "13");
+            assert_eq!(text(title), size.to_string());
+            SendMessageW(menu_size, WM_KEYDOWN, 0x28, 0);
             command(hwnd, 2343);
             assert_eq!(IsWindowVisible(setting(hwnd, "TitleColor")), 0);
             assert_ne!(IsWindowVisible(setting(hwnd, "UseCustomTextColor")), 0);

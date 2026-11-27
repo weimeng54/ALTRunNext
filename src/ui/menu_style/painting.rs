@@ -18,7 +18,11 @@ impl PopupStyle {
             + if columns.cascade { 12 } else { 0 };
         info.itemWidth = (columns.label + columns.shortcut + scaled(padding, self.dpi))
             .min(self.max_width.get()) as u32;
-        info.itemHeight = scaled(if item.rule { 7 } else { 29 }, self.dpi) as u32;
+        info.itemHeight = if item.rule {
+            scaled(7, self.dpi)
+        } else {
+            self.row_height
+        } as u32;
         true
     }
 

@@ -3,6 +3,7 @@
 
 use super::Snapshot;
 use altrun_probe::preferences::Preferences;
+use std::cell::Cell;
 use std::sync::Mutex;
 use windows_sys::Win32::{
     Foundation::*,
@@ -25,17 +26,20 @@ struct Window {
 
 struct Subscribers {
     mode: Option<String>,
+    menu_font: Option<String>,
     windows: Vec<Window>,
 }
 
 static APPLIED: Mutex<Subscribers> = Mutex::new(Subscribers {
     mode: None,
+    menu_font: None,
     windows: Vec::new(),
 });
 
 pub(crate) fn publish(prefs: &Preferences) {
     let mode = prefs.get("Theme");
     let mut applied = APPLIED.lock().unwrap();
+    applied.menu_font = Some(prefs.get("MenuFont"));
     if applied.mode.as_ref() == Some(&mode) {
         return;
     }
@@ -55,10 +59,34 @@ pub(crate) fn applied_mode() -> Option<String> {
     APPLIED.lock().unwrap().mode.clone()
 }
 
+pub(crate) fn menu_font() -> String {
+    APPLIED
+        .lock()
+        .unwrap()
+        .menu_font
+        .clone()
+        .unwrap_or_else(|| altrun_probe::preferences::DEFAULT_MENU_FONT.into())
+}
+
+// Settings owns its UI thread, including its modal dialogs. Dropping that thread
+// on discard also drops the preview without touching the published preferences.
+thread_local! {
+    static PREVIEW_MODE: Cell<Option<&'static str>> = const { Cell::new(None) };
+}
+
+pub(crate) fn preview_mode(hwnd: HWND, mode: Option<&'static str>) {
+    PREVIEW_MODE.set(mode);
+    refresh(hwnd);
+}
+
+pub(crate) fn finish_preview() {
+    PREVIEW_MODE.set(None);
+}
+
 fn install_mode(mode: Option<String>) {
     let mut prefs = Preferences::default();
-    if let Some(mode) = mode {
-        let _ = prefs.set("Theme", &mode);
+    if let Some(mode) = PREVIEW_MODE.get().or(mode.as_deref()) {
+        let _ = prefs.set("Theme", mode);
     }
     super::install_chrome(&prefs);
 }

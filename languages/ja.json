@@ -74,6 +74,8 @@
     "launcher.startup_error": "起動エラー：{detail}",
     "settings.display_language": "表示言語",
     "settings.follow_system": "システム設定に従う",
+    "settings.menu_font": "メニューのフォント",
+    "settings.menu_font_size": "メニューの文字サイズ",
     "settings.window_title": "ALTRunNext · 設定",
     "shortcut.unreadable_link": "「{file}」のリンク先を読み取れません。元のファイルまたはフォルダーを選択してください。",
     "ui.a_setting_cannot_contain_line_breaks_or": "設定値に改行やヌル文字を含めることはできません。",

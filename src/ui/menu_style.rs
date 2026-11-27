@@ -50,6 +50,7 @@ pub(crate) struct PopupStyle {
     dc: HDC,
     old_font: HGDIOBJ,
     dpi: i32,
+    row_height: i32,
     columns: HashMap<HMENU, Columns>,
     items: HashMap<usize, Item>,
     max_width: Cell<i32>,
@@ -57,17 +58,26 @@ pub(crate) struct PopupStyle {
 
 impl PopupStyle {
     pub(crate) fn new(dpi: i32) -> Option<Self> {
+        Self::with_font(dpi, &theme::menu_font())
+    }
+
+    pub(crate) fn with_font(dpi: i32, value: &str) -> Option<Self> {
+        let face = altrun_probe::preferences::Font::parse(value).ok()?;
         unsafe {
             let root = CreatePopupMenu();
             if root.is_null() {
                 return None;
             }
-            let font = ui::make_font(15, 400, "Microsoft YaHei UI", dpi);
+            let font = ui::make_font(face.size_dip(), face.weight, &face.name, dpi);
             let dc = CreateCompatibleDC(null_mut());
             let old_font = SelectObject(dc, font);
+            let mut metrics = TEXTMETRICW::default();
+            GetTextMetricsW(dc, &mut metrics);
+            let row_height = scaled(25, dpi).max(metrics.tmHeight + scaled(8, dpi));
             Some(Self {
                 root,
                 dpi,
+                row_height,
                 font,
                 dc,
                 old_font,

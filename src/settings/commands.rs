@@ -31,6 +31,8 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                 for segment in SEGMENT..SEGMENT + 3 {
                     InvalidateRect(GetDlgItem(hwnd, segment as i32), std::ptr::null(), 0);
                 }
+                super::appearance::preview_window_theme(hwnd);
+                return 0;
             } else {
                 if background_image() == (id == SEGMENT + 4) {
                     return 0;
@@ -78,8 +80,8 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
         toggle_extra_colors(hwnd);
         return 0;
     }
-    if id == FONT_FAMILY && code == BN_CLICKED {
-        choose_panel_font(hwnd);
+    if matches!(id, FONT_FAMILY | MENU_FONT_FAMILY) && code == BN_CLICKED {
+        choose_font_family(hwnd, id);
         return 0;
     }
     if id == TAB && code == LBN_SELCHANGE {
@@ -152,6 +154,10 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
             code == EN_KILLFOCUS
         };
         if changed && EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form)) {
+            if spec.key == "Theme" {
+                super::appearance::preview_window_theme(hwnd);
+                return 0;
+            }
             if spec.key == "PlayPopupNotify" {
                 let checked = unsafe { SendMessageW(l as HWND, BM_GETCHECK, 0, 0) != 0 };
                 sync_sound_picker(checked);
@@ -211,7 +217,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                 "ui.load_default_settings_save_to_apply_them",
             ) {
                 load_form(&Preferences::default());
-                update_preview();
+                super::appearance::preview_window_theme(hwnd);
                 sync_save_button(hwnd);
                 status("ui.defaults_loaded_save_to_apply_them");
             }

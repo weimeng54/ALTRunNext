@@ -17,7 +17,7 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
         .join("target/localized-portable");
     let languages = root.join("languages");
     fs::create_dir_all(&languages).unwrap();
-    for code in ["de", "es", "fr", "ja", "ko"] {
+    for code in ["de", "es", "fr", "ja", "ko", "zh-Hant"] {
         let file = format!("{code}.json");
         fs::copy(
             std::path::Path::new("languages").join(&file),
@@ -36,6 +36,7 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
         ("fr", "ALTRunNext · Paramètres", "light", "150"),
         ("ko", "ALTRunNext · 설정", "dark", "200"),
         ("es", "ALTRunNext · Ajustes", "light", "100"),
+        ("zh-Hant", "ALTRunNext · 設定", "dark", "150"),
     ] {
         let data = root.join("shortcuts.tsv");
         if data.exists() {
@@ -73,7 +74,7 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
             .unwrap();
         unsafe {
             let combo = GetDlgItem(settings, (2400 + language) as i32);
-            assert_eq!(SendMessageW(combo, CB_GETCOUNT, 0, 0), 8);
+            assert_eq!(SendMessageW(combo, CB_GETCOUNT, 0, 0), 9);
             let selected = SendMessageW(combo, CB_GETCURSEL, 0, 0);
             let mut label = [0u16; 64];
             let length = SendMessageW(
@@ -90,6 +91,7 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
                     "de" => "Deutsch",
                     "fr" => "Français",
                     "ko" => "한국어",
+                    "zh-Hant" => "繁體中文",
                     _ => "Español",
                 },
             );

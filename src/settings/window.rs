@@ -11,12 +11,7 @@ use super::{
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
         theme::CHECK_PREVIEW => {
-            if EDITOR.with(|state| {
-                state
-                    .borrow()
-                    .as_ref()
-                    .is_some_and(|s| s.preview.prefs.get("Theme") == "system")
-            }) {
+            if EDITOR.with(|state| state.borrow().is_some()) {
                 super::appearance::refresh_preview(true);
             }
             0

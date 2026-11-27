@@ -24,7 +24,7 @@ fn build_messages() {
     chinese.check(base(), true).expect("Chinese resources");
     println!("cargo:rerun-if-changed=languages");
     println!("cargo:rerun-if-changed=src/language_pack.rs");
-    for locale in ["ja", "ko", "fr", "de", "es"] {
+    for locale in ["ja", "ko", "fr", "de", "es", "zh-Hant"] {
         let path = format!("languages/{locale}.json");
         let pack = read_pack(&path);
         assert_eq!(locale, pack.locale);

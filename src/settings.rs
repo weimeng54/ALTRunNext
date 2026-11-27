@@ -48,7 +48,7 @@ mod hotkeys;
 use hotkeys::{cancel_capture, hotkey_proc, modifier_bits, record_key, stop_capture};
 mod appearance;
 use appearance::{
-    adjust_number, align_preview, background_image, choose_colour, choose_panel_font,
+    adjust_number, align_preview, background_image, choose_colour, choose_font_family,
     chrome_colors, extra_color, preset, refresh_font_family, refresh_style, set_colour,
     show_without_redraw, strength_label, toggle_extra_colors, update_background_mode,
     update_preview,
@@ -73,6 +73,7 @@ const PREVIEW_QUERY: usize = 2306;
 const TITLE_CLOSE: usize = 2307;
 const SEGMENT: usize = 2330;
 const FONT_FAMILY: usize = 2341;
+const MENU_FONT_FAMILY: usize = 2342;
 const MORE_COLORS: usize = 2343;
 const IMAGE_THUMB: usize = 2344;
 const STRENGTH_VALUE: usize = 2346;
@@ -187,6 +188,7 @@ const PAGES: &[Page] = &[
             "TitleFont",
             "KeywordFont",
             "ListFont",
+            "MenuFont",
             "TitleColor",
             "KeywordColor",
             "ListColor",

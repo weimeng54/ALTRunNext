@@ -32,7 +32,7 @@ fn cascade_arrow_is_a_single_shape_inside_each_scaled_row() {
                 left: 0,
                 top: 0,
                 right: scaled(195, dpi),
-                bottom: scaled(29, dpi),
+                bottom: style.row_height,
             };
             let center = POINT {
                 x: rect.right - scaled(14, dpi),

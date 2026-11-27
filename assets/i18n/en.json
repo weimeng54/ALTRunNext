@@ -74,6 +74,8 @@
     "launcher.startup_error": "Could not start ALTRunNext: {detail}",
     "settings.display_language": "Display language",
     "settings.follow_system": "Follow system",
+    "settings.menu_font": "Menu font",
+    "settings.menu_font_size": "Menu font size",
     "settings.window_title": "ALTRunNext · Settings",
     "shortcut.unreadable_link": "Could not read the target of “{file}”. Choose the original file or folder.",
     "ui.a_setting_cannot_contain_line_breaks_or": "A setting cannot contain line breaks or null characters.",

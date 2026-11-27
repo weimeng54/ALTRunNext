@@ -136,7 +136,7 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
                 );
                 SelectObject(item.hDC, old);
             }
-        } else if id == FONT_FAMILY {
+        } else if matches!(id, FONT_FAMILY | MENU_FONT_FAMILY) {
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |e| e.dpi));
             let rect = item.rcItem;
             ui::fill(item.hDC, &rect, theme::control_surface());

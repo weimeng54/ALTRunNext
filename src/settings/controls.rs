@@ -240,8 +240,10 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
                 (about_page, action),
             ]);
         }
-        let panel_font_label = control("STATIC", "ui.panel_font", 0, 228, 196, 72, 26, 0);
-        extra_controls.push((4, panel_font_label));
+        for (label, y) in [("ui.panel_font", 189), ("settings.menu_font", 353)] {
+            let caption = control("STATIC", label, 0, 228, y, 119, 24, 0);
+            extra_controls.push((4, caption));
+        }
         let dividers_label = control("STATIC", "ui.show_result_dividers", 0, 538, 614, 214, 23, 0);
         extra_controls.push((3, dividers_label));
         for (id, label, x, y, w, h, page) in [
@@ -250,8 +252,9 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             (SEGMENT + 2, "ui.dark", 404, 195, 84, 30, 3),
             (SEGMENT + 3, "ui.solid", 230, 299, 128, 30, 3),
             (SEGMENT + 4, "ui.image", 361, 299, 127, 30, 3),
-            (FONT_FAMILY, "", 310, 191, 180, 34, 4),
-            (MORE_COLORS, "ui.other_colors", 215, 561, 288, 40, 4),
+            (FONT_FAMILY, "", 351, 184, 139, 34, 4),
+            (MENU_FONT_FAMILY, "", 351, 348, 139, 34, 4),
+            (MORE_COLORS, "ui.other_colors", 215, 613, 288, 36, 4),
         ] {
             let button = control("BUTTON", label, WS_TABSTOP, x, y, w, h, id);
             if (SEGMENT..SEGMENT + 5).contains(&id) {

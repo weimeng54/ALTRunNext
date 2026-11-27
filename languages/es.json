@@ -74,6 +74,8 @@
     "launcher.startup_error": "Error de inicio: {detail}",
     "settings.display_language": "Idioma de la interfaz",
     "settings.follow_system": "Según el sistema",
+    "settings.menu_font": "Fuente del menú",
+    "settings.menu_font_size": "Tamaño de fuente del menú",
     "settings.window_title": "ALTRunNext · Ajustes",
     "shortcut.unreadable_link": "No se pudo leer el destino de «{file}». Selecciona el archivo o la carpeta original.",
     "ui.a_setting_cannot_contain_line_breaks_or": "Los valores no pueden contener saltos de línea ni caracteres nulos.",

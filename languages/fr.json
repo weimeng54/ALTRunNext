@@ -74,6 +74,8 @@
     "launcher.startup_error": "Erreur de démarrage : {detail}",
     "settings.display_language": "Langue d’affichage",
     "settings.follow_system": "Suivre le système",
+    "settings.menu_font": "Police des menus",
+    "settings.menu_font_size": "Taille de police des menus",
     "settings.window_title": "ALTRunNext · Paramètres",
     "shortcut.unreadable_link": "Impossible de lire la cible de « {file} ». Sélectionnez le fichier ou dossier d’origine.",
     "ui.a_setting_cannot_contain_line_breaks_or": "Une valeur ne peut pas contenir de saut de ligne ni de caractère nul.",

@@ -6,6 +6,13 @@
 
 ## [未发布 / Unreleased]
 
+- 修复弹出菜单圆角边框缺边。菜单采用更紧凑的默认字号，可在「字体与颜色」中单独调整菜单字体和字号。\
+  Fixed gaps in popup menu borders. Menus use a smaller default text size. Their font and size can be changed independently in Fonts and Colors.
+- 选择主题会立即预览整个设置窗口。「保存并应用」后，其他窗口同步切换；放弃修改会保留原主题。\
+  Selecting a theme previews it throughout Settings. Save and Apply updates the other windows. Discarding changes keeps the saved theme.
+- 新增繁體中文语言包。\
+  Added a Traditional Chinese language pack.
+
 - 托盘、启动面板右键、启动项管理、备份与恢复及参数历史使用同款圆角菜单。菜单按文字宽度排列快捷键和子菜单，管理、导入和修复表格共用选中与焦点样式。\
   Tray, launcher, management, backup and parameter history menus share a rounded frame and size themselves to their labels and shortcuts. Management, import and repair tables share selection and focus styles.
 - 更改主题后，已打开的工具窗口和对话框同步更新。高对比度下的选中行使用系统高亮文字色。\

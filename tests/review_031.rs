@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 #![cfg(windows)]
+#[path = "review_031/menu_frame.rs"]
+mod menu_frame;
 mod native_snapshot;
 mod review_native_support;
 
@@ -62,7 +64,7 @@ fn press(hwnd: HWND, key: u16) {
     }
 }
 
-fn check_popup(owner: HWND, pid: u32, button: usize, capture: &str) {
+fn check_popup(owner: HWND, pid: u32, button: usize, capture: &str, theme: &str) {
     use windows_sys::Win32::Graphics::Gdi::{
         CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion,
     };
@@ -79,6 +81,7 @@ fn check_popup(owner: HWND, pid: u32, button: usize, capture: &str) {
         wait(|| GetWindowRgn(popup, region) > 1);
         assert_eq!(PtInRegion(region, 0, 0), 0);
         assert_ne!(PtInRegion(region, 12, 12), 0);
+        menu_frame::check(popup, region, theme);
         DeleteObject(region);
         native_snapshot::save(popup, capture);
         PostMessageW(owner, WM_CANCELMODE, 0, 0);
@@ -164,7 +167,13 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);
     check_settings_layout(settings, theme, scale);
-    check_popup(settings, pid, 2312, &format!("menu-backup-{theme}-{scale}"));
+    check_popup(
+        settings,
+        pid,
+        2312,
+        &format!("menu-backup-{theme}-{scale}"),
+        theme,
+    );
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
@@ -188,7 +197,13 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     wait(|| unsafe { IsWindow(settings) == 0 });
 }
 
-fn check_open_report_theme(launcher: HWND, pid: u32, manager_list: HWND, report_list: HWND) {
+fn check_open_report_theme(
+    launcher: HWND,
+    pid: u32,
+    manager_list: HWND,
+    report_list: HWND,
+    data: &Path,
+) {
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2310);
     let tabs = child(settings, 2301);
@@ -206,17 +221,60 @@ fn check_open_report_theme(launcher: HWND, pid: u32, manager_list: HWND, report_
     let paper = |list| unsafe { SendMessageW(list, LVM_GETBKCOLOR, 0, 0) };
     let selected = (selection(manager_list), selection(report_list));
     let light = paper(report_list);
+    let ini = data.with_extension("settings.ini");
+    let caption = |hwnd| unsafe {
+        let dc = GetWindowDC(hwnd);
+        let color = GetPixel(dc, 360, 12);
+        ReleaseDC(hwnd, dc);
+        color
+    };
+    let light_chrome = 236 | (240 << 8) | (246 << 16);
+    let dark_chrome = 21 | (26 << 8) | (32 << 16);
     assert_eq!(paper(manager_list), light);
-    for (segment, expected) in [(2332, 23 | (29 << 8) | (36 << 16)), (2331, light)] {
+    for (segment, chrome, expected, mode) in [
+        (2332, dark_chrome, 23 | (29 << 8) | (36 << 16), "dark"),
+        (2331, light_chrome, light, "light"),
+    ] {
         let before = paper(report_list);
+        let saved = std::fs::read(&ini).unwrap();
         command(settings, segment);
+        wait(|| caption(settings) == chrome);
         assert_eq!(paper(report_list), before);
+        assert_eq!(paper(manager_list), before);
+        assert_eq!(std::fs::read(&ini).unwrap(), saved);
         command(settings, 2310);
         wait(|| paper(manager_list) == expected && paper(report_list) == expected);
+        let (_, text) = altrun_probe::state_store::TextFile::open(&ini).unwrap();
+        assert_eq!(
+            altrun_probe::preferences::Preferences::parse(&text)
+                .unwrap()
+                .get("Theme"),
+            mode
+        );
         assert_eq!((selection(manager_list), selection(report_list)), selected);
     }
+    let saved = std::fs::read(&ini).unwrap();
+    command(settings, 2332);
+    wait(|| caption(settings) == dark_chrome);
+    unsafe { SendMessageW(settings, WM_SETTINGCHANGE, 0, 0) };
     unsafe { PostMessageW(settings, WM_CLOSE, 0, 0) };
+    let confirm = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    command(confirm, 2);
+    wait(|| unsafe { IsWindow(confirm) == 0 } && caption(settings) == dark_chrome);
+    unsafe { PostMessageW(settings, WM_CLOSE, 0, 0) };
+    let confirm = ready_window(pid, "ALTRun.Native.Confirmation", 1);
+    command(confirm, 1);
     wait(|| unsafe { IsWindow(settings) == 0 });
+    assert_eq!(paper(report_list), light);
+    assert_eq!(std::fs::read(&ini).unwrap(), saved);
+    wait(|| {
+        command(launcher, 18005);
+        !window("ALTRun.Native.Settings", pid).is_null()
+    });
+    let reopened = ready_window(pid, "ALTRun.Native.Settings", 2310);
+    wait(|| caption(reopened) == light_chrome);
+    unsafe { PostMessageW(reopened, WM_CLOSE, 0, 0) };
+    wait(|| unsafe { IsWindow(reopened) == 0 });
 }
 
 fn check_settings_layout(settings: HWND, theme: &str, scale: &str) {
@@ -397,7 +455,7 @@ fn check_system_contrast(data: &Path) {
                     == GetSysColor(COLOR_WINDOWTEXT) as isize
         });
         native_snapshot::save(manager, "manager-system-contrast");
-        check_popup(manager, pid, 2140, "menu-new-system-contrast");
+        check_popup(manager, pid, 2140, "menu-new-system-contrast", "system");
     });
     assert_ne!(set(previous.dwFlags), 0);
     if let Err(failure) = result {
@@ -596,7 +654,13 @@ fn windows_031_management_and_import_previews() {
         let launcher = ready_window(pid, "ALTRun.Native.PerformanceProbe", 1001);
         command(launcher, 18003);
         let manager = ready_window(pid, "ALTRun.Native.ShortcutManager", 2113);
-        check_popup(manager, pid, 2140, &format!("menu-new-{theme}-{scale}"));
+        check_popup(
+            manager,
+            pid,
+            2140,
+            &format!("menu-new-{theme}-{scale}"),
+            theme,
+        );
         let list = child(manager, 2101);
         let query = child(manager, 2106);
         let cmd = child(manager, 2104);
@@ -625,7 +689,7 @@ fn windows_031_management_and_import_previews() {
         let report = ready_window(pid, "ALTRun.Native.MissingPaths", 2180);
         assert_eq!(count(child(report, 2180)), 1);
         if theme == "light" && scale == "100" {
-            check_open_report_theme(launcher, pid, list, child(report, 2180));
+            check_open_report_theme(launcher, pid, list, child(report, 2180), &data);
         }
         native_snapshot::save(report, &format!("031-missing-paths-{theme}-{scale}"));
         press(report, VK_RETURN);

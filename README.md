@@ -28,7 +28,7 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 
 ### 界面语言
 
-首次启动跟随 Windows 显示语言，也可在「设置 → 常规 → 显示语言」手动切换。英文和简体中文内置，便携包同时附带日语、韩语、法语、德语和西班牙语。将其他 UTF-8 JSON 语言包放在 EXE 同级的 `languages` 文件夹，再重新打开设置即可选用。[语言包格式与翻译说明](languages/README.md)
+首次启动跟随 Windows 显示语言，也可在「设置 → 常规 → 显示语言」手动切换。英文和简体中文内置，便携包同时附带繁体中文、日语、韩语、法语、德语和西班牙语。将其他 UTF-8 JSON 语言包放在 EXE 同级的 `languages` 文件夹，再重新打开设置即可选用。[语言包格式与翻译说明](languages/README.md)
 
 ### 从源码构建
 
@@ -65,7 +65,7 @@ Trial builds also include an NSIS installer. It defaults to `C:\Program Files\AL
 
 ### Display language
 
-ALTRunNext follows the Windows display language on first launch. You can choose another language under **Settings → General → Display language**. English and Simplified Chinese are built in. The portable package also includes Japanese, Korean, French, German, and Spanish. Add other UTF-8 JSON packs to the `languages` folder next to the executable and reopen Settings. [Language pack format and translation guide](languages/README.md)
+ALTRunNext follows the Windows display language on first launch. You can choose another language under **Settings → General → Display language**. English and Simplified Chinese are built in. The portable package also includes Traditional Chinese, Japanese, Korean, French, German, and Spanish. Add other UTF-8 JSON packs to the `languages` folder next to the executable and reopen Settings. [Language pack format and translation guide](languages/README.md)
 
 ### Building from source
 

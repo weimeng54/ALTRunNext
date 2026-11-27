@@ -190,9 +190,11 @@ pub(super) fn apply_settings_messages() {
                             }
                         }
                     }
-                    let theme_only = s.preferences.get("Theme") != prefs.get("Theme")
+                    let appearance_only = ["Theme", "MenuFont"]
+                        .iter()
+                        .any(|key| s.preferences.get(key) != prefs.get(key))
                         && altrun_probe::preferences::SPECS.iter().all(|spec| {
-                            spec.key == "Theme"
+                            matches!(spec.key, "Theme" | "MenuFont")
                                 || s.preferences.get(spec.key) == prefs.get(spec.key)
                         });
                     theme::publish(&prefs);
@@ -207,7 +209,7 @@ pub(super) fn apply_settings_messages() {
                         s.preferences.flag("EnglishSearch"),
                     );
                     s.hotkeys = keys;
-                    !theme_only
+                    !appearance_only
                 });
                 if needs_full_refresh {
                     let language =

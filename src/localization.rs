@@ -100,6 +100,10 @@ impl Catalog {
             match candidate {
                 "en" => return Some(Language::English),
                 "zh-Hans" | "zh-CN" | "zh-SG" => return Some(Language::SimplifiedChinese),
+                "zh-TW" | "zh-HK" | "zh-MO" => {
+                    candidate = "zh-Hant";
+                    continue;
+                }
                 _ => {}
             }
             candidate = candidate.rsplit_once('-')?.0;
