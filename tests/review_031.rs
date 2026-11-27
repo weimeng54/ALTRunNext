@@ -196,8 +196,12 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
-    window_frame::check(preview, settings, theme);
-    native_snapshot::save(preview, &format!("031-backup-{theme}-{scale}"));
+    window_frame::check(
+        preview,
+        settings,
+        theme,
+        &format!("031-backup-{theme}-{scale}"),
+    );
     eprintln!("Confirming the backup preview");
     press(preview, VK_RETURN);
     wait(|| unsafe { IsWindow(preview) == 0 });
@@ -209,12 +213,20 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     begin(settings, 2366);
     choose_file(pid, &archive);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
-    window_frame::check(preview, settings, theme);
-    native_snapshot::save(preview, &format!("031-restore-{theme}-{scale}"));
+    window_frame::check(
+        preview,
+        settings,
+        theme,
+        &format!("031-restore-{theme}-{scale}"),
+    );
     begin(preview, 15);
     let details = ready_window(pid, "ALTRun.Native.Confirmation", 1);
-    window_frame::check(details, preview, theme);
-    native_snapshot::save(details, &format!("031-restore-details-{theme}-{scale}"));
+    window_frame::check(
+        details,
+        preview,
+        theme,
+        &format!("031-restore-details-{theme}-{scale}"),
+    );
     press(details, VK_ESCAPE);
     wait(|| unsafe { IsWindow(details) == 0 });
     press(preview, VK_ESCAPE);
@@ -510,8 +522,7 @@ fn check_system_contrast(data: &Path) {
                 && SendMessageW(list, LVM_GETTEXTCOLOR, 0, 0)
                     == GetSysColor(COLOR_WINDOWTEXT) as isize
         });
-        window_frame::check(preview, settings, "system");
-        native_snapshot::save(preview, "backup-system-contrast");
+        window_frame::check(preview, settings, "system", "backup-system-contrast");
         press(preview, VK_ESCAPE);
         wait(|| IsWindow(preview) == 0);
         assert_ne!(PostMessageW(settings, WM_CLOSE, 0, 0), 0);

@@ -2,7 +2,9 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use std::mem::{size_of, zeroed};
-use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+use windows_sys::Win32::{
+    Foundation::*, Graphics::Gdi::*, Storage::Xps::PrintWindow, UI::WindowsAndMessaging::*,
+};
 
 pub fn save(hwnd: HWND, name: &str) {
     unsafe {
@@ -17,6 +19,18 @@ pub fn save(hwnd: HWND, name: &str) {
 }
 
 pub fn save_painted(hwnd: HWND, name: &str) {
+    capture(hwnd, None).save(name);
+}
+
+pub struct Bitmap {
+    pub width: i32,
+    pub height: i32,
+    pub bgra: Vec<u8>,
+}
+
+// Live desktop captures preserve transient menu redraws. Supplying PrintWindow
+// flags requests the target window's own image, including when it is occluded.
+pub fn capture(hwnd: HWND, print_flags: Option<u32>) -> Bitmap {
     unsafe {
         let mut rect: RECT = zeroed();
         GetWindowRect(hwnd, &mut rect);
@@ -42,12 +56,30 @@ pub fn save_painted(hwnd: HWND, name: &str) {
         );
         assert!(!bitmap.is_null() && !pixels.is_null());
         let old = SelectObject(memory, bitmap);
-        assert_ne!(
-            BitBlt(memory, 0, 0, width, height, source, 0, 0, SRCCOPY),
-            0
-        );
+        let painted = match print_flags {
+            Some(flags) => PrintWindow(hwnd, memory, flags),
+            None => BitBlt(memory, 0, 0, width, height, source, 0, 0, SRCCOPY),
+        };
         GdiFlush();
-        let bytes = std::slice::from_raw_parts(pixels as *const u8, (width * height * 4) as usize);
+        let bgra =
+            std::slice::from_raw_parts(pixels as *const u8, (width * height * 4) as usize).to_vec();
+        SelectObject(memory, old);
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+        ReleaseDC(hwnd, source);
+        assert_ne!(painted, 0, "could not capture test window");
+        Bitmap {
+            width,
+            height,
+            bgra,
+        }
+    }
+}
+
+impl Bitmap {
+    pub fn save(&self, name: &str) {
+        let bytes = &self.bgra;
+        let (width, height) = (self.width, self.height);
         let mut output = Vec::new();
         output.extend_from_slice(b"BM");
         output.extend_from_slice(&(54 + bytes.len() as u32).to_le_bytes());
@@ -60,10 +92,6 @@ pub fn save_painted(hwnd: HWND, name: &str) {
         output.extend_from_slice(&32_u16.to_le_bytes());
         output.extend_from_slice(&[0; 24]);
         output.extend_from_slice(bytes);
-        SelectObject(memory, old);
-        DeleteObject(bitmap);
-        DeleteDC(memory);
-        ReleaseDC(hwnd, source);
         std::fs::create_dir_all("target/ui").unwrap();
         std::fs::write(format!("target/ui/{name}.bmp"), output).unwrap();
     }

@@ -64,13 +64,13 @@
 
 ### 新增 / Added
 
-- 外观设置可分别显示启动结果的竖线和横线，并实时预览。字体与颜色页可修改分隔线颜色或恢复主题默认。\
-  Toggle vertical and horizontal launch-result dividers independently and preview them live. Set a divider color or use the theme default under Fonts and colors.
+- 外观设置可分别开关启动结果的竖线和横线，默认显示竖线。支持实时预览和自定义分隔线颜色。\
+  Toggle vertical and horizontal result dividers independently, preview them live and customize their color. Vertical dividers are enabled by default.
 
 ### 变更 / Changed
 
-- 启动结果默认显示竖向分隔线。设置中的启动面板预览初始显示多条示例结果。\
-  Launch results show vertical dividers by default. The launcher preview in Settings opens with several sample results.
+- 打开外观设置时，启动面板预览直接显示多条示例结果。\
+  The launcher preview in Appearance opens with several sample results.
 
 - 启动面板的管理、设置和隐藏按钮使用线宽与视觉大小统一的图标。\
   The launcher’s Manage, Settings, and Hide buttons use icons with matching strokes and visual weight.
@@ -96,8 +96,8 @@
 
 ### 修复 / Fixed
 
-- 加快设置保存，直接通过 Windows 读取和更新「发送到」快捷方式。\
-  Sped up saving settings by reading and updating the Send to shortcut through Windows directly.
+- 缩短点击「保存并应用」后的等待时间。\
+  Reduced the wait after clicking Save and Apply in Settings.
 - 修复「运行」启动项无法执行输入的命令。需要输入参数的启动项使用独立弹窗，取消后回到原搜索结果。\
   Fixed the Run item failing to execute the entered command. Launch items that need input now open a separate prompt. Cancel returns to the original results.
 - 修复在命令、目标路径等输入框中拖选长文本时，文字和选区短暂消失的问题。\
@@ -133,12 +133,12 @@
 
 ### 变更 / Changed
 
-- 启动面板按需绘制结果，减少列表重填与重复布局。大列表的搜索、清空输入和筛选后再次呼出更快，内存占用更低。\
-  The launcher draws results on demand and avoids unnecessary list updates and layout work. This speeds up searching, clearing the query, and reopening after filtering large lists while using less memory.
-- 成功启动后只更新对应启动项的搜索排序频次，使用历史交由后台线程写入。\
-  Successful launches update the ranking frequency for the selected item and save usage history in the background.
-- 浏览器收藏夹导入预览复用筛选文本，结果相同时跳过表格重填。\
-  The browser bookmark import preview reuses searchable text and keeps the table intact when the matching rows stay the same.
+- 启动项较多时，搜索、清空输入和重新呼出面板更快，内存占用更低。\
+  With large lists, searching, clearing the query and reopening the launcher are faster and use less memory.
+- 启动命令后，面板可在使用记录保存期间继续响应。\
+  The launcher stays responsive while saving usage history after a successful launch.
+- 导入浏览器收藏夹时，筛选预览结果更快。\
+  Filtering the browser bookmark import preview is faster.
 
 ### 修复 / Fixed
 
