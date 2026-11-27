@@ -81,7 +81,7 @@ pub(super) unsafe extern "system" fn window_proc(
             0
         }
         WM_HOTKEY | SHOW => {
-            // The previous keys stay reserved for rollback while disk I/O is in flight.
+            // Newly reserved bindings become active only after the settings file is committed.
             if msg == WM_HOTKEY
                 && STATE.with(|c| {
                     let state = c.borrow();

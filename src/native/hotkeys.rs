@@ -148,7 +148,6 @@ pub(super) fn apply_settings_messages() {
                 }
             }
             crate::settings::Change::Reopen(page) => super::tray::open_settings_page(page),
-            crate::settings::Change::Live(fields) => super::settings_change::live(fields),
             crate::settings::Change::Prepare(token, prefs, reply) => {
                 let _ = reply.send(super::settings_change::prepare(token, prefs));
             }

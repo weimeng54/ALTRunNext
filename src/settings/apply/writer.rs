@@ -38,22 +38,24 @@ pub(super) fn persist(file: &mut TextFile, data: &Path, update: &Update) -> Resu
     let flags = |p: &Preferences| (p.flag("AutoRun"), p.flag("AddToSendTo"));
     let old = flags(&update.previous);
     let new = flags(&update.next);
-    let mut rollback = None;
-    if old != new {
-        let integration = Integration::for_data(data)?;
-        let actual = integration.status()?;
-        let startup = if old.0 != new.0 { new.0 } else { actual.0 };
-        let send_to = if old.1 != new.1 { new.1 } else { actual.1 };
-        if (startup, send_to) != actual {
-            integration.apply(startup, send_to)?;
-            rollback = Some((integration, actual));
-        }
+    if old == new {
+        return file.save(&update.next.text());
     }
-    let result = file.save(&update.next.text());
-    if result.is_err()
-        && let Some((integration, (startup, send_to))) = rollback
+    let integration = Integration::for_data(data)?;
+    let actual = integration.status()?;
+    let startup = if old.0 != new.0 { new.0 } else { actual.0 };
+    let send_to = if old.1 != new.1 { new.1 } else { actual.1 };
+    file.save(&update.next.text())?;
+    if (startup, send_to) != actual
+        && let Err(error) = integration.apply(startup, send_to)
     {
-        integration.apply(startup, send_to)?;
+        // Keep the running instance and the next startup on the same saved settings.
+        let restore_system = integration.apply(actual.0, actual.1);
+        let restore_file = file.save(&update.previous.text());
+        let mut errors = vec![error];
+        errors.extend(restore_system.err());
+        errors.extend(restore_file.err());
+        return Err(errors.join("\n"));
     }
-    result
+    Ok(())
 }

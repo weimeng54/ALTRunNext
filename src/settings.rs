@@ -124,7 +124,6 @@ const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
 
 pub enum Change {
     Reopen(Option<usize>),
-    Live(Vec<(&'static str, String)>),
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
     Finish(u64, bool, mpsc::Sender<()>),
     FlushHistory(mpsc::Sender<mpsc::Receiver<Result<(), String>>>),

@@ -242,7 +242,6 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             apply::after_edits(hwnd, apply::After::Exit);
             0
         }
-        WM_TIMER if apply::timer(hwnd, w) => 0,
         apply::READY => {
             apply::completed(hwnd);
             0

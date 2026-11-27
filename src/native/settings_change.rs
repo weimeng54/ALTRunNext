@@ -11,41 +11,6 @@ fn changed(a: &Preferences, b: &Preferences, keys: &[&str]) -> bool {
         .any(|key| a.values.get(*key) != b.values.get(*key))
 }
 
-// These preferences take effect together with their hotkey reservation or OS integration.
-const RESERVED: &[&str] = &[
-    "HotKey1",
-    "HotKey2",
-    "LastItemHotKey",
-    "ShowTrayIcon",
-    "AutoRun",
-    "AddToSendTo",
-];
-
-pub(super) fn live(fields: Vec<(&'static str, String)>) {
-    let (hwnd, old, next) = STATE.with(|cell| {
-        let mut state = cell.borrow_mut();
-        let s = state.as_mut().unwrap();
-        let old = s.preferences.clone();
-        for (key, value) in fields {
-            if !RESERVED.contains(&key) {
-                s.preferences.values.insert(key.into(), value);
-            }
-        }
-        (s.hwnd, old, s.preferences.clone())
-    });
-    if old != next {
-        update(hwnd, &old, &next);
-    }
-}
-
-fn with_reservations(current: &Preferences, requested: &Preferences) -> Preferences {
-    let mut next = current.clone();
-    for &key in RESERVED {
-        next.values.insert(key.to_owned(), requested.get(key));
-    }
-    next
-}
-
 pub(super) fn prepare(token: u64, next: Preferences) -> Result<(), String> {
     let (hwnd, old, previous) = STATE.with(|cell| {
         let state = cell.borrow();
@@ -55,7 +20,6 @@ pub(super) fn prepare(token: u64, next: Preferences) -> Result<(), String> {
         }
         Ok((s.hwnd, s.hotkeys.clone(), s.preferences.clone()))
     })?;
-    let next = with_reservations(&previous, &next);
     let keys = if changed(
         &previous,
         &next,
@@ -68,45 +32,37 @@ pub(super) fn prepare(token: u64, next: Preferences) -> Result<(), String> {
     STATE.with(|cell| {
         let mut state = cell.borrow_mut();
         let s = state.as_mut().unwrap();
-        s.preferences = next.clone();
-        s.hotkeys = keys;
-        s.pending_settings = Some((token, previous.clone(), old));
+        // Reserve prospective bindings, but continue dispatching the saved ones.
+        s.pending_settings = Some((token, next, keys));
     });
-    if previous != next {
-        update(hwnd, &previous, &next);
-    }
     Ok(())
 }
 
 pub(super) fn finish(token: u64, success: bool) {
-    let rollback = STATE.with(|cell| {
+    let change = STATE.with(|cell| {
         let mut state = cell.borrow_mut();
         let s = state.as_mut().unwrap();
         if s.pending_settings.as_ref()?.0 != token {
             return None;
         }
-        let (_, previous, mut obsolete) = s.pending_settings.take()?;
-        let rollback = if success {
-            None
+        let (_, next, mut released) = s.pending_settings.take()?;
+        let change = if success {
+            std::mem::swap(&mut s.hotkeys, &mut released);
+            let old = std::mem::replace(&mut s.preferences, next);
+            Some((s.hwnd, old, s.preferences.clone()))
         } else {
-            std::mem::swap(&mut s.hotkeys, &mut obsolete);
-            let restored = with_reservations(&s.preferences, &previous);
-            Some((
-                s.hwnd,
-                std::mem::replace(&mut s.preferences, restored.clone()),
-                restored,
-            ))
+            None
         };
-        for (id, value) in obsolete {
+        for (id, value) in released {
             if value.is_some() && !s.hotkeys.iter().any(|key| key.0 == id) {
                 unsafe {
                     UnregisterHotKey(s.hwnd, id);
                 }
             }
         }
-        rollback
+        change
     });
-    if let Some((hwnd, old, next)) = rollback {
+    if let Some((hwnd, old, next)) = change {
         update(hwnd, &old, &next);
     }
 }

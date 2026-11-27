@@ -56,7 +56,8 @@ pub(super) fn slow_writes_and_conflict() {
         assert_ne!(PostMessageW(row, WM_KEYDOWN, 13, 0), 0);
         let query = GetDlgItem(launcher, 1001);
         let results = GetDlgItem(launcher, 1002);
-        wait(|| SendMessageW(results, LB_GETITEMHEIGHT, 0, 0) == 30);
+        wait(|| text(row) == "30");
+        assert_eq!(SendMessageW(results, LB_GETITEMHEIGHT, 0, 0), 22);
         command(launcher, 18001);
         assert_eq!(IsWindowVisible(launcher), 0);
         command(launcher, 18012);
@@ -74,6 +75,7 @@ pub(super) fn slow_writes_and_conflict() {
             "UI stalled during a delayed settings write"
         );
         assert_eq!(std::fs::read_to_string(&ini).unwrap(), original);
+        assert_eq!(SendMessageW(results, LB_GETITEMHEIGHT, 0, 0), 22);
         command(dialog, 2314);
         assert_eq!(IsWindowVisible(dialog), 0);
         command(launcher, 18005);
@@ -89,6 +91,7 @@ pub(super) fn slow_writes_and_conflict() {
         let row = setting(dialog, "RowHeight");
         assert_eq!(text(row), "32");
         let row_height = SendMessageW(results, LB_GETITEMHEIGHT, 0, 0);
+        assert_eq!(row_height, 32);
         let mut external = std::fs::read_to_string(&ini).unwrap();
         external.push_str("\n[Synthetic]\nExternalEdit=keep\n");
         std::fs::write(&ini, &external).unwrap();

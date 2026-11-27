@@ -7,7 +7,6 @@ use std::time::Duration;
 
 pub(super) const READY: u32 = WM_APP + 44;
 pub(super) const EXIT: u32 = WM_APP + 45;
-const TIMER: usize = 17291;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum After {
@@ -25,7 +24,6 @@ pub(super) struct Writes {
     sender: mpsc::Sender<Update>,
     results: mpsc::Receiver<Result<(), String>>,
     active: Option<Preferences>,
-    scheduled: bool,
     after: Option<After>,
 }
 
@@ -76,67 +74,33 @@ impl Writes {
             sender,
             results,
             active: None,
-            scheduled: false,
             after: None,
         })
     }
 }
 
-fn publish_edits(s: &Editor, previous: &Preferences, next: &Preferences) {
-    let edits = SPECS
-        .iter()
-        .filter(|spec| previous.values.get(spec.key) != next.values.get(spec.key))
-        .map(|spec| (spec.key, next.get(spec.key)))
-        .collect();
-    if s.sender.send(Change::Live(edits)).is_ok() {
-        unsafe {
-            PostMessageW(s.owner as HWND, UPDATED, 0, 0);
-        }
-    }
-}
-
 pub(super) fn submit(prefs: Preferences) {
-    let schedule = EDITOR.with(|cell| {
+    let window = EDITOR.with(|cell| {
         let mut state = cell.borrow_mut();
         let s = state.as_mut()?;
         if s.loading_form || s.draft == prefs {
             return None;
         }
-        publish_edits(s, &s.draft, &prefs);
         s.draft = prefs;
-        if s.writes.active.is_some() || s.writes.scheduled {
-            return None;
-        }
-        s.writes.scheduled = true;
         Some(s.hwnd)
     });
-    if let Some(hwnd) = schedule {
+    if let Some(hwnd) = window {
         status("");
-        // A fixed short window merges spin/trackbar repeats without starving a continuous drag.
-        if unsafe { SetTimer(hwnd, TIMER, 32, None) } == 0 {
-            dispatch(hwnd);
-        }
+        dispatch(hwnd);
     }
-}
-
-pub(super) fn timer(hwnd: HWND, id: usize) -> bool {
-    if id != TIMER {
-        return false;
-    }
-    dispatch(hwnd);
-    true
 }
 
 fn dispatch(hwnd: HWND) {
-    unsafe {
-        KillTimer(hwnd, TIMER);
-    }
     let failure = EDITOR.with(|cell| {
         let mut state = cell.borrow_mut();
         let Some(s) = state.as_mut() else {
             return false;
         };
-        s.writes.scheduled = false;
         if s.writes.active.is_some() || s.saved == s.draft {
             return false;
         }
@@ -192,7 +156,6 @@ pub(super) fn completed(hwnd: HWND) {
     });
     let failed = failure.is_some();
     if let Some((before, corrected, detail)) = failure {
-        EDITOR.with(|c| publish_edits(c.borrow().as_ref().unwrap(), &before, &corrected));
         form::restore_fields(&before, &corrected);
         update_preview();
         let message =

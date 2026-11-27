@@ -15,7 +15,7 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 
 1. 从 [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases) 获取便携 ZIP，解压到有写入权限的文件夹，然后运行 `ALTRunNext.exe`。
 2. 按 **Alt+R** 打开启动面板，使用 **↑ / ↓** 选择结果，按 **Enter** 启动，按 **Esc** 收起面板。
-3. 右键单击托盘图标，选择「管理启动项」添加项目，或打开「设置」调整快捷键、语言、主题和呼出声音。设置更改自动保存；手动输入数值后，按 Enter 或离开输入框即可应用。
+3. 右键单击托盘图标，选择「管理启动项」添加项目，或打开「设置」调整快捷键、语言、主题和呼出声音。设置会在后台自动保存，写入成功后生效。手动输入数值后，按 Enter 或离开输入框即可应用。
 
 试装版也提供 NSIS 安装包。首次默认安装到 `C:\Program Files\ALTRunNext`，覆盖安装沿用此前目录。首次安装默认启用登录 Windows 时启动、添加到「发送到」菜单和安装完成后打开。开始菜单和桌面快捷方式均可按需勾选。覆盖升级保留现有快捷方式和系统集成选择。更新前请先保存并从托盘退出。安装版将个人数据写入 `%LOCALAPPDATA%\ALTRunNext`，便携版写在 EXE 同级。可通过「备份与恢复」在两者之间迁移。在 Windows「已安装的应用」中卸载时，默认保留个人数据，勾选清除选项可移除当前用户的安装版数据。
 
@@ -52,7 +52,7 @@ ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, t
 
 1. Get the portable ZIP from [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases), extract it to a writable folder, and run `ALTRunNext.exe`.
 2. Press **Alt+R** to open the launcher, **↑ / ↓** to select a result, **Enter** to launch it, and **Esc** to hide the panel.
-3. Right-click the tray icon to manage launch items or open Settings. Settings include hotkeys, language, theme, and the popup sound. Changes save automatically. Press Enter or leave a numeric field to apply a typed value.
+3. Right-click the tray icon to manage launch items or open Settings. Settings include hotkeys, language, theme, and the popup sound. Changes are saved in the background and take effect once written. Press Enter or leave a numeric field to apply a typed value.
 
 Trial builds also include an NSIS installer. It defaults to `C:\Program Files\ALTRunNext` and remembers the installation directory for upgrades. First-time setup selects launch at Windows sign-in, Send to integration and opening the app after installation by default. Start menu and desktop shortcuts are opt-in. Upgrades keep existing shortcuts and Windows integrations. Save your work and exit from the tray before updating. The installed app stores personal data in `%LOCALAPPDATA%\ALTRunNext`. Portable copies store data beside the executable. Use **Backup and restore** to transfer data. Uninstall from Windows **Installed apps** to keep your profile by default, or select the checkbox to remove the current user's installed data.
 
