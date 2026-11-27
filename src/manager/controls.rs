@@ -110,12 +110,11 @@ pub(super) fn create(
         };
         let close_caption = control("BUTTON", "ui.close", WS_TABSTOP, 0, 0, 0, 0, CAPTION_CLOSE);
         crate::ui::style_caption_close(close_caption);
-        let title = control("STATIC", "ui.manage_shortcuts", 0, 280, 12, 300, 25, 0);
+        let title = control("STATIC", "ui.edit_shortcut", 0, 280, 12, 300, 25, 0);
         control("BUTTON", "ui.add", WS_TABSTOP, 12, 12, 116, 30, NEW_MENU);
         control(
             "BUTTON", "ui.tools", WS_TABSTOP, 138, 12, 124, 30, TOOLS_MENU,
         );
-        SetWindowTextW(title, ui("ui.edit_shortcut").as_ptr());
         SendMessageW(title, WM_SETFONT, heading as WPARAM, 0);
         let filter = control(
             "EDIT",
@@ -133,6 +132,7 @@ pub(super) fn create(
             1,
             ui("ui.filter_launch_items").as_ptr() as LPARAM,
         );
+        crate::ui::language::cue(filter, "ui.filter_launch_items", 1);
         let filter_hint = control(
             "STATIC",
             "ui.filtered_launch_item",
@@ -239,6 +239,7 @@ pub(super) fn create(
             220,
             KIND,
         );
+        crate::ui::language::combo(kind, PARAMETER_CHOICES.iter().map(|(_, label)| *label));
         for (_, label) in PARAMETER_CHOICES {
             SendMessageW(
                 kind,

@@ -82,7 +82,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             OWNER_STATIC,
             status_left,
             layout::FOOTER_BUTTON_Y,
-            854 - status_left,
+            992 - status_left,
             layout::FOOTER_BUTTON_HEIGHT,
             STATUS,
         );
@@ -192,6 +192,15 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             ),
         ] {
             let child = control("STATIC", label, style, x, y, width, height, id);
+            if id == ABOUT_SECONDARY {
+                ui::language::dynamic_caption(child, || {
+                    format!(
+                        "{} {}",
+                        localization::tr("about.version"),
+                        env!("CARGO_PKG_VERSION")
+                    )
+                });
+            }
             SendMessageW(child, WM_SETFONT, face as usize, 0);
             extra_controls.push((about_page, child));
         }
@@ -329,8 +338,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         for (label, id, x, width) in [
             ("ui.reset_defaults", 2311, 17, 132),
             ("backup.section", BACKUP_MENU, 157, backup_width),
-            ("ui.close", 2314, 862, 85),
-            ("ui.save_and_apply", 2310, 955, 130),
+            ("ui.close", 2314, 1000, 85),
         ] {
             let button = control(
                 "BUTTON",
@@ -342,7 +350,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
                 layout::FOOTER_BUTTON_HEIGHT,
                 id,
             );
-            if id == 2310 {
+            if id == 2314 {
                 SendMessageW(button, WM_SETFONT, section_font as usize, 0);
             }
         }
@@ -521,6 +529,9 @@ fn create_fields(
                         );
                         SendMessageW(handle, CB_SETITEMHEIGHT, 0, scaled(34, dpi) as isize);
                         ui::style_combo(handle, dpi);
+                        if !options.is_empty() {
+                            ui::language::combo(handle, options.iter().map(|(_, label)| *label));
+                        }
                         for (_, title) in options {
                             SendMessageW(handle, CB_ADDSTRING, 0, ui(title).as_ptr() as isize);
                         }

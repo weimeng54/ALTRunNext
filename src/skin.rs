@@ -9,7 +9,6 @@ use windows_sys::Win32::{Foundation::RECT, Graphics::Gdi::*};
 pub struct Request {
     path: PathBuf,
     tint: u32,
-    strength: i32,
 }
 
 impl Request {
@@ -36,13 +35,13 @@ impl Request {
                 .unwrap_or(std::path::Path::new("."))
                 .join(path),
             tint,
-            strength,
         })
     }
 }
 
 pub struct Bitmap {
     handle: usize,
+    tint: u32,
     width: i32,
     height: i32,
 }
@@ -71,7 +70,7 @@ fn cover(source: (i32, i32), destination: (i32, i32), position: &str) -> (i32, i
 }
 
 impl Bitmap {
-    pub fn draw(&self, dc: HDC, rect: RECT, position: &str) {
+    pub fn draw(&self, dc: HDC, rect: RECT, position: &str, strength: i32) {
         let width = rect.right - rect.left;
         let height = rect.bottom - rect.top;
         if width <= 0 || height <= 0 {
@@ -84,13 +83,17 @@ impl Bitmap {
                 return;
             }
             let old = SelectObject(memory, self.handle as HBITMAP);
-            let mode = SetStretchBltMode(dc, HALFTONE);
-            StretchBlt(
-                dc, rect.left, rect.top, width, height, memory, x, y, w, h, SRCCOPY,
+            // Keep the decoded bitmap while the user drags the strength slider.
+            crate::ui::fill(dc, &rect, self.tint);
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: ((strength.clamp(0, 100) * 34 * 255 + 5000) / 10000) as u8,
+                AlphaFormat: 0,
+            };
+            GdiAlphaBlend(
+                dc, rect.left, rect.top, width, height, memory, x, y, w, h, blend,
             );
-            if mode != 0 {
-                SetStretchBltMode(dc, mode);
-            }
             SelectObject(memory, old);
             DeleteDC(memory);
         }
@@ -168,12 +171,12 @@ pub fn load(request: &Request) -> Result<Bitmap, String> {
             {
                 Err("ui.could_not_create_the_background_image".into())
             } else {
-                let bitmap = Bitmap {
+                Ok(Bitmap {
                     handle: bitmap as usize,
+                    tint: rgb,
                     width: w as i32,
                     height: h as i32,
-                };
-                blend(bitmap, rgb, request.strength)
+                })
             }
         };
         if !thumbnail.is_null() {
@@ -184,60 +187,6 @@ pub fn load(request: &Request) -> Result<Bitmap, String> {
         }
         GdiplusShutdown(token);
         result
-    }
-}
-
-fn blend(bitmap: Bitmap, tint: u32, strength: i32) -> Result<Bitmap, String> {
-    let alpha = strength as u32 * 34;
-    let mut pixels = vec![0u32; (bitmap.width * bitmap.height) as usize];
-    unsafe {
-        let dc = CreateCompatibleDC(null_mut());
-        if dc.is_null() {
-            return Err("ui.could_not_create_the_background_image".into());
-        }
-        let mut info: BITMAPINFO = std::mem::zeroed();
-        info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        info.bmiHeader.biWidth = bitmap.width;
-        info.bmiHeader.biHeight = bitmap.height;
-        info.bmiHeader.biPlanes = 1;
-        info.bmiHeader.biBitCount = 32;
-        let handle = bitmap.handle as HBITMAP;
-        let rows = bitmap.height as u32;
-        let ok = GetDIBits(
-            dc,
-            handle,
-            0,
-            rows,
-            pixels.as_mut_ptr() as _,
-            &mut info,
-            DIB_RGB_COLORS,
-        ) == bitmap.height;
-        let ok = ok && {
-            for pixel in &mut pixels {
-                let mix = |shift: u32| {
-                    (((*pixel >> shift) & 255) * alpha
-                        + ((tint >> (16 - shift)) & 255) * (10000 - alpha)
-                        + 5000)
-                        / 10000
-                };
-                *pixel = mix(16) << 16 | mix(8) << 8 | mix(0);
-            }
-            SetDIBits(
-                dc,
-                handle,
-                0,
-                rows,
-                pixels.as_ptr() as _,
-                &info,
-                DIB_RGB_COLORS,
-            ) == bitmap.height
-        };
-        DeleteDC(dc);
-        if ok {
-            Ok(bitmap)
-        } else {
-            Err("ui.could_not_process_the_background_image".into())
-        }
     }
 }
 
@@ -254,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_and_tints_a_background_bitmap() {
+    fn decodes_a_background_bitmap() {
         let folder = std::env::current_dir().unwrap().join("target/skin-fixture");
         std::fs::create_dir_all(&folder).unwrap();
         let path = folder.join("image.bmp");
@@ -272,7 +221,6 @@ mod tests {
         let image = load(&Request {
             path,
             tint: 0x251e19,
-            strength: 68,
         })
         .unwrap();
         assert_eq!((image.width, image.height), (2, 2));

@@ -12,6 +12,7 @@ pub(super) fn text(hwnd: HWND) -> String {
 }
 
 pub(super) fn status(message: &str) {
+    let key = message;
     let hwnd = EDITOR.with(|c| c.borrow().as_ref().unwrap().status);
     unsafe {
         let message = crate::localization::tr(message);
@@ -20,6 +21,7 @@ pub(super) fn status(message: &str) {
             InvalidateRect(hwnd, std::ptr::null(), 0);
         }
     }
+    ui::language::caption(hwnd, key);
 }
 
 pub(super) fn fields() -> Vec<Field> {
@@ -41,57 +43,80 @@ pub(super) fn load_form(prefs: &Preferences) {
         s.draft = prefs.clone();
         s.loading_form = true;
     });
-    for (spec, field) in SPECS.iter().zip(fields()) {
-        if field.value.is_null() {
-            continue;
+    for index in 0..SPECS.len() {
+        load_field(index, prefs);
+    }
+    refresh_related_controls(prefs);
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading_form = false);
+}
+
+pub(super) fn restore_fields(old: &Preferences, new: &Preferences) {
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading_form = true);
+    for (index, spec) in SPECS.iter().enumerate() {
+        if old.get(spec.key) != new.get(spec.key) {
+            load_field(index, new);
         }
-        let value = prefs.get(spec.key);
-        unsafe {
-            if spec.key == "Lang" {
-                load_language_choice(field.value, &value);
-            } else if spec.key == "BGStrength" {
-                SendMessageW(
-                    field.value,
-                    TBM_SETPOS,
-                    1,
-                    prefs.number("BGStrength") as isize,
-                );
-                strength_label(field, prefs.number("BGStrength"));
-            } else if matches!(spec.kind, Kind::Font) {
-                if let Ok(font) = altrun_probe::preferences::Font::parse(&value) {
-                    SetWindowTextW(field.value, wide(&font.size_dip().to_string()).as_ptr());
+    }
+    refresh_related_controls(new);
+    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading_form = false);
+}
+
+fn load_field(index: usize, prefs: &Preferences) {
+    let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().fields[index]);
+    let spec = &SPECS[index];
+    if field.value.is_null() {
+        return;
+    }
+    let value = prefs.get(spec.key);
+    unsafe {
+        if spec.key == "Lang" {
+            load_language_choice(field.value, &value);
+        } else if spec.key == "BGStrength" {
+            let strength = prefs.number("BGStrength");
+            if SendMessageW(field.value, TBM_GETPOS, 0, 0) != strength as isize {
+                SendMessageW(field.value, TBM_SETPOS, 1, strength as isize);
+            }
+            strength_label(field, strength);
+        } else if matches!(spec.kind, Kind::Font) {
+            if let Ok(font) = altrun_probe::preferences::Font::parse(&value) {
+                let size = font.size_dip().to_string();
+                if text(field.value) != size {
+                    SetWindowTextW(field.value, wide(&size).as_ptr());
                 }
-            } else if switch_field(spec) {
-                SendMessageW(
-                    field.value,
-                    BM_SETCHECK,
-                    usize::from(matches!(value.as_str(), "1" | "remember")),
-                    0,
-                );
-            } else if let Some(index) = choices(spec.key).iter().position(|(key, _)| *key == value)
-            {
-                SendMessageW(field.value, CB_SETCURSEL, index, 0);
-            } else {
+            }
+        } else if switch_field(spec) {
+            SendMessageW(
+                field.value,
+                BM_SETCHECK,
+                usize::from(matches!(value.as_str(), "1" | "remember")),
+                0,
+            );
+        } else if let Some(index) = choices(spec.key).iter().position(|(key, _)| *key == value) {
+            SendMessageW(field.value, CB_SETCURSEL, index, 0);
+        } else {
+            if text(field.value) != value {
                 SetWindowTextW(field.value, wide(&value).as_ptr());
-                if spec.key.ends_with("Color") {
-                    InvalidateRect(field.pick, std::ptr::null(), 0);
-                }
+            }
+            if spec.key.ends_with("Color") {
+                InvalidateRect(field.pick, std::ptr::null(), 0);
             }
         }
     }
+}
+
+fn refresh_related_controls(prefs: &Preferences) {
     refresh_font_family(prefs);
     sync_sound_picker(prefs.flag("PlayPopupNotify"));
     let window = EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd);
     unsafe {
-        for id in SEGMENT..SEGMENT + 3 {
+        for id in (SEGMENT..SEGMENT + 5).chain(SOLID_DEFAULT..=SOLID_PICK) {
             InvalidateRect(GetDlgItem(window, id as i32), std::ptr::null(), 0);
         }
     }
-    EDITOR.with(|c| c.borrow_mut().as_mut().unwrap().loading_form = false);
     update_background_mode();
 }
 
-fn load_language_choice(combo: HWND, selected: &str) {
+pub(super) fn load_language_choice(combo: HWND, selected: &str) {
     let mut languages = localization::options().0;
     let index = languages
         .iter()
@@ -120,83 +145,94 @@ pub(super) fn sync_sound_picker(enabled: bool) {
     }
 }
 
-pub(super) fn read_form() -> Result<Preferences, (usize, String)> {
-    let mut prefs = EDITOR.with(|c| c.borrow().as_ref().unwrap().draft.clone());
-    for (index, (spec, field)) in SPECS.iter().zip(fields()).enumerate() {
-        if field.value.is_null() {
-            continue;
-        }
-        let value = if matches!(spec.kind, Kind::Font) {
-            altrun_probe::preferences::Font::resized(&prefs.get(spec.key), &text(field.value))
-                .map_err(|error| (index, error))?
-        } else if spec.key == "BGStrength" {
-            text(unsafe { GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32) })
-        } else if switch_field(spec) {
-            let checked = unsafe { SendMessageW(field.value, BM_GETCHECK, 0, 0) != 0 };
-            match (spec.key, checked) {
-                ("PositionMode", true) => "remember",
-                ("PositionMode", false) => "center",
-                (_, true) => "1",
-                (_, false) => "0",
-            }
-            .to_owned()
-        } else if spec.key == "Lang" {
-            let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
-            EDITOR
-                .with(|c| {
-                    c.borrow()
-                        .as_ref()
-                        .unwrap()
-                        .languages
-                        .get(selected as usize)
-                        .map(|(code, _)| code.clone())
-                })
-                .ok_or_else(|| (index, "ui.select_a_value".into()))?
-        } else if !choices(spec.key).is_empty() {
-            let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
-            choices(spec.key)
-                .get(selected as usize)
-                .map(|(value, _)| (*value).to_owned())
-                .ok_or_else(|| (index, "ui.select_a_value".into()))?
-        } else {
-            text(field.value)
-        };
-        prefs
-            .set(spec.key, &value)
-            .map_err(|error| (index, error))?;
-    }
-    Ok(prefs)
+pub(super) fn draft() -> Preferences {
+    EDITOR.with(|c| c.borrow().as_ref().unwrap().draft.clone())
 }
 
-pub(super) fn validated_form() -> Option<Preferences> {
-    match read_form() {
-        Ok(prefs) => Some(prefs),
-        Err((index, error)) => {
-            let field = fields()[index];
-            show_page(field.page);
-            unsafe {
-                SetFocus(field.value);
+fn read_field(index: usize, prefs: &mut Preferences) -> Result<(), String> {
+    let spec = &SPECS[index];
+    let field = EDITOR.with(|c| c.borrow().as_ref().unwrap().fields[index]);
+    let value = if matches!(spec.kind, Kind::Font) {
+        altrun_probe::preferences::Font::resized(&prefs.get(spec.key), &text(field.value))?
+    } else if spec.key == "BGStrength" {
+        text(unsafe { GetDlgItem(GetParent(field.value), STRENGTH_VALUE as i32) })
+    } else if switch_field(spec) {
+        let checked = unsafe { SendMessageW(field.value, BM_GETCHECK, 0, 0) != 0 };
+        match (spec.key, checked) {
+            ("PositionMode", true) => "remember",
+            ("PositionMode", false) => "center",
+            (_, true) => "1",
+            (_, false) => "0",
+        }
+        .to_owned()
+    } else if spec.key == "Lang" {
+        let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
+        EDITOR
+            .with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .languages
+                    .get(selected as usize)
+                    .map(|(code, _)| code.clone())
+            })
+            .ok_or_else(|| "ui.select_a_value".to_owned())?
+    } else if !choices(spec.key).is_empty() {
+        let selected = unsafe { SendMessageW(field.value, CB_GETCURSEL, 0, 0) };
+        choices(spec.key)
+            .get(selected as usize)
+            .map(|(value, _)| (*value).to_owned())
+            .ok_or_else(|| "ui.select_a_value".to_owned())?
+    } else {
+        text(field.value)
+    };
+    prefs.set(spec.key, &value)
+}
+
+pub(super) fn commit_fields(keys: &[&str]) {
+    if !EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form)) {
+        return;
+    }
+    let old = draft();
+    let mut prefs = old.clone();
+    for key in keys {
+        if let Err(error) = read_field(spec_index(key), &mut prefs) {
+            for key in keys {
+                load_field(spec_index(key), &old);
             }
             status(&error);
-            None
+            return;
         }
+    }
+    for &key in keys {
+        let index = spec_index(key);
+        let spec = &SPECS[index];
+        if matches!(spec.kind, Kind::Font | Kind::Number(..)) {
+            load_field(index, &prefs);
+        }
+    }
+    if old != prefs {
+        super::apply::submit(prefs);
+        update_preview();
     }
 }
 
-pub(super) fn form_is_dirty() -> bool {
-    read_form().map_or(true, |prefs| {
-        EDITOR.with(|c| c.borrow().as_ref().unwrap().saved != prefs)
-    })
+pub(super) fn edit_key(hwnd: HWND, control: HWND) -> Option<&'static str> {
+    if control.is_null() || unsafe { GetParent(control) } != hwnd {
+        return None;
+    }
+    let id = unsafe { GetDlgCtrlID(control) } as usize;
+    if id == STRENGTH_VALUE {
+        return Some("BGStrength");
+    }
+    let spec = SPECS.get(id.checked_sub(FIELD)?)?;
+    (matches!(spec.kind, Kind::Font | Kind::Number(..)) && spec.key != "BGStrength")
+        .then_some(spec.key)
 }
 
-pub(super) fn sync_save_button(window: HWND) {
-    let about = EDITOR.with(|c| c.borrow().as_ref().unwrap().page == layout::ABOUT_PAGE);
-    let enabled = !about || form_is_dirty();
-    unsafe {
-        let button = GetDlgItem(window, 2310);
-        if (IsWindowEnabled(button) != 0) != enabled {
-            EnableWindow(button, i32::from(enabled));
-        }
+pub(super) fn finish_edit(hwnd: HWND) {
+    if let Some(key) = edit_key(hwnd, unsafe { GetFocus() }) {
+        commit_fields(&[key]);
     }
 }
 

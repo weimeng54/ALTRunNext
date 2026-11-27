@@ -147,103 +147,13 @@ pub(super) fn apply_settings_messages() {
                     DestroyWindow(hwnd);
                 }
             }
+            crate::settings::Change::Live(fields) => super::settings_change::live(fields),
             crate::settings::Change::Prepare(token, prefs, reply) => {
-                let (hwnd, old, previous, pending) = STATE.with(|c| {
-                    let s = c.borrow();
-                    let s = s.as_ref().unwrap();
-                    (
-                        s.hwnd,
-                        s.hotkeys.clone(),
-                        s.preferences.clone(),
-                        s.pending_settings.is_some(),
-                    )
-                });
-                if pending {
-                    let _ = reply.send(Err("ui.another_settings_change_is_in_progress".into()));
-                    continue;
-                }
-                match register_bindings(hwnd, &prefs, &old, BindingUpdate::Settings(&previous)) {
-                    Ok(keys) => {
-                        STATE.with(|c| {
-                            c.borrow_mut().as_mut().unwrap().pending_settings =
-                                Some((token, prefs, keys))
-                        });
-                        let _ = reply.send(Ok(()));
-                    }
-                    Err(e) => {
-                        let _ = reply.send(Err(e));
-                    }
-                }
+                let _ = reply.send(super::settings_change::prepare(token, prefs));
             }
-            crate::settings::Change::Commit(token) => {
-                let needs_full_refresh = STATE.with(|c| {
-                    let mut s = c.borrow_mut();
-                    let s = s.as_mut().unwrap();
-                    if !s.pending_settings.as_ref().is_some_and(|p| p.0 == token) {
-                        return false;
-                    }
-                    let (_, prefs, keys) = s.pending_settings.take().unwrap();
-                    for (id, value) in &s.hotkeys {
-                        if value.is_some() && !keys.iter().any(|v| v.0 == *id) {
-                            unsafe {
-                                UnregisterHotKey(s.hwnd, *id);
-                            }
-                        }
-                    }
-                    let appearance_only = ["Theme", "MenuFont"]
-                        .iter()
-                        .any(|key| s.preferences.get(key) != prefs.get(key))
-                        && altrun_probe::preferences::SPECS.iter().all(|spec| {
-                            matches!(spec.key, "Theme" | "MenuFont")
-                                || s.preferences.get(spec.key) == prefs.get(spec.key)
-                        });
-                    theme::publish(&prefs);
-                    s.preferences = prefs;
-                    (
-                        s.context.base_directory,
-                        s.context.base_is_working_directory,
-                    ) = working_directory(&s.preferences, &s.data_path);
-                    s.context.allow_dynamic_target = s.preferences.flag("AllowDynamicTarget");
-                    crate::manager::configure_context(
-                        s.context.clone(),
-                        s.preferences.flag("EnglishSearch"),
-                    );
-                    s.hotkeys = keys;
-                    !appearance_only
-                });
-                if needs_full_refresh {
-                    let language =
-                        STATE.with(|c| c.borrow().as_ref().unwrap().preferences.get("Lang"));
-                    crate::localization::set_active(&language);
-                    let (owner, empty) = STATE.with(|c| {
-                        let state = c.borrow();
-                        let state = state.as_ref().unwrap();
-                        (state.hwnd, state.empty)
-                    });
-                    unsafe {
-                        SetWindowTextW(empty, ui("ui.press_enter_to_add_launch_item").as_ptr());
-                    }
-                    update_caption_button_labels(owner);
-                    apply_appearance();
-                    refresh();
-                    update_search_ime(true);
-                }
-            }
-            crate::settings::Change::Cancel(token) => {
-                STATE.with(|c| {
-                    let mut s = c.borrow_mut();
-                    let s = s.as_mut().unwrap();
-                    if s.pending_settings.as_ref().is_some_and(|p| p.0 == token) {
-                        let (_, _, keys) = s.pending_settings.take().unwrap();
-                        for (id, value) in keys {
-                            if value.is_some() && !s.hotkeys.iter().any(|v| v.0 == id) {
-                                unsafe {
-                                    UnregisterHotKey(s.hwnd, id);
-                                }
-                            }
-                        }
-                    }
-                });
+            crate::settings::Change::Finish(token, success, reply) => {
+                super::settings_change::finish(token, success);
+                let _ = reply.send(());
             }
         }
     }

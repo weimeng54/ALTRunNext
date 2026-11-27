@@ -288,12 +288,16 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM) -> LRESULT {
                         .map(|e| format!("{} · {}", e.alias, e.name))
                 });
                 if let Some(name) = name
-                    && confirm(
+                    && crate::ui::dialogs::input::confirm_details(
                         hwnd,
-                        &crate::localization::message(
-                            "ui.remove_name_from_the_draft_save_to",
-                            &[("name", &name)],
-                        ),
+                        "ui.manage_shortcuts",
+                        move || {
+                            crate::localization::message(
+                                "ui.remove_name_from_the_draft_save_to",
+                                &[("name", &name)],
+                            )
+                        },
+                        None,
                     )
                 {
                     EDITOR.with(|c| {

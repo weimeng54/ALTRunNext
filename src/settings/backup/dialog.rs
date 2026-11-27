@@ -44,12 +44,13 @@ const CAPTION: i32 = ui::geometry::CAPTION;
 const STATIC_LINE: u32 = ui::STATIC_CENTER_IMAGE | 0x80;
 
 pub(super) struct Options {
-    pub heading: String,
+    pub filename: String,
+    pub created: Option<String>,
     pub available: Contents,
     pub current: usize,
     pub incoming: usize,
     pub conflicts: Vec<(String, &'static str)>,
-    pub media: [(&'static str, String); 2],
+    pub media: [(&'static str, crate::ui::dialogs::input::ReportCell); 2],
 }
 
 struct Window<'a> {
@@ -57,6 +58,7 @@ struct Window<'a> {
     height: i32,
     first_row: i32,
     title: &'a str,
+    options: Option<&'a Options>,
     fonts: [HFONT; 3],
     event: Cell<usize>,
 }
@@ -81,6 +83,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             return DefWindowProcW(hwnd, msg, w, l);
         };
         match msg {
+            ui::language::CHANGED => {
+                refresh(hwnd, state.options);
+                0
+            }
             WM_ERASEBKGND => 1,
             WM_PAINT => {
                 let mut paint = PAINTSTRUCT::default();
@@ -195,6 +201,7 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
             height,
             first_row,
             title,
+            options: options.as_ref(),
             fonts: [null_mut(); 3],
             event: Cell::new(0),
         };
@@ -215,6 +222,7 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
         let result = if hwnd.is_null() {
             None
         } else {
+            ui::language::caption(hwnd, title);
             state.dpi = ui::window_frame::fit(hwnd, WIDTH, height);
             state.fonts = [(15, 400), (15, 600), (13, 400)]
                 .map(|(size, weight)| make_font(size, weight, "Microsoft YaHei UI", state.dpi));
@@ -244,27 +252,39 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
                 child
             };
             let action = |id, label, position| {
-                control(
+                let button = control(
                     "BUTTON",
                     id,
                     &tr(label),
                     WS_TABSTOP | BS_OWNERDRAW as u32,
                     0,
                     position,
-                )
+                );
+                ui::language::caption(button, label);
+                button
             };
             ui::style_caption_close(action(CLOSE, "ui.close", (WIDTH - 46, 0, 46, CAPTION)));
-            let heading = options
+            let source = options
                 .as_ref()
-                .map_or_else(|| tr("backup.saved_data"), |opts| opts.heading.clone());
-            control(
+                .map(|o| (o.filename.clone(), o.created.clone()));
+            let heading = move || match &source {
+                None => tr("backup.saved_data"),
+                Some((filename, None)) => filename.clone(),
+                Some((filename, Some(date))) => format!(
+                    "{} · {}",
+                    filename,
+                    message("backup.created", &[("date", date)])
+                ),
+            };
+            let label = control(
                 "STATIC",
                 0,
-                &heading,
+                &heading(),
                 STATIC_LINE,
                 0,
                 (20, 56, WIDTH - 40, 27),
             );
+            ui::language::dynamic_caption(label, heading);
             let sections = [
                 (ITEMS, "ui.shortcuts", available.items),
                 (SETTINGS, "backup.settings", available.settings),
@@ -283,34 +303,38 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
                     1,
                     (36, y + 8, 540, 25),
                 );
+                ui::language::caption(button, label);
                 if present {
                     SendMessageW(button, BM_SETCHECK, BST_CHECKED as usize, 0);
                 } else {
                     EnableWindow(button, 0);
                 }
-                let subtitle = if !present {
-                    tr("backup.not_available")
-                } else {
-                    match id {
-                        ITEMS => {
-                            message("backup.items_count", &[("count", &item_count.to_string())])
+                let subtitle = move || {
+                    if !present {
+                        tr("backup.not_available")
+                    } else {
+                        match id {
+                            ITEMS => {
+                                message("backup.items_count", &[("count", &item_count.to_string())])
+                            }
+                            SETTINGS => tr("backup.settings_contents"),
+                            _ => tr(if restore {
+                                "backup.history_matches"
+                            } else {
+                                "backup.history_contents"
+                            }),
                         }
-                        SETTINGS => tr("backup.settings_contents"),
-                        _ => tr(if restore {
-                            "backup.history_matches"
-                        } else {
-                            "backup.history_contents"
-                        }),
                     }
                 };
-                control(
+                let subtitle_hwnd = control(
                     "STATIC",
                     ITEM_INFO + row,
-                    &subtitle,
+                    &subtitle(),
                     STATIC_LINE,
                     2,
                     (63, y + 34, 518, 21),
                 );
+                ui::language::dynamic_caption(subtitle_hwnd, subtitle);
                 if id == ITEMS && show_modes {
                     for (mode_id, key, x, flags) in [
                         (APPEND, "ui.import_append_mode", 63, WS_TABSTOP | WS_GROUP),
@@ -324,6 +348,7 @@ fn open(owner: HWND, item_count: usize, options: Option<Options>) -> Option<Rest
                             0,
                             (x, y + 63, 245, 30),
                         );
+                        ui::language::caption(mode, key);
                         if mode_id == APPEND {
                             SendMessageW(mode, BM_SETCHECK, BST_CHECKED as usize, 0);
                         }

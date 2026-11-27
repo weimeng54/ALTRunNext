@@ -85,7 +85,7 @@ pub(super) fn record_key(vk: u32, modifiers: usize) -> bool {
             SetWindowTextW(field.value, wide(&value).as_ptr());
             InvalidateRect(field.value, std::ptr::null(), 0);
         }
-        status("ui.shortcut_changed_save_to_apply_it");
+        form::commit_fields(&[SPECS[recording.index].key]);
     }
     true
 }

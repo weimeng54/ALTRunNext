@@ -40,6 +40,9 @@ impl ChildControls {
                 self.instance,
                 std::ptr::null(),
             );
+            if class != "EDIT" {
+                super::language::caption(child, label);
+            }
             SendMessageW(child, WM_SETFONT, self.font as WPARAM, 0);
             child
         }

@@ -120,7 +120,7 @@ pub(super) fn open_settings() {
 }
 
 pub(super) fn open_settings_page(page: Option<usize>) {
-    let (path, prefs, hwnd, sender) = STATE.with(|c| {
+    let (path, prefs, hwnd, sender, safe_mode) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
         (
@@ -128,9 +128,10 @@ pub(super) fn open_settings_page(page: Option<usize>) {
             s.preferences.clone(),
             s.hwnd,
             s.settings_sender.clone(),
+            !s.enabled,
         )
     });
-    crate::settings::open(path, prefs, hwnd, sender, page);
+    crate::settings::open(path, prefs, hwnd, sender, page, safe_mode);
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
     }

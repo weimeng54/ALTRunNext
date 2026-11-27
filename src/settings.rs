@@ -41,8 +41,7 @@ use pages::{
 };
 mod form;
 use form::{
-    field, fields, form_is_dirty, load_form, read_form, report_language_packs, spec_index, status,
-    sync_save_button, sync_sound_picker, text, validated_form,
+    field, fields, load_form, report_language_packs, spec_index, status, sync_sound_picker, text,
 };
 mod hotkeys;
 use hotkeys::{cancel_capture, hotkey_proc, modifier_bits, record_key, stop_capture};
@@ -54,7 +53,7 @@ use appearance::{
     update_preview,
 };
 mod apply;
-use apply::apply;
+
 mod backup;
 mod layout;
 mod paint;
@@ -124,9 +123,9 @@ const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
 ];
 
 pub enum Change {
+    Live(Vec<(&'static str, String)>),
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
-    Commit(u64),
-    Cancel(u64),
+    Finish(u64, bool, mpsc::Sender<()>),
     FlushHistory(mpsc::Sender<mpsc::Receiver<Result<(), String>>>),
     BeginRestore(mpsc::Sender<Result<mpsc::Receiver<Result<(), String>>, String>>),
     CancelRestore,
@@ -253,7 +252,7 @@ struct Editor {
     draft: Preferences,
     fields: Vec<Field>,
     languages: Vec<(String, String)>,
-    file: TextFile,
+    writes: apply::Writes,
     data: PathBuf,
     sender: mpsc::Sender<Change>,
     owner: usize,
@@ -292,4 +291,17 @@ pub fn is_open() -> bool {
         1 => true,
         hwnd => unsafe { IsWindow(hwnd as HWND) != 0 },
     }
+}
+
+static EXIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn finish_before_exit() -> bool {
+    EXIT_REQUESTED.store(true, Ordering::Release);
+    let hwnd = WINDOW.load(Ordering::Acquire);
+    if hwnd > 1 {
+        unsafe {
+            PostMessageW(hwnd as HWND, apply::EXIT, 0, 0);
+        }
+    }
+    hwnd != 0
 }

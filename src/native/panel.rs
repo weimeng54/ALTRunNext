@@ -51,10 +51,12 @@ pub(super) fn show_inline_error(message: &str) {
         (s.hwnd, s.edit, s.inline_error)
     });
     unsafe {
+        let key = message;
         let message = crate::localization::tr(message)
             .replace("\r\n", "\n")
             .replace('\n', "\r\n");
         SetWindowTextW(error, wide(&message).as_ptr());
+        crate::ui::language::caption(error, key);
         layout_inline_error();
         show_focused(hwnd, edit);
     }
@@ -185,6 +187,10 @@ pub(super) fn result_label(entry: &Entry) -> Vec<u16> {
 }
 
 pub(super) fn render_hits() {
+    render_results(true);
+}
+
+pub(super) fn render_results(reset_scroll: bool) {
     let (hwnd, dpi, count) = STATE.with(|c| {
         let s = c.borrow();
         let s = s.as_ref().unwrap();
@@ -282,7 +288,7 @@ pub(super) fn render_hits() {
                     0,
                 );
             }
-        } else if count != 0 {
+        } else if reset_scroll && count != 0 {
             // A new query starts at the first result even if its rows are identical.
             if SendMessageW(list, LB_GETCURSEL, 0, 0) != 0 {
                 SendMessageW(list, LB_SETCURSEL, 0, 0);
@@ -430,7 +436,12 @@ pub(super) fn paint_title(hwnd: HWND, item: &DRAWITEMSTRUCT) {
                         item.rcItem.right,
                         item.rcItem.bottom,
                     );
-                    bitmap.draw(dc, rect, &s.preferences.get("BGCrop"));
+                    bitmap.draw(
+                        dc,
+                        rect,
+                        &s.preferences.get("BGCrop"),
+                        s.preferences.number("BGStrength"),
+                    );
                     RestoreDC(dc, old);
                 }
             }
@@ -453,7 +464,12 @@ pub(super) fn paint_panel(hwnd: HWND) {
             if let Some(bitmap) = &s.skin {
                 let mut rect: RECT = zeroed();
                 GetClientRect(hwnd, &mut rect);
-                bitmap.draw(dc, rect, &s.preferences.get("BGCrop"));
+                bitmap.draw(
+                    dc,
+                    rect,
+                    &s.preferences.get("BGCrop"),
+                    s.preferences.number("BGStrength"),
+                );
             }
             let old_brush = SelectObject(dc, s.input_paper);
             let old_pen = SelectObject(dc, s.border);
@@ -644,23 +660,7 @@ pub(super) fn apply_appearance() {
                 SW_HIDE
             },
         );
-        let has_hotkey = STATE.with(|c| {
-            let state = c.borrow();
-            state
-                .as_ref()
-                .unwrap()
-                .hotkeys
-                .iter()
-                .any(|h| h.1.is_some())
-        });
-        tray_icon(
-            hwnd,
-            if prefs.flag("ShowTrayIcon") || !has_hotkey {
-                NIM_ADD
-            } else {
-                NIM_DELETE
-            },
-        );
+        sync_tray(hwnd, &prefs);
         SendMessageW(
             list,
             LB_SETITEMHEIGHT,
@@ -676,6 +676,25 @@ pub(super) fn apply_appearance() {
             RDW_INVALIDATE | RDW_ALLCHILDREN,
         );
     }
+}
+
+pub(super) fn sync_tray(hwnd: HWND, prefs: &altrun_probe::preferences::Preferences) {
+    let has_hotkey = STATE.with(|c| {
+        c.borrow()
+            .as_ref()
+            .unwrap()
+            .hotkeys
+            .iter()
+            .any(|h| h.1.is_some())
+    });
+    tray_icon(
+        hwnd,
+        if prefs.flag("ShowTrayIcon") || !has_hotkey {
+            NIM_ADD
+        } else {
+            NIM_DELETE
+        },
+    );
 }
 
 fn load_skin() {

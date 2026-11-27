@@ -7,7 +7,7 @@ use super::{
 use crate::{
     localization::{message, tr},
     ui::{
-        dialogs::input::{PreviewLabels, Report, confirm_preview},
+        dialogs::input::{PreviewLabels, Report, ReportCell, confirm_preview},
         wide,
     },
 };
@@ -114,14 +114,14 @@ pub(super) fn details(hwnd: HWND, opts: &Options) {
         rows.extend(
             opts.media
                 .iter()
-                .map(|(label, value)| (tr(label), value.clone())),
+                .map(|(label, value)| (ReportCell::Key(label), value.clone())),
         );
     }
     if selection.contents.items && selection.items == RestoreItems::Append {
         rows.extend(
             opts.conflicts
                 .iter()
-                .map(|(alias, reason)| (alias.clone(), tr(reason))),
+                .map(|(alias, reason)| (ReportCell::Value(alias.clone()), ReportCell::Key(reason))),
         );
     }
     if !rows.is_empty() {
@@ -129,7 +129,7 @@ pub(super) fn details(hwnd: HWND, opts: &Options) {
             hwnd,
             "backup.details",
             Report {
-                summary: tr("backup.preview_details"),
+                summary: std::rc::Rc::new(|| tr("backup.preview_details")),
                 rows,
             },
             PreviewLabels {

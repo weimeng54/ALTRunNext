@@ -81,6 +81,20 @@ pub(super) unsafe extern "system" fn window_proc(
             0
         }
         WM_HOTKEY | SHOW => {
+            // The previous keys stay reserved for rollback while disk I/O is in flight.
+            if msg == WM_HOTKEY
+                && STATE.with(|c| {
+                    let state = c.borrow();
+                    let s = state.as_ref().unwrap();
+                    s.pending_settings.is_some()
+                        && !s
+                            .hotkeys
+                            .iter()
+                            .any(|key| key.0 == w as i32 && key.1.is_some())
+                })
+            {
+                return 0;
+            }
             let is_recent = msg == WM_HOTKEY
                 && STATE.with(|c| {
                     c.borrow()
@@ -250,6 +264,26 @@ pub(super) unsafe extern "system" fn window_proc(
             }
             if let Some(e) = errors.pop() {
                 show_inline_error(&e);
+            }
+            0
+        }
+        crate::ui::language::CHANGED => {
+            if let Some((edit, empty, hints)) = STATE.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .map(|s| (s.edit, s.empty, s.preferences.flag("ShowOperationHint")))
+            }) {
+                unsafe {
+                    SetWindowTextW(empty, ui("ui.press_enter_to_add_launch_item").as_ptr());
+                    SendMessageW(
+                        edit,
+                        EM_SETCUEBANNER,
+                        0,
+                        search_hint(hints).as_ptr() as LPARAM,
+                    );
+                }
+                update_caption_button_labels(hwnd);
+                super::search::refresh_selection_text();
             }
             0
         }
@@ -569,6 +603,9 @@ pub(super) unsafe extern "system" fn window_proc(
             0
         }
         QUIT => {
+            if crate::settings::finish_before_exit() {
+                return 0;
+            }
             unsafe {
                 DestroyWindow(hwnd);
             }

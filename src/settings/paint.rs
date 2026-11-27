@@ -213,13 +213,13 @@ pub(super) fn draw(item: &DRAWITEMSTRUCT) {
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
             ui::menu_button(item, dpi);
         } else {
-            let background = if (2310..=2314).contains(&id) {
+            let background = if matches!(id, 2311 | 2314) {
                 theme::chrome()
             } else {
                 theme::control_surface()
             };
             let dpi = EDITOR.with(|c| c.borrow().as_ref().map_or(96, |s| s.dpi));
-            ui::button_on(item, matches!(id, 2310 | OPEN_RELEASES), background, dpi);
+            ui::button_on(item, matches!(id, 2314 | OPEN_RELEASES), background, dpi);
         }
         return;
     }

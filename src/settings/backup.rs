@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 use super::*;
-use crate::ui::dialogs::input::{Choice, choose, confirm_details};
+use crate::ui::dialogs::input::confirm_details;
 use altrun_probe::{
     Entry,
     backup::{Backup, Contents, Media, RestoreSelection},
@@ -144,10 +144,11 @@ pub(super) fn menu(hwnd: HWND) {
 }
 
 pub(super) fn open(hwnd: HWND, restore: bool) {
-    begin(hwnd, restore);
+    form::finish_edit(hwnd);
+    apply::after_edits(hwnd, apply::After::Backup(restore));
 }
 
-fn begin(hwnd: HWND, restore: bool) -> bool {
+pub(super) fn begin(hwnd: HWND, restore: bool) -> bool {
     let (data, _, _) = context();
     let source = if restore {
         let Some(path) = selection(hwnd, false) else {
@@ -176,13 +177,16 @@ fn begin(hwnd: HWND, restore: bool) -> bool {
     true
 }
 
-fn media(value: Media, filename: Option<&str>, missing: &str) -> String {
+fn media(
+    value: Media,
+    filename: Option<&str>,
+    missing: &'static str,
+) -> crate::ui::dialogs::input::ReportCell {
+    use crate::ui::dialogs::input::ReportCell::{Key, Value};
     match value {
-        Media::Default => localization::tr("backup.default"),
-        Media::Missing => localization::tr(missing),
-        Media::Included => {
-            filename.map_or_else(|| localization::tr("backup.included"), str::to_owned)
-        }
+        Media::Default => Key("backup.default"),
+        Media::Missing => Key(missing),
+        Media::Included => filename.map_or_else(|| Key("backup.included"), |s| Value(s.to_owned())),
     }
 }
 
@@ -267,20 +271,12 @@ fn load_preview(
         .file_name()
         .unwrap_or(source.as_os_str())
         .to_string_lossy();
-    let heading = if backup.created() == 0 {
-        header.into_owned()
-    } else {
-        format!(
-            "{} · {}",
-            header,
-            localization::message("backup.created", &[("date", &date(backup.created()))],)
-        )
-    };
     let incoming = backup.launch_items()?;
     let item_count = incoming.len();
     let conflicts = altrun_probe::library::append_conflicts(&current, &incoming);
     let options = dialog::Options {
-        heading,
+        filename: header.into_owned(),
+        created: (backup.created() != 0).then(|| date(backup.created())),
         available: Contents {
             items: item_count != 0,
             ..contents
@@ -329,27 +325,6 @@ fn preview(hwnd: HWND, preview: RestorePreview) {
 
 fn restore(hwnd: HWND, backup: Backup, current: Vec<Entry>, selection: RestoreSelection) {
     let (data, settings, launcher) = context();
-    if form_is_dirty() {
-        match choose(
-            hwnd,
-            "backup.unsaved_title",
-            "backup.unsaved_settings",
-            "backup.save_continue",
-            "backup.discard_continue",
-        ) {
-            Choice::Primary => {
-                apply();
-                if form_is_dirty() {
-                    return;
-                }
-            }
-            Choice::Alternate => {}
-            Choice::Cancel => {
-                status("");
-                return;
-            }
-        }
-    }
     work(hwnd, move || {
         let result = flush(&settings, launcher, true).and_then(|()| {
             if !crate::manager::prepare_for_restore()? {
@@ -385,10 +360,16 @@ fn restore(hwnd: HWND, backup: Backup, current: Vec<Entry>, selection: RestoreSe
 }
 
 fn failed(hwnd: HWND, error: &str, restore: bool, pending: bool) {
-    let message = localization::message("backup.failed", &[("detail", &localization::tr(error))]);
-    status(&message);
+    let error = error.to_owned();
+    let message =
+        move || localization::message("backup.failed", &[("detail", &localization::tr(&error))]);
+    status(&message());
+    ui::language::dynamic_caption(
+        EDITOR.with(|c| c.borrow().as_ref().unwrap().status),
+        message.clone(),
+    );
     if pending {
-        let _ = confirm_details(hwnd, "backup.preview_restore", &message, "ui.close");
+        let _ = confirm_details(hwnd, "backup.preview_restore", message, Some("ui.close"));
         let (_, settings, launcher) = context();
         unsafe {
             DestroyWindow(hwnd);
@@ -400,7 +381,7 @@ fn failed(hwnd: HWND, error: &str, restore: bool, pending: bool) {
         } else {
             "backup.preview_create"
         };
-        while confirm_details(hwnd, title, &message, "backup.retry") {
+        while confirm_details(hwnd, title, message.clone(), Some("backup.retry")) {
             if begin(hwnd, restore) {
                 break;
             }

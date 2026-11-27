@@ -15,13 +15,13 @@ ALTRunNext 是一款面向 Windows 11（64 位）的轻量快捷启动器。按 
 
 1. 从 [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases) 获取便携 ZIP，解压到有写入权限的文件夹，然后运行 `ALTRunNext.exe`。
 2. 按 **Alt+R** 打开启动面板，使用 **↑ / ↓** 选择结果，按 **Enter** 启动，按 **Esc** 收起面板。
-3. 右键单击托盘图标，选择「管理启动项」添加项目，或打开「设置」调整快捷键、语言、主题和呼出声音。
+3. 右键单击托盘图标，选择「管理启动项」添加项目，或打开「设置」调整快捷键、语言、主题和呼出声音。设置更改自动保存；手动输入数值后，按 Enter 或离开输入框即可应用。
 
 试装版也提供 NSIS 安装包。首次默认安装到 `C:\Program Files\ALTRunNext`，覆盖安装沿用此前目录。首次安装默认启用登录 Windows 时启动、添加到「发送到」菜单和安装完成后打开。开始菜单和桌面快捷方式均可按需勾选。覆盖升级保留现有快捷方式和系统集成选择。更新前请先保存并从托盘退出。安装版将个人数据写入 `%LOCALAPPDATA%\ALTRunNext`，便携版写在 EXE 同级。可通过「备份与恢复」在两者之间迁移。在 Windows「已安装的应用」中卸载时，默认保留个人数据，勾选清除选项可移除当前用户的安装版数据。
 
 ### 添加和备份启动项
 
-- 在「设置 → 常规」开启并保存「添加 ALTRunNext 到发送到菜单」。在资源管理器中右键单击目标，选择「显示更多选项 → 发送到 → ALTRunNext」，确认后保存。文件可以使用系统默认应用，也可以为该启动项指定打开程序。在设置里关闭此选项即可移除菜单入口。
+- 在「设置 → 常规」开启「添加 ALTRunNext 到发送到菜单」。在资源管理器中右键单击目标，选择「显示更多选项 → 发送到 → ALTRunNext」，确认后保存。文件可以使用系统默认应用，也可以为该启动项指定打开程序。在设置里关闭此选项即可移除菜单入口。
 - 在管理窗口左侧搜索框按快捷项、名称或路径筛选。「工具 → 检查失效路径」可定位并修复找不到的本地目标。
 - 「工具 → 导入启动项」会识别 TSV 或原版 ALTRun 的 `ShortCutList.txt`，可追加或替换。「导入浏览器收藏夹」可从浏览器导出的 HTML 挑选网址。确认后点击「保存」应用。启动项导出为 TSV，设置的导入和导出使用 INI。
 - 设置窗口底栏的「备份与恢复」可选择将已保存的启动项、程序设置（含自定义背景和提示音）或使用记录打包为本地 ZIP。恢复启动项默认追加并跳过冲突，也可选择替换当前清单。
@@ -52,13 +52,13 @@ ALTRunNext is a lightweight launcher for Windows 11 (64-bit). Press **Alt+R**, t
 
 1. Get the portable ZIP from [GitHub Releases](https://github.com/weimeng54/ALTRunNext/releases), extract it to a writable folder, and run `ALTRunNext.exe`.
 2. Press **Alt+R** to open the launcher, **↑ / ↓** to select a result, **Enter** to launch it, and **Esc** to hide the panel.
-3. Right-click the tray icon to manage launch items or open Settings. Settings include hotkeys, language, theme, and the popup sound.
+3. Right-click the tray icon to manage launch items or open Settings. Settings include hotkeys, language, theme, and the popup sound. Changes save automatically. Press Enter or leave a numeric field to apply a typed value.
 
 Trial builds also include an NSIS installer. It defaults to `C:\Program Files\ALTRunNext` and remembers the installation directory for upgrades. First-time setup selects launch at Windows sign-in, Send to integration and opening the app after installation by default. Start menu and desktop shortcuts are opt-in. Upgrades keep existing shortcuts and Windows integrations. Save your work and exit from the tray before updating. The installed app stores personal data in `%LOCALAPPDATA%\ALTRunNext`. Portable copies store data beside the executable. Use **Backup and restore** to transfer data. Uninstall from Windows **Installed apps** to keep your profile by default, or select the checkbox to remove the current user's installed data.
 
 ### Adding and backing up launch items
 
-- In **Settings → General**, enable and save the Send To integration. In File Explorer, right-click a target and choose **Show more options → Send to → ALTRunNext**, then review and save the launch item. A file can open in the system default app or an app selected for that launch item. Turn off the setting to remove the menu entry.
+- In **Settings → General**, enable the Send To integration. In File Explorer, right-click a target and choose **Show more options → Send to → ALTRunNext**, then review and save the launch item. A file can open in the system default app or an app selected for that launch item. Turn off the setting to remove the menu entry.
 - Use the search field in the manager to filter by alias, name, or path. **Tools → Check missing paths** lets you locate and repair missing local targets.
 - **Tools → Import launch items** detects TSV or the original ALTRun `ShortCutList.txt` and offers to append or replace. **Import browser bookmarks** lets you select URLs from a browser-exported HTML file. Confirm the import and select **Save** to apply it. Exports use TSV for launch items and INI for settings.
 - **Backup and restore** in the Settings footer creates a local ZIP with your choice of saved launch items, program settings (including custom backgrounds and sounds), and usage history. Restoring launch items appends and skips conflicts by default, with an option to replace the list.

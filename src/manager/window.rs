@@ -280,6 +280,7 @@ pub(super) fn run(
         }
 
         let remembered = window_state();
+        crate::ui::language::caption(hwnd, "ui.altrunnext_manage_shortcuts");
         let dpi = crate::ui::window_frame::fit(hwnd, WIDTH, HEIGHT);
         let common = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,

@@ -115,7 +115,7 @@ impl Preview {
                 right: rect.right - 1,
                 bottom: rect.bottom - 1,
             };
-            bitmap.draw(item.hDC, inner, "center");
+            bitmap.draw(item.hDC, inner, "center", self.prefs.number("BGStrength"));
         }
     }
 
@@ -218,7 +218,12 @@ impl Preview {
                     );
                     if !region.is_null() {
                         ExtSelectClipRgn(dc, region, RGN_AND);
-                        bitmap.draw(dc, panel, &self.prefs.get("BGCrop"));
+                        bitmap.draw(
+                            dc,
+                            panel,
+                            &self.prefs.get("BGCrop"),
+                            self.prefs.number("BGStrength"),
+                        );
                         DeleteObject(region);
                     }
                     RestoreDC(dc, saved);

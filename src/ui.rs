@@ -7,6 +7,7 @@ mod child;
 pub(crate) mod dialogs;
 mod fields;
 pub(crate) mod geometry;
+pub(crate) mod language;
 pub(crate) mod menu_style;
 mod painting;
 pub(crate) mod popup_frame;

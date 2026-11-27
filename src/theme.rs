@@ -3,9 +3,7 @@
 
 //! Shared native theme; COLORREF values are written through rgb() to avoid BGR mistakes.
 mod windows;
-pub(crate) use windows::{
-    CHANGED, CHECK_PREVIEW, applied_mode, finish_preview, menu_font, preview_mode, publish, watch,
-};
+pub(crate) use windows::{CHANGED, applied_mode, menu_font, notify_language, publish, watch};
 
 pub const fn rgb(r: u32, g: u32, b: u32) -> u32 {
     r | (g << 8) | (b << 16)

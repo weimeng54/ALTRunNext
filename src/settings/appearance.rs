@@ -53,7 +53,11 @@ pub(super) fn set_colour(key: &str, value: &str) {
             }
         }
     }
-    update_preview();
+    if key == "TextColor" {
+        form::commit_fields(&[key, "UseCustomTextColor"]);
+    } else {
+        form::commit_fields(&[key]);
+    }
 }
 
 pub(super) fn choose_colour(hwnd: HWND, key: &str) {
@@ -206,22 +210,6 @@ pub(super) fn update_preview() {
     refresh_preview(false);
 }
 
-fn selected_theme() -> Option<&'static str> {
-    let selected = unsafe { SendMessageW(field("Theme").value, CB_GETCURSEL, 0, 0) };
-    choices("Theme")
-        .get(selected as usize)
-        .map(|(mode, _)| *mode)
-}
-
-pub(super) fn preview_window_theme(hwnd: HWND) {
-    if let Some(mode) = selected_theme() {
-        let saved = EDITOR.with(|state| state.borrow().as_ref().unwrap().saved.get("Theme"));
-        let preview =
-            (mode != saved || theme::applied_mode().as_deref() != Some(mode)).then_some(mode);
-        theme::preview_mode(hwnd, preview);
-    }
-}
-
 pub(super) fn refresh_preview(force: bool) {
     let (page, controls, dpi) = EDITOR.with(|c| {
         let editor = c.borrow();
@@ -231,18 +219,7 @@ pub(super) fn refresh_preview(force: bool) {
     if !force && !matches!(page, 3 | 4) {
         return;
     }
-    let prefs = match read_form() {
-        Ok(prefs) => prefs,
-        Err(_) if force => {
-            let mut prefs =
-                EDITOR.with(|state| state.borrow().as_ref().unwrap().preview.prefs.clone());
-            if let Some(mode) = selected_theme() {
-                let _ = prefs.set("Theme", mode);
-            }
-            prefs
-        }
-        Err(_) => return,
-    };
+    let prefs = form::draft();
     if !force
         && EDITOR.with(|c| {
             let state = c.borrow();
@@ -291,6 +268,10 @@ pub(super) fn refresh_preview(force: bool) {
             }
         }
         InvalidateRect(controls[1], std::ptr::null(), 0);
+        if page == 3 {
+            let thumb = GetDlgItem(GetParent(controls[1]), IMAGE_THUMB as i32);
+            InvalidateRect(thumb, std::ptr::null(), 0);
+        }
         if input_changed {
             RedrawWindow(
                 controls[2],
@@ -331,18 +312,18 @@ pub(super) fn choose_font_family(hwnd: HWND, button: usize) {
     if let Some(choice) = pickers::choose(hwnd, keys[0], &draft.get(keys[0]))
         && let Ok(font) = altrun_probe::preferences::Font::parse(&choice)
     {
-        let prefs = EDITOR.with(|c| {
-            let mut editor = c.borrow_mut();
-            let draft = &mut editor.as_mut().unwrap().draft;
-            for &key in keys {
-                let value = draft.get(key);
-                if let Some((_, rest)) = value.split_once('|') {
-                    let _ = draft.set(key, &format!("{}|{rest}", font.name));
-                }
+        let mut prefs = form::draft();
+        for &key in keys {
+            let value = prefs.get(key);
+            if let Some((_, rest)) = value.split_once('|')
+                && let Err(error) = prefs.set(key, &format!("{}|{rest}", font.name))
+            {
+                status(&error);
+                return;
             }
-            draft.clone()
-        });
+        }
         refresh_font_family(&prefs);
+        super::apply::submit(prefs);
         update_preview();
     }
 }
@@ -381,6 +362,9 @@ pub(super) fn adjust_number(hwnd: HWND, id: usize, delta: i32) {
         unsafe {
             SetWindowTextW(control, wide(&value).as_ptr());
         }
+    }
+    if let Some(key) = form::edit_key(hwnd, control) {
+        form::commit_fields(&[key]);
     }
 }
 

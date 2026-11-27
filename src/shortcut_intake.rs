@@ -76,6 +76,7 @@ fn label(hwnd: HWND, id: usize, text: &str) {
 
 fn status(hwnd: HWND, message: &str) {
     label(hwnd, STATUS, &crate::localization::tr(message));
+    ui::language::caption(get(hwnd, STATUS), message);
 }
 
 fn sync(hwnd: HWND, state: *mut Dialog) {
@@ -93,6 +94,9 @@ fn sync(hwnd: HWND, state: *mut Dialog) {
                     str::to_owned,
                 );
                 label(hwnd, OPEN_VALUE, &caption);
+                if name.is_none() {
+                    ui::language::caption(get(hwnd, OPEN_VALUE), "ui.system_default");
+                }
                 EnableWindow(get(hwnd, DEFAULT), i32::from(name.is_some()));
                 true
             }
@@ -458,6 +462,7 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
             );
             return;
         }
+        ui::language::caption(hwnd, "ui.add_shortcut");
         state.dpi = crate::ui::window_frame::fit(hwnd, width, height);
         let dpi = state.dpi;
         let px = |value| scaled(value, dpi);
@@ -479,6 +484,9 @@ pub fn open(owner: HWND, entries: Vec<Entry>, launch_enabled: bool, save: Save) 
                 instance,
                 std::ptr::null(),
             );
+            if class != "EDIT" {
+                ui::language::caption(child, text);
+            }
             SendMessageW(child, WM_SETFONT, font as usize, 0);
             child
         };

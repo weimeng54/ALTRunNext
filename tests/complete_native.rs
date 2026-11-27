@@ -10,11 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::{DataExchange::*, Memory::*};
-use windows_sys::Win32::UI::Controls::LVM_GETITEMCOUNT;
+use windows_sys::Win32::UI::Controls::{LVM_GETITEMCOUNT, TB_ENDTRACK, TB_THUMBTRACK, TBM_SETPOS};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    IsWindowEnabled, RegisterHotKey, UnregisterHotKey,
-};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
 #[repr(C)]
 #[derive(Default)]
@@ -57,6 +55,8 @@ fn resources(child: &Child) -> (usize, u32, u32) {
         )
     }
 }
+#[path = "complete_native/live_settings.rs"]
+mod live_settings;
 mod native_snapshot;
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -113,6 +113,16 @@ fn command(hwnd: HWND, id: usize) {
         SendMessageW(hwnd, WM_COMMAND, id, 0);
     }
 }
+fn notify_control(dialog: HWND, control: HWND, code: u32) {
+    unsafe {
+        SendMessageW(
+            dialog,
+            WM_COMMAND,
+            ((code as usize) << 16) | GetDlgCtrlID(control) as usize,
+            control as LPARAM,
+        );
+    }
+}
 fn setting_index(key: &str) -> usize {
     altrun_probe::preferences::SPECS
         .iter()
@@ -158,7 +168,7 @@ fn click_tab_and_wait_for_pixels(hwnd: HWND, page: usize, field: &str, screensho
             SendMessageW(tabs, LB_GETITEMRECT, page, &mut row as *mut RECT as isize),
             -1
         );
-        let footer = [2311, 2312, 2314, 2310].map(|id| GetDlgItem(hwnd, id));
+        let footer = [2311, 2312, 2314].map(|id| GetDlgItem(hwnd, id));
         let marker = 0x00fe01f7;
         for button in footer {
             RedrawWindow(
@@ -325,7 +335,7 @@ fn settings_design(hwnd: HWND) {
     select_page(hwnd, 3);
     unsafe {
         assert!(GetDlgItem(hwnd, 2340).is_null());
-        let footer = bounds(GetDlgItem(hwnd, 2310));
+        let footer = bounds(GetDlgItem(hwnd, 2314));
         let option = setting(hwnd, "ShowOperationHint");
         assert_ne!(IsWindowVisible(option), 0);
         assert!(
@@ -490,7 +500,7 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             );
         }
         assert_eq!(SendMessageW(GetDlgItem(dialog, 2301), LB_GETCOUNT, 0, 0), 7);
-        assert_eq!(IsWindowEnabled(GetDlgItem(dialog, 2310)), 0);
+        assert!(GetDlgItem(dialog, 2310).is_null());
         for id in 2360..=2363 {
             assert_ne!(IsWindowVisible(GetDlgItem(dialog, id)), 0);
         }
@@ -544,49 +554,55 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         let preview = GetDlgItem(dialog, 2306);
         assert_ne!(IsWindowVisible(preview), 0);
         set(preview, "cl");
-        let theme = setting(dialog, "Theme");
-        SendMessageW(theme, CB_SETCURSEL, 1, 0);
-        SendMessageW(
-            dialog,
-            WM_COMMAND,
-            (CBN_SELCHANGE as usize) << 16 | GetDlgCtrlID(theme) as usize,
-            theme as isize,
-        );
+        command(dialog, 2332);
         native_snapshot::save(dialog, "settings-dark-appearance");
-        SendMessageW(theme, CB_SETCURSEL, 0, 0);
-        assert_ne!(IsWindowVisible(setting(dialog, "RowHeight")), 0);
-        set(setting(dialog, "RowHeight"), "024 ");
-        command(dialog, 2310);
+        command(dialog, 2331);
+        let row = setting(dialog, "RowHeight");
+        assert_ne!(IsWindowVisible(row), 0);
+        for value in ["2", "26", "025", "024 "] {
+            set(row, value);
+        }
+        notify_control(dialog, row, EN_KILLFOCUS);
         wait(|| SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) == 24);
-        assert!(
+        let saved = |line: &str| {
             std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("RowHeight=24")
-        );
+                .is_ok_and(|doc| doc.lines().any(|entry| entry == line))
+        };
+        wait(|| saved("RowHeight=24"));
+        set(row, "99");
+        notify_control(dialog, row, EN_KILLFOCUS);
+        assert_eq!(text(row), "24");
+        assert!(saved("RowHeight=24"));
+        command(dialog, 2334);
+        let slider = setting(dialog, "BGStrength");
+        assert_ne!(IsWindowVisible(slider), 0);
+        for value in [42, 55] {
+            SendMessageW(slider, TBM_SETPOS, 1, value);
+            SendMessageW(dialog, WM_HSCROLL, TB_THUMBTRACK as usize, slider as LPARAM);
+        }
+        wait(|| saved("BGStrength=55"));
+        assert_eq!(text(GetDlgItem(dialog, 2346)), "55");
+        SendMessageW(slider, TBM_SETPOS, 1, 74);
+        SendMessageW(dialog, WM_HSCROLL, TB_ENDTRACK as usize, slider as LPARAM);
+        wait(|| saved("BGStrength=74"));
+        command(dialog, 2333);
         native_snapshot::save(dialog, "settings");
         select_page(dialog, 2);
         SendMessageW(setting(dialog, "MatchAnywhere"), BM_CLICK, 0, 0);
-        command(dialog, 2310);
-        assert!(
-            std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("MatchAnywhere=0")
-        );
+        wait(|| saved("MatchAnywhere=0"));
         SendMessageW(setting(dialog, "MatchAnywhere"), BM_CLICK, 0, 0);
-        command(dialog, 2310);
-        assert_ne!(RegisterHotKey(null_mut(), 22222, 3, 0x7b), 0);
+        wait(|| saved("MatchAnywhere=1"));
+        assert_ne!(RegisterHotKey(null_mut(), 22222, 0, 0x76), 0);
         select_page(dialog, 1);
         let main_key = setting(dialog, "HotKey1");
         assert_ne!(IsWindowVisible(setting(dialog, "LastItemHotKey")), 0);
         native_snapshot::save(dialog, "settings-hotkeys");
-        set(main_key, "Ctrl+Alt+F12");
-        command(dialog, 2310);
-        assert!(text(GetDlgItem(dialog, 2303)).contains("占用"));
-        assert!(
-            !std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("Ctrl+Alt+F12")
-        );
+        let prior_key = text(main_key);
+        SendMessageW(main_key, WM_SETFOCUS, 0, 0);
+        SendMessageW(dialog, WM_KEYDOWN, 0x76, 0);
+        wait(|| text(GetDlgItem(dialog, 2303)).contains("占用"));
+        wait(|| text(main_key) == prior_key);
+        assert!(saved(&format!("HotKey1={prior_key}")));
         UnregisterHotKey(null_mut(), 22222);
         assert!(GetDlgItem(dialog, (2500 + setting_index("HotKey1")) as i32).is_null());
         let previous = text(main_key);
@@ -599,35 +615,16 @@ fn complete_native_settings_history_matching_and_instance_regression() {
         SendMessageW(main_key, 0x02a3, 0, 0);
         SendMessageW(dialog, WM_KEYDOWN, 0x76, 0);
         assert_eq!(text(main_key), "F8");
-        command(dialog, 2310);
-        assert!(
-            std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("HotKey1=F8")
-        );
-        assert!(
-            std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("LastItemHotKey=Ctrl+Alt+F9")
-        );
-        assert!(
-            std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("ExtraSetting=keep")
-        );
+        wait(|| saved("HotKey1=F8"));
+        assert!(saved("LastItemHotKey=Ctrl+Alt+F9"));
+        assert!(saved("ExtraSetting=keep"));
         select_page(dialog, 0);
         let integration = altrun_probe::integration::Integration::for_data(&data).unwrap();
         assert!(!integration.send_to.exists());
         SendMessageW(setting(dialog, "AddToSendTo"), BM_CLICK, 0, 0);
-        command(dialog, 2310);
-        assert!(
-            integration.send_to.exists(),
-            "Send to was not added: {}",
-            text(GetDlgItem(dialog, 2303))
-        );
+        wait(|| integration.send_to.exists() && saved("AddToSendTo=1"));
         SendMessageW(setting(dialog, "AddToSendTo"), BM_CLICK, 0, 0);
-        command(dialog, 2310);
-        assert!(!integration.send_to.exists());
+        wait(|| !integration.send_to.exists() && saved("AddToSendTo=0"));
         command(dialog, 2314);
         wait(|| IsWindow(dialog) == 0);
         UnregisterHotKey(null_mut(), 22221);
@@ -699,13 +696,37 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             settings_window = window("ALTRun.Native.Settings", pid);
             !settings_window.is_null() && IsWindowVisible(settings_window) != 0
         });
-        SendMessageW(setting(settings_window, "Lang"), CB_SETCURSEL, 1, 0);
-        command(settings_window, 2310);
-        assert!(
-            std::fs::read_to_string(&settings)
-                .unwrap()
-                .contains("Lang=en")
-        );
+        command(launcher, 18003);
+        wait(|| {
+            manager = window("ALTRun.Native.ShortcutManager", pid);
+            !manager.is_null()
+                && IsWindowVisible(manager) != 0
+                && !GetDlgItem(manager, 2114).is_null()
+        });
+        let name = GetDlgItem(manager, 2103);
+        let disk_before = std::fs::read(&data).unwrap();
+        set(name, "Synthetic unsaved manager draft");
+        let lang = setting(settings_window, "Lang");
+        SendMessageW(lang, CB_SETCURSEL, 1, 0);
+        notify_control(settings_window, lang, CBN_SELENDOK);
+        wait(|| saved("Lang=en"));
+        wait(|| {
+            text(settings_window) == "ALTRunNext · Settings"
+                && text(GetDlgItem(settings_window, 2314)) == "Close"
+                && text(GetDlgItem(launcher, 18005)) == "Settings"
+                && text(GetDlgItem(manager, 2114)) == "Close"
+        });
+        assert_eq!(text(name), "Synthetic unsaved manager draft");
+        assert_eq!(std::fs::read(&data).unwrap(), disk_before);
+        command(manager, 2113);
+        wait(|| {
+            altrun_probe::library::Snapshot::open(&data).is_ok_and(|saved| {
+                saved
+                    .entries
+                    .iter()
+                    .any(|entry| entry.name == "Synthetic unsaved manager draft")
+            })
+        });
         command(settings_window, 2314);
         wait(|| IsWindow(settings_window) == 0);
         wait(|| {
@@ -716,8 +737,26 @@ fn complete_native_settings_history_matching_and_instance_regression() {
             !settings_window.is_null() && IsWindowVisible(settings_window) != 0
         });
         assert_eq!(text(settings_window), "ALTRunNext · Settings");
-        assert_eq!(text(GetDlgItem(settings_window, 2310)), "Save and apply");
+        assert_eq!(text(GetDlgItem(settings_window, 2314)), "Close");
+        for choice in [2, 1] {
+            assert_ne!(PostMessageW(settings_window, WM_COMMAND, 2311, 0), 0);
+            let mut confirm = null_mut();
+            wait(|| {
+                confirm = window("ALTRun.Native.Confirmation", pid);
+                !confirm.is_null() && !GetDlgItem(confirm, 1).is_null()
+            });
+            command(confirm, choice);
+            wait(|| IsWindow(confirm) == 0);
+            if choice == 2 {
+                assert!(saved("RowHeight=24"));
+            } else {
+                wait(|| saved("RowHeight=22") && saved("BGStrength=68"));
+                assert_eq!(text(setting(settings_window, "RowHeight")), "22");
+            }
+        }
         command(settings_window, 2314);
         wait(|| IsWindow(settings_window) == 0);
     }
+    drop(child);
+    live_settings::slow_writes_and_conflict();
 }

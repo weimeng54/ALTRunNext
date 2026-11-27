@@ -31,6 +31,10 @@ pub(super) fn update_selection() {
     if changed {
         layout_inline_error();
     }
+    refresh_selection_text();
+}
+
+pub(super) fn refresh_selection_text() {
     let (title, command, name, line) = selected_text();
     unsafe {
         SetWindowTextW(title, name.as_ptr());

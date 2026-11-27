@@ -208,6 +208,7 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
         }
 
         let dpi = crate::ui::window_frame::fit(hwnd, WIDTH, HEIGHT);
+        ui::language::caption(hwnd, "ui.startup_warning_title");
         state.dpi = dpi;
         let px = |value| scaled(value, dpi);
         let caption = make_font(13, 600, "Microsoft YaHei UI", dpi);
@@ -287,6 +288,25 @@ pub fn show(owner: HWND, binding: &str, tray: bool) -> bool {
             buttons,
             body as usize,
         );
+        for (id, key) in [
+            (CAPTION_CLOSE, "ui.close"),
+            (10, "ui.startup_hotkey_warning"),
+            (CLOSE, "ui.close"),
+            (CHANGE, "ui.change_hotkey"),
+        ] {
+            ui::language::caption(GetDlgItem(hwnd, id as i32), key);
+        }
+        let binding = binding.to_owned();
+        ui::language::dynamic_caption(GetDlgItem(hwnd, 11), move || {
+            let unavailable =
+                localization::message("ui.startup_hotkey_message", &[("binding", &binding)]);
+            let help = localization::tr(if tray {
+                "ui.startup_hotkey_help_tray"
+            } else {
+                "ui.startup_hotkey_help"
+            });
+            format!("{unavailable}\r\n{help}")
+        });
         let modal_owner = super::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);

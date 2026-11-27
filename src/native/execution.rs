@@ -35,9 +35,10 @@ pub(super) fn delete_selected_command(hwnd: HWND) {
         return;
     };
     let label = format!("{} · {}", entry.alias, entry.name);
-    let message = crate::localization::message("ui.confirm_delete_command", &[("item", &label)]);
+    let message =
+        move || crate::localization::message("ui.confirm_delete_command", &[("item", &label)]);
     CONFIRMING_DELETE.set(true);
-    let confirmed = crate::ui::dialogs::input::confirm(hwnd, "ui.delete", &message);
+    let confirmed = crate::ui::dialogs::input::confirm_details(hwnd, "ui.delete", message, None);
     CONFIRMING_DELETE.set(false);
     let delay = STATE.with(|c| c.borrow().as_ref().unwrap().preferences.number("HideDelay"));
     if delay > 0 {

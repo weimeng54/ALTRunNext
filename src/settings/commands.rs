@@ -31,7 +31,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                 for segment in SEGMENT..SEGMENT + 3 {
                     InvalidateRect(GetDlgItem(hwnd, segment as i32), std::ptr::null(), 0);
                 }
-                super::appearance::preview_window_theme(hwnd);
+                form::commit_fields(&["Theme"]);
                 return 0;
             } else {
                 if background_image() == (id == SEGMENT + 4) {
@@ -46,7 +46,7 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                 update_background_mode();
             }
         }
-        update_preview();
+        form::commit_fields(&["ShowSkin"]);
         return 0;
     }
     if (SOLID_DEFAULT..=SOLID_PICK).contains(&id) && code == BN_CLICKED {
@@ -61,19 +61,8 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
         adjust_number(hwnd, id, l as i32);
         return 0;
     }
-    if id == STRENGTH_VALUE && code == EN_CHANGE {
-        if EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form))
-            && let Ok(value) = text(l as HWND).parse::<i32>()
-            && (0..=100).contains(&value)
-        {
-            let slider = field("BGStrength").value;
-            unsafe {
-                if SendMessageW(slider, TBM_GETPOS, 0, 0) != value as isize {
-                    SendMessageW(slider, TBM_SETPOS, 1, value as isize);
-                    update_preview();
-                }
-            }
-        }
+    if id == STRENGTH_VALUE && code == EN_KILLFOCUS {
+        form::commit_fields(&["BGStrength"]);
         return 0;
     }
     if id == MORE_COLORS && code == BN_CLICKED {
@@ -147,22 +136,18 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
         let changed = if switch_field(spec) {
             code == BN_CLICKED
         } else if spec.key == "Lang" || !choices(spec.key).is_empty() {
-            code == CBN_SELCHANGE
-        } else if matches!(spec.kind, Kind::Font | Kind::Number(..)) {
-            code == EN_CHANGE
+            code == CBN_SELENDOK
+                || (code == CBN_SELCHANGE
+                    && unsafe { SendMessageW(l as HWND, CB_GETDROPPEDSTATE, 0, 0) == 0 })
         } else {
-            code == EN_KILLFOCUS
+            code == EN_KILLFOCUS && form::edit_key(hwnd, l as HWND).is_some()
         };
         if changed && EDITOR.with(|c| c.borrow().as_ref().is_some_and(|s| !s.loading_form)) {
-            if spec.key == "Theme" {
-                super::appearance::preview_window_theme(hwnd);
-                return 0;
-            }
             if spec.key == "PlayPopupNotify" {
                 let checked = unsafe { SendMessageW(l as HWND, BM_GETCHECK, 0, 0) != 0 };
                 sync_sound_picker(checked);
             }
-            update_preview();
+            form::commit_fields(&[spec.key]);
         }
         return 0;
     }
@@ -186,8 +171,10 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
                         SendMessageW(fields()[skin].value, BM_SETCHECK, BST_CHECKED as usize, 0);
                     }
                     update_background_mode();
+                    form::commit_fields(&[spec.key, "ShowSkin"]);
+                } else {
+                    form::commit_fields(&[spec.key]);
                 }
-                update_preview();
             }
         }
         return 0;
@@ -201,25 +188,21 @@ pub(super) fn handle_command(hwnd: HWND, w: WPARAM, l: LPARAM) -> LRESULT {
         unsafe {
             SetWindowTextW(fields()[index].value, wide("").as_ptr());
         }
-        status("ui.shortcut_cleared_select_save_and_apply");
+        form::commit_fields(&[SPECS[index].key]);
         return 0;
     }
     match id {
-        2310 => {
-            stop_capture();
-            apply();
-        }
         2311 => {
             stop_capture();
             if crate::ui::dialogs::input::confirm(
                 hwnd,
                 "ui.reset_defaults",
-                "ui.load_default_settings_save_to_apply_them",
+                "settings.confirm_reset_defaults",
             ) {
-                load_form(&Preferences::default());
-                super::appearance::preview_window_theme(hwnd);
-                sync_save_button(hwnd);
-                status("ui.defaults_loaded_save_to_apply_them");
+                let prefs = Preferences::default();
+                form::restore_fields(&form::draft(), &prefs);
+                super::apply::submit(prefs);
+                update_preview();
             }
         }
         BACKUP_MENU => backup::menu(hwnd),

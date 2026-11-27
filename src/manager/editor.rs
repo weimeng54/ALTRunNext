@@ -19,6 +19,7 @@ pub(super) fn status(message: &str, error: bool) {
         s.error = error;
         (s.status, color_changed)
     });
+    let key = message;
     let message = crate::localization::tr(message);
     unsafe {
         if text(hwnd) != message {
@@ -27,6 +28,7 @@ pub(super) fn status(message: &str, error: bool) {
             InvalidateRect(hwnd, std::ptr::null(), 1);
         }
     }
+    crate::ui::language::caption(hwnd, key);
 }
 
 pub(super) fn pending_status(message: &str) {
@@ -133,6 +135,9 @@ pub(super) fn sync_fields() {
             |p| altrun_probe::local_target::program_name(p).to_owned(),
         );
         SetWindowTextW(GetDlgItem(hwnd, OPEN_WITH as i32), wide(&label).as_ptr());
+        if program.is_none() {
+            crate::ui::language::caption(GetDlgItem(hwnd, OPEN_WITH as i32), "ui.choose_app");
+        }
         sync_parameter_controls(entry.as_ref(), toggle, kind);
         EnableWindow(
             GetDlgItem(hwnd, TEST as i32),
@@ -356,12 +361,16 @@ pub(super) fn save() {
             .collect::<Vec<_>>()
     });
     if !duplicates.is_empty()
-        && !confirm(
+        && !crate::ui::dialogs::input::confirm_details(
             WINDOW.load(Ordering::Acquire) as HWND,
-            &crate::localization::message(
-                "ui.these_aliases_are_used_more_than_once",
-                &[("aliases", &duplicates.join(", "))],
-            ),
+            "ui.manage_shortcuts",
+            move || {
+                crate::localization::message(
+                    "ui.these_aliases_are_used_more_than_once",
+                    &[("aliases", &duplicates.join(", "))],
+                )
+            },
+            None,
         )
     {
         return;

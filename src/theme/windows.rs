@@ -3,7 +3,6 @@
 
 use super::Snapshot;
 use altrun_probe::preferences::Preferences;
-use std::cell::Cell;
 use std::sync::Mutex;
 use windows_sys::Win32::{
     Foundation::*,
@@ -16,7 +15,6 @@ use windows_sys::Win32::{
 
 const REFRESH: u32 = WM_APP + 38;
 pub(crate) const CHANGED: u32 = WM_APP + 39;
-pub(crate) const CHECK_PREVIEW: u32 = WM_APP + 40;
 
 struct Window {
     handle: usize,
@@ -25,12 +23,14 @@ struct Window {
 }
 
 struct Subscribers {
+    language_published: bool,
     mode: Option<String>,
     menu_font: Option<String>,
     windows: Vec<Window>,
 }
 
 static APPLIED: Mutex<Subscribers> = Mutex::new(Subscribers {
+    language_published: false,
     mode: None,
     menu_font: None,
     windows: Vec::new(),
@@ -45,6 +45,16 @@ pub(crate) fn publish(prefs: &Preferences) {
     }
     applied.mode = Some(mode);
     queue_refresh(&mut applied);
+}
+
+pub(crate) fn notify_language() {
+    let mut applied = APPLIED.lock().unwrap();
+    applied.language_published = true;
+    for window in &applied.windows {
+        unsafe {
+            PostMessageW(window.handle as HWND, crate::ui::language::CHANGED, 0, 0);
+        }
+    }
 }
 
 fn queue_refresh(applied: &mut Subscribers) {
@@ -68,25 +78,10 @@ pub(crate) fn menu_font() -> String {
         .unwrap_or_else(|| altrun_probe::preferences::DEFAULT_MENU_FONT.into())
 }
 
-// Settings owns its UI thread, including its modal dialogs. Dropping that thread
-// on discard also drops the preview without touching the published preferences.
-thread_local! {
-    static PREVIEW_MODE: Cell<Option<&'static str>> = const { Cell::new(None) };
-}
-
-pub(crate) fn preview_mode(hwnd: HWND, mode: Option<&'static str>) {
-    PREVIEW_MODE.set(mode);
-    refresh(hwnd);
-}
-
-pub(crate) fn finish_preview() {
-    PREVIEW_MODE.set(None);
-}
-
 fn install_mode(mode: Option<String>) {
     let mut prefs = Preferences::default();
-    if let Some(mode) = PREVIEW_MODE.get().or(mode.as_deref()) {
-        let _ = prefs.set("Theme", mode);
+    if let Some(mode) = mode {
+        let _ = prefs.set("Theme", &mode);
     }
     super::install_chrome(&prefs);
 }
@@ -98,6 +93,12 @@ pub(crate) fn watch(hwnd: HWND) {
     let before = Snapshot::capture();
     let mode = {
         let mut applied = APPLIED.lock().unwrap();
+        if applied.language_published {
+            crate::localization::follow_active();
+            unsafe {
+                PostMessageW(hwnd, crate::ui::language::CHANGED, 0, 0);
+            }
+        }
         applied.windows.push(Window {
             handle: hwnd as usize,
             palette: None,
@@ -155,8 +156,6 @@ fn refresh(hwnd: HWND) {
     };
     unsafe {
         if previous == Some(current) {
-            // The settings draft may follow the system even when applied chrome does not.
-            SendMessageW(hwnd, CHECK_PREVIEW, 0, 0);
             return;
         }
         if previous.is_some() {
@@ -195,6 +194,7 @@ unsafe extern "system" fn procedure(
             WM_THEMECHANGED | WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
                 queue_refresh(&mut APPLIED.lock().unwrap());
             }
+            crate::ui::language::CHANGED => crate::ui::language::refresh(hwnd),
             REFRESH => {
                 refresh(hwnd);
                 return 0;

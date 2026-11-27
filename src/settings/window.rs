@@ -10,9 +10,28 @@ use super::{
 
 unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match msg {
-        theme::CHECK_PREVIEW => {
-            if EDITOR.with(|state| state.borrow().is_some()) {
-                super::appearance::refresh_preview(true);
+        ui::language::CHANGED => {
+            if let Some((tabs, page, language_control)) = EDITOR.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .map(|s| (s.tabs, s.page, s.fields[spec_index("Lang")].value))
+            }) {
+                let index = unsafe { SendMessageW(language_control, CB_GETCURSEL, 0, 0) };
+                let selected = EDITOR.with(|c| {
+                    c.borrow()
+                        .as_ref()
+                        .and_then(|s| s.languages.get(index as usize).map(|(key, _)| key.clone()))
+                });
+                unsafe {
+                    SendMessageW(tabs, LB_RESETCONTENT, 0, 0);
+                    for page in PAGES {
+                        SendMessageW(tabs, LB_ADDSTRING, 0, ui(page.name).as_ptr() as LPARAM);
+                    }
+                    SendMessageW(tabs, LB_SETCURSEL, page, 0);
+                }
+                if let Some(selected) = selected {
+                    super::form::load_language_choice(field("Lang").value, &selected);
+                }
             }
             0
         }
@@ -167,13 +186,12 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
             0
         }
-        WM_HSCROLL if !((l as HWND).is_null()) && EDITOR.with(|c| c.borrow().is_some()) => {
-            if let Some(field) = fields().into_iter().find(|field| field.value == l as HWND) {
-                let strength = unsafe { SendMessageW(field.value, TBM_GETPOS, 0, 0) } as i32;
-                strength_label(field, strength);
-                if w & 0xffff != TB_THUMBTRACK as usize {
-                    update_preview();
-                }
+        WM_HSCROLL if l != 0 && EDITOR.with(|c| c.borrow().is_some()) => {
+            let slider = field("BGStrength");
+            if l as HWND == slider.value {
+                let strength = unsafe { SendMessageW(slider.value, TBM_GETPOS, 0, 0) } as i32;
+                strength_label(slider, strength);
+                form::commit_fields(&["BGStrength"]);
             }
             0
         }
@@ -191,8 +209,15 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 DefWindowProcW(hwnd, msg, w, l)
             }
         }
-        OPEN_PAGE if w < PAGES.len() => {
-            show_page(w);
+        OPEN_PAGE => {
+            apply::reopen();
+            if w < PAGES.len() {
+                show_page(w);
+            }
+            unsafe {
+                ShowWindow(hwnd, SW_SHOW);
+                SetForegroundWindow(hwnd);
+            }
             0
         }
         WM_COMMAND => handle_command(hwnd, w, l),
@@ -205,19 +230,19 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
                 return 0;
             }
             stop_capture();
-            let dirty = form_is_dirty();
-            if dirty
-                && !crate::ui::dialogs::input::confirm(
-                    hwnd,
-                    "ui.close_settings",
-                    "ui.discard_unsaved_settings",
-                )
-            {
-                return 0;
-            }
-            unsafe {
-                DestroyWindow(hwnd);
-            }
+            form::finish_edit(hwnd);
+            apply::after_edits(hwnd, apply::After::Close);
+            0
+        }
+        apply::EXIT => {
+            stop_capture();
+            form::finish_edit(hwnd);
+            apply::after_edits(hwnd, apply::After::Exit);
+            0
+        }
+        WM_TIMER if apply::timer(hwnd, w) => 0,
+        apply::READY => {
+            apply::completed(hwnd);
             0
         }
         WM_DESTROY => {
@@ -237,6 +262,7 @@ pub(crate) fn open(
     owner: HWND,
     sender: mpsc::Sender<Change>,
     page: Option<usize>,
+    safe_mode: bool,
 ) {
     if WINDOW
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
@@ -245,17 +271,14 @@ pub(crate) fn open(
         let h = WINDOW.load(Ordering::Acquire);
         if h > 1 {
             unsafe {
-                if let Some(page) = page {
-                    PostMessageW(h as HWND, OPEN_PAGE, page, 0);
-                }
-                ShowWindow(h as HWND, SW_SHOW);
-                SetForegroundWindow(h as HWND);
+                PostMessageW(h as HWND, OPEN_PAGE, page.unwrap_or(usize::MAX), 0);
             }
         }
         return;
     }
     let owner = owner as usize;
     std::thread::spawn(move || {
+        let exit_sender = sender.clone();
         let result = (|| -> Result<(), String> {
             localization::refresh_packs();
             let mut prefs = prefs;
@@ -300,6 +323,7 @@ pub(crate) fn open(
                     return Err("ui.could_not_create_the_settings_window".into());
                 }
 
+                ui::language::caption(hwnd, "settings.window_title");
                 let dpi = crate::ui::window_frame::fit(hwnd, layout::WIDTH, layout::HEIGHT);
                 let Controls {
                     tabs,
@@ -319,6 +343,14 @@ pub(crate) fn open(
                     preview_controls,
                     fields,
                 } = super::controls::create(hwnd, instance, dpi);
+                let writes = apply::Writes::start(
+                    file,
+                    path.clone(),
+                    sender.clone(),
+                    owner,
+                    hwnd,
+                    safe_mode,
+                )?;
                 EDITOR.with(|c| {
                     *c.borrow_mut() = Some(Editor {
                         hwnd,
@@ -355,7 +387,7 @@ pub(crate) fn open(
                         draft: prefs.clone(),
                         fields,
                         languages: Vec::new(),
-                        file,
+                        writes,
                         data: path,
                         sender,
                         owner,
@@ -365,6 +397,9 @@ pub(crate) fn open(
                 report_language_packs(&prefs);
                 show_page(page.unwrap_or(0));
                 WINDOW.store(hwnd as usize, Ordering::Release);
+                if EXIT_REQUESTED.load(Ordering::Acquire) {
+                    PostMessageW(hwnd, apply::EXIT, 0, 0);
+                }
                 ShowWindow(hwnd, SW_SHOW);
                 SetFocus(tabs);
                 let mut msg: MSG = std::mem::zeroed();
@@ -373,6 +408,14 @@ pub(crate) fn open(
                     if matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
                         && record_key(msg.wParam as u32, modifier_bits(|key| GetKeyState(key)))
                     {
+                        continue;
+                    }
+                    if msg.message == WM_KEYDOWN
+                        && msg.wParam as u16 == VK_RETURN
+                        && let Some(key) = form::edit_key(hwnd, msg.hwnd)
+                        && !crate::search_ime::is_composing(msg.hwnd)
+                    {
+                        form::commit_fields(&[key]);
                         continue;
                     }
                     if ui::dialogs::close_on_escape(hwnd, &msg) {
@@ -430,5 +473,11 @@ pub(crate) fn open(
             crate::ui::show_error(&e);
         }
         WINDOW.store(0, Ordering::Release);
+        if EXIT_REQUESTED.swap(false, Ordering::AcqRel) {
+            let _ = exit_sender.send(Change::ExitForRecovery);
+            unsafe {
+                PostMessageW(owner as HWND, UPDATED, 0, 0);
+            }
+        }
     });
 }

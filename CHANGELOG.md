@@ -21,10 +21,10 @@
   The launcher stays the same height as you search. Press Enter when there are no matches to create an item with the typed alias. Switching to another app hides the launcher.
 - 托盘、右键和按钮菜单统一使用主题配色和紧凑字号。深色弹窗使用略亮的底色和细边，在多层窗口中更易辨认。\
   Tray, context and button menus use the app theme and a compact text size. Dark dialogs use a lighter surface and a subtle outline so they stand apart from the window beneath them.
-- 选择主题后可在整个设置窗口预览，保存后其他已打开的窗口同步切换。\
-  Theme changes preview throughout Settings and apply to other open windows when saved.
-- 从托盘选择退出时，直接舍弃设置和启动项管理窗口中未保存的更改。\
-  Exiting from the tray discards unsaved changes in Settings and Manage Launch Items.
+- 设置更改即时生效并自动保存。主题和显示语言会同步更新已打开的窗口；数值输入按 Enter 或离开输入框后生效。\
+  Settings take effect immediately and save automatically. Open windows follow theme and display language changes. Press Enter or leave a numeric field to apply its value.
+- 从托盘退出时会等待设置写入完成，并舍弃启动项管理窗口中未保存的更改。\
+  Exiting from the tray waits for pending settings writes and discards unsaved changes in Manage Launch Items.
 
 ### 修复 / Fixed
 

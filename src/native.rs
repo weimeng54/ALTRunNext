@@ -41,6 +41,7 @@ use panel::{
     show_inline_error, update_caption_button_labels,
 };
 mod hotkeys;
+mod settings_change;
 use hotkeys::{BindingUpdate, apply_settings_messages, register_bindings};
 mod tray;
 use tray::{

@@ -34,9 +34,23 @@ struct Input {
     launched: bool,
 }
 
+#[derive(Clone)]
+pub enum ReportCell {
+    Key(&'static str),
+    Value(String),
+}
+impl ReportCell {
+    fn text(&self) -> String {
+        match self {
+            Self::Key(key) => crate::localization::tr(key),
+            Self::Value(value) => value.clone(),
+        }
+    }
+}
+
 pub struct Report {
-    pub summary: String,
-    pub rows: Vec<(String, String)>,
+    pub summary: std::rc::Rc<dyn Fn() -> String>,
+    pub rows: Vec<(ReportCell, ReportCell)>,
 }
 
 pub struct PreviewLabels<'a> {
@@ -53,6 +67,7 @@ pub enum Choice {
 
 #[derive(Default)]
 struct Options<'a> {
+    message_text: Option<Box<dyn Fn() -> String>>,
     action: Option<&'a str>,
     alternate: Option<&'a str>,
     preview: Option<PreviewLabels<'a>>,
@@ -278,6 +293,7 @@ pub(crate) fn finish_parameter(hwnd: HWND, result: Result<(), String>) {
                 let error = prompt.error;
                 let edit = (*state).edit;
                 SetWindowTextW(error, ui(&message).as_ptr());
+                ui::language::caption(error, &message);
                 SendMessageW(edit, EM_SETREADONLY, 0, 0);
                 EnableWindow(GetDlgItem(hwnd, 1), 1);
                 SetFocus(edit);
@@ -311,14 +327,21 @@ pub fn report(owner: HWND, title: &str, report: Report) -> bool {
         .is_some()
 }
 
-pub fn confirm_details(owner: HWND, title: &str, message: &str, action: &str) -> bool {
+pub fn confirm_details(
+    owner: HWND,
+    title: &str,
+    message: impl Fn() -> String + 'static,
+    action: Option<&str>,
+) -> bool {
+    let text = message();
     open(
         owner,
         title,
-        Some(message),
+        Some(&text),
         None,
         Options {
-            action: Some(action),
+            action,
+            message_text: Some(Box::new(message)),
             ..Options::default()
         },
     )
@@ -401,7 +424,7 @@ fn draw_report_row(item: &DRAWITEMSTRUCT, state: &Input) {
                     right,
                     ..rect
                 },
-                value,
+                &value.text(),
                 theme::row_ink(selected, theme::text()),
                 0,
             );
@@ -427,6 +450,7 @@ fn open(
 ) -> (Option<String>, bool) {
     unsafe {
         let Options {
+            message_text,
             action,
             alternate,
             preview,
@@ -435,6 +459,7 @@ fn open(
         } = options;
         let custom_caption = preview.is_some() || notice;
         let close_settings = title == "ui.close_settings";
+        let title_key = title;
         let title = if message.is_some() {
             crate::localization::tr(title)
         } else {
@@ -458,7 +483,7 @@ fn open(
         let state = Box::into_raw(Box::new(Input {
             dpi: 96,
             caption: null_mut(),
-            title: title.clone(),
+            title: title_key.to_owned(),
             done: false,
             value: None,
             alternate: false,
@@ -494,6 +519,9 @@ fn open(
             drop(Box::from_raw(state));
             return (None, false);
         }
+        if message.is_some() {
+            ui::language::caption(hwnd, title_key);
+        }
         let localized_message = message.map(crate::localization::tr);
         let long = if notice {
             localized_message
@@ -509,7 +537,7 @@ fn open(
         } else {
             420
         };
-        let summary_height = if report.is_some_and(|report| report.summary.contains('\n')) {
+        let summary_height = if report.is_some_and(|report| (report.summary)().contains('\n')) {
             62
         } else {
             34
@@ -567,6 +595,7 @@ fn open(
                 instance,
                 null_mut(),
             );
+            ui::language::caption(close, "ui.close");
             ui::style_caption_close(close);
         }
         let content_style = if long {
@@ -581,10 +610,7 @@ fn open(
             SS_NOPREFIX
         };
         let content_text = report
-            .map_or_else(
-                || localized_message.unwrap_or_default(),
-                |r| r.summary.clone(),
-            )
+            .map_or_else(|| localized_message.unwrap_or_default(), |r| (r.summary)())
             .replace("\r\n", "\n")
             .replace('\n', "\r\n");
         let content = CreateWindowExW(
@@ -619,6 +645,21 @@ fn open(
             SetWindowLongPtrW(content, GWLP_USERDATA, state as isize);
             (*state).old_edit =
                 SetWindowLongPtrW(content, GWLP_WNDPROC, edit_procedure as *const () as isize);
+        }
+        if let Some(report) = report {
+            let summary = report.summary.clone();
+            ui::language::dynamic_caption(content, move || {
+                summary().replace("\r\n", "\n").replace('\n', "\r\n")
+            });
+        }
+        if let Some(text) = message_text {
+            ui::language::dynamic_caption(content, move || {
+                text().replace("\r\n", "\n").replace('\n', "\r\n")
+            });
+        } else if report.is_none()
+            && let Some(key) = message
+        {
+            ui::language::caption(content, key);
         }
         SendMessageW(content, WM_SETFONT, font as usize, 0);
         if message.is_none() {
@@ -677,6 +718,7 @@ fn open(
                     instance,
                     std::ptr::null(),
                 );
+                ui::language::caption(header, label);
                 SendMessageW(header, WM_SETFONT, font as usize, 0);
             }
             let table_style = WS_TABSTOP | WS_VSCROLL;
@@ -714,9 +756,21 @@ fn open(
                     table,
                     LB_ADDSTRING,
                     0,
-                    wide(&format!("{alias} · {name}")).as_ptr() as LPARAM,
+                    wide(&format!("{} · {}", alias.text(), name.text())).as_ptr() as LPARAM,
                 );
             }
+            let rows = report.rows.clone();
+            ui::language::bind(table, move |hwnd| {
+                let selected = SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
+                let top = SendMessageW(hwnd, LB_GETTOPINDEX, 0, 0);
+                SendMessageW(hwnd, LB_RESETCONTENT, 0, 0);
+                for (first, second) in &rows {
+                    let row = wide(&format!("{} · {}", first.text(), second.text()));
+                    SendMessageW(hwnd, LB_ADDSTRING, 0, row.as_ptr() as LPARAM);
+                }
+                SendMessageW(hwnd, LB_SETCURSEL, selected as usize, 0);
+                SendMessageW(hwnd, LB_SETTOPINDEX, top as usize, 0);
+            });
             ui::style_list_scrollbar(table, 14, dpi);
             if let Some(preview) = &preview
                 && !preview.note.is_empty()
@@ -735,6 +789,7 @@ fn open(
                     instance,
                     null_mut(),
                 );
+                ui::language::caption(note, preview.note);
                 SendMessageW(note, WM_SETFONT, font as usize, 0);
             }
         }
@@ -781,6 +836,7 @@ fn open(
                 instance,
                 std::ptr::null(),
             );
+            ui::language::caption(button, text);
             SendMessageW(button, WM_SETFONT, font as usize, 0);
             if message.is_some() && id == 1 {
                 focus = button;

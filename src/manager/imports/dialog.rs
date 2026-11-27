@@ -410,6 +410,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Dialog;
         if let Some(dialog) = ptr.as_ref() {
             match msg {
+                ui::language::CHANGED => {
+                    refresh_status(hwnd, dialog);
+                    return 0;
+                }
                 WM_PAINT => {
                     let mut paint_data = PAINTSTRUCT::default();
                     let dc = BeginPaint(hwnd, &mut paint_data);
@@ -528,7 +532,7 @@ pub(super) fn open(
     unsafe {
         let instance = GetModuleHandleW(null());
         let class = ui::wide("ALTRun.Native.ImportPreview");
-        let title = l10n::tr(title);
+        let title = title.to_owned();
         let is_bookmarks = matches!(&preview, Some(Preview::Bookmarks { .. }));
         let failed = preview.is_none();
         let height = if failed { 233 } else { HEIGHT };
@@ -561,7 +565,7 @@ pub(super) fn open(
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            ui::wide(&dialog.title).as_ptr(),
+            ui::ui(&dialog.title).as_ptr(),
             crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             0,
             0,
@@ -579,6 +583,7 @@ pub(super) fn open(
             ui::dialogs::input::notice(owner, "ALTRunNext", "ui.import_preview_failed");
             return Outcome::Cancelled;
         }
+        ui::language::caption(hwnd, &dialog.title);
         let dpi = ui::window_frame::fit(hwnd, WIDTH, height);
         dialog.dpi = dpi;
         dialog.caption = ui::make_font(13, 600, "Microsoft YaHei UI", dpi);
@@ -604,13 +609,15 @@ pub(super) fn open(
             child
         };
         let button = |label: &str, id, bounds| {
-            control(
+            let button = control(
                 "BUTTON",
                 &l10n::tr(label),
                 id,
                 bounds,
                 WS_TABSTOP | BS_OWNERDRAW as u32,
-            )
+            );
+            ui::language::caption(button, label);
+            button
         };
         ui::style_caption_close(button("ui.close", CAPTION_CLOSE, (WIDTH - 47, 1, 46, 40)));
         control(

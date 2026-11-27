@@ -1,7 +1,7 @@
 // Copyright (c) 2026 GPT-6.1 Sol
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
-use super::{confirm, status};
+use super::status;
 use crate::{
     localization,
     windows::file_picker::{SaveExtension, file_types, save_file},
@@ -40,9 +40,12 @@ pub(super) fn launch_items(owner: HWND, active: &Path, rows: &[Entry]) {
         let name = path
             .file_name()
             .unwrap_or(path.as_os_str())
-            .to_string_lossy();
-        let question = localization::message("ui.confirm_replace_export", &[("file", &name)]);
-        if !confirm(owner, &question) {
+            .to_string_lossy()
+            .into_owned();
+        let question =
+            move || localization::message("ui.confirm_replace_export", &[("file", &name)]);
+        if !crate::ui::dialogs::input::confirm_details(owner, "ui.manage_shortcuts", question, None)
+        {
             return;
         }
     }

@@ -194,6 +194,29 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
         theme,
     );
     native_snapshot::save(settings, &format!("031-backup-settings-{theme}-{scale}"));
+    let row_limit = altrun_probe::preferences::SPECS
+        .iter()
+        .position(|spec| spec.key == "MaxRows")
+        .unwrap();
+    let tabs = child(settings, 2301);
+    let rows = child(settings, 2400 + row_limit as i32);
+    unsafe {
+        SendMessageW(tabs, LB_SETCURSEL, 3, 0);
+        SendMessageW(
+            settings,
+            WM_COMMAND,
+            (LBN_SELCHANGE as usize) << 16 | 2301,
+            tabs as LPARAM,
+        );
+        assert_ne!(IsWindowVisible(rows), 0);
+        set(rows, "9");
+        SendMessageW(
+            settings,
+            WM_COMMAND,
+            (EN_KILLFOCUS as usize) << 16 | GetDlgCtrlID(rows) as usize,
+            rows as LPARAM,
+        );
+    }
     begin(settings, 2365);
     let preview = ready_window(pid, "ALTRun.Native.BackupSelection", 1);
     window_frame::check(
@@ -207,6 +230,22 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     wait(|| unsafe { IsWindow(preview) == 0 });
     choose_file(pid, &archive);
     wait(|| altrun_probe::backup::Backup::load(&archive).is_ok_and(|backup| backup.count() == 5));
+    let restore_dir = archive.with_extension("restored");
+    std::fs::create_dir_all(&restore_dir).unwrap();
+    let restored = restore_dir.join("items.tsv");
+    std::fs::write(&restored, &original).unwrap();
+    altrun_probe::backup::apply(
+        &restored,
+        altrun_probe::backup::Backup::load(&archive).unwrap(),
+        (false, false),
+    )
+    .unwrap();
+    assert!(
+        std::fs::read_to_string(restored.with_extension("settings.ini"))
+            .unwrap()
+            .lines()
+            .any(|line| line == "MaxRows=9")
+    );
     wait(|| unsafe {
         windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(child(settings, 2312)) != 0
     });
@@ -244,7 +283,7 @@ fn check_open_report_theme(
     data: &Path,
 ) {
     command(launcher, 18005);
-    let settings = ready_window(pid, "ALTRun.Native.Settings", 2310);
+    let settings = ready_window(pid, "ALTRun.Native.Settings", 2314);
     let tabs = child(settings, 2301);
     unsafe {
         SendMessageW(tabs, LB_SETCURSEL, 3, 0);
@@ -274,44 +313,31 @@ fn check_open_report_theme(
         (2332, dark_chrome, 23 | (29 << 8) | (36 << 16), "dark"),
         (2331, light_chrome, light, "light"),
     ] {
-        let before = paper(report_list);
-        let saved = std::fs::read(&ini).unwrap();
         command(settings, segment);
         wait(|| caption(settings) == chrome);
-        assert_eq!(paper(report_list), before);
-        assert_eq!(paper(manager_list), before);
-        assert_eq!(std::fs::read(&ini).unwrap(), saved);
-        command(settings, 2310);
         wait(|| paper(manager_list) == expected && paper(report_list) == expected);
-        let (_, text) = altrun_probe::state_store::TextFile::open(&ini).unwrap();
-        assert_eq!(
-            altrun_probe::preferences::Preferences::parse(&text)
-                .unwrap()
-                .get("Theme"),
-            mode
-        );
+        let expected_setting = format!("Theme={mode}");
+        wait(|| {
+            std::fs::read_to_string(&ini)
+                .is_ok_and(|doc| doc.lines().any(|line| line == expected_setting))
+        });
         assert_eq!((selection(manager_list), selection(report_list)), selected);
     }
-    let saved = std::fs::read(&ini).unwrap();
     command(settings, 2332);
-    wait(|| caption(settings) == dark_chrome);
+    command(settings, 2331);
+    command(settings, 2332);
     unsafe { SendMessageW(settings, WM_SETTINGCHANGE, 0, 0) };
     unsafe { PostMessageW(settings, WM_CLOSE, 0, 0) };
-    let confirm = ready_window(pid, "ALTRun.Native.Confirmation", 1);
-    command(confirm, 2);
-    wait(|| unsafe { IsWindow(confirm) == 0 } && caption(settings) == dark_chrome);
-    unsafe { PostMessageW(settings, WM_CLOSE, 0, 0) };
-    let confirm = ready_window(pid, "ALTRun.Native.Confirmation", 1);
-    command(confirm, 1);
     wait(|| unsafe { IsWindow(settings) == 0 });
-    assert_eq!(paper(report_list), light);
-    assert_eq!(std::fs::read(&ini).unwrap(), saved);
+    wait(|| std::fs::read_to_string(&ini).is_ok_and(|doc| doc.contains("Theme=dark")));
     wait(|| {
         command(launcher, 18005);
         !window("ALTRun.Native.Settings", pid).is_null()
     });
-    let reopened = ready_window(pid, "ALTRun.Native.Settings", 2310);
-    assert_eq!(settings_caption_color(reopened), light_chrome);
+    let reopened = ready_window(pid, "ALTRun.Native.Settings", 2314);
+    assert_eq!(settings_caption_color(reopened), dark_chrome);
+    command(reopened, 2331);
+    wait(|| paper(manager_list) == light && paper(report_list) == light);
     unsafe { PostMessageW(reopened, WM_CLOSE, 0, 0) };
     wait(|| unsafe { IsWindow(reopened) == 0 });
 }
@@ -366,25 +392,19 @@ fn check_settings_layout(settings: HWND, theme: &str, scale: &str) {
     select(3);
     assert_eq!(text(preview), "cl");
     set(preview, "");
-    let row_limit = altrun_probe::preferences::SPECS
-        .iter()
-        .position(|spec| spec.key == "MaxRows")
-        .unwrap();
-    set(child(settings, 2400 + row_limit as i32), "9");
-    let save = child(settings, 2310);
-    command(settings, 2310);
+    let close = child(settings, 2314);
     let status = child(settings, 2303);
-    wait(|| text(status) == "已保存并应用。");
     unsafe {
+        assert!(GetDlgItem(settings, 2310).is_null());
         let mut action = RECT::default();
         let mut message = RECT::default();
-        GetWindowRect(save, &mut action);
+        GetWindowRect(close, &mut action);
         GetWindowRect(status, &mut message);
         assert_eq!((message.top, message.bottom), (action.top, action.bottom));
     }
     select(0);
     assert!(!review_native_support::has_text(settings, "管理启动方式"));
-    native_snapshot::save(settings, &format!("settings-clean-saved-{theme}-{scale}"));
+    native_snapshot::save(settings, &format!("settings-clean-footer-{theme}-{scale}"));
 }
 
 fn check_restore_and_restart(running: &mut Running, launcher: HWND, data: &Path) {

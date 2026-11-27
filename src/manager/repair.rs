@@ -25,6 +25,7 @@ const COLUMNS: [(&str, i32); 4] = [
 struct Finding {
     id: String,
     path: MissingPath,
+    reason: &'static str,
     cells: Vec<String>,
 }
 
@@ -42,6 +43,7 @@ pub(super) fn inspect(owner: HWND, rows: &[Entry], base: &Path) {
                 };
                 findings.push(Finding {
                     id: entry.id.clone(),
+                    reason,
                     cells: vec![
                         entry.alias.clone(),
                         entry.name.clone(),
@@ -56,30 +58,37 @@ pub(super) fn inspect(owner: HWND, rows: &[Entry], base: &Path) {
             PathInspection::NonCommand => {}
         }
     }
-    let summary = crate::localization::message(
-        "ui.missing_path_summary",
-        &[
-            ("available", &present.to_string()),
-            ("missing", &findings.len().to_string()),
-            ("skipped", &skipped.to_string()),
-        ],
-    );
-    if findings.is_empty() {
-        let summary = format!(
-            "{}\n{}",
-            summary,
-            crate::localization::tr("ui.no_missing_local_targets_were_found")
+    let missing = findings.len();
+    let summary = move || {
+        let counts = crate::localization::message(
+            "ui.missing_path_summary",
+            &[
+                ("available", &present.to_string()),
+                ("missing", &missing.to_string()),
+                ("skipped", &skipped.to_string()),
+            ],
         );
+        if missing == 0 {
+            format!(
+                "{}\n{}",
+                counts,
+                crate::localization::tr("ui.no_missing_local_targets_were_found")
+            )
+        } else {
+            counts
+        }
+    };
+    if findings.is_empty() {
         crate::ui::dialogs::input::report(
             owner,
             "ui.check_missing_paths",
             crate::ui::dialogs::input::Report {
-                summary,
+                summary: std::rc::Rc::new(summary),
                 rows: Vec::new(),
             },
         );
     } else {
-        open(owner, findings, &summary);
+        open(owner, findings, summary);
     }
 }
 
@@ -114,12 +123,14 @@ fn repair_path(owner: HWND, finding: &Finding) -> Result<bool, String> {
 }
 
 fn remove_paths(owner: HWND, findings: &[Finding]) -> bool {
-    if !confirm(
+    let count = findings.len().to_string();
+    if !crate::ui::dialogs::input::confirm_details(
         owner,
-        &crate::localization::message(
-            "ui.remove_missing_items_confirm",
-            &[("count", &findings.len().to_string())],
-        ),
+        "ui.manage_shortcuts",
+        move || {
+            crate::localization::message("ui.remove_missing_items_confirm", &[("count", &count)])
+        },
+        None,
     ) {
         return false;
     }
@@ -155,6 +166,27 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
             return DefWindowProcW(hwnd, msg, w, l);
         }
         match msg {
+            crate::ui::language::CHANGED => {
+                let updates = (*state)
+                    .findings
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(row, finding)| {
+                        finding.cells[3] = crate::localization::tr(finding.reason);
+                        (row, wide(&finding.cells[3]))
+                    })
+                    .collect::<Vec<_>>();
+                let list = GetDlgItem(hwnd, LIST as i32);
+                for (index, mut text) in updates {
+                    let item = LVITEMW {
+                        iSubItem: 3,
+                        pszText: text.as_mut_ptr(),
+                        ..Default::default()
+                    };
+                    SendMessageW(list, LVM_SETITEMTEXTW, index, &raw const item as LPARAM);
+                }
+                0
+            }
             WM_ERASEBKGND => 1,
             WM_PAINT => {
                 let mut paint = PAINTSTRUCT::default();
@@ -298,7 +330,7 @@ fn paint_report(dc: HDC, dpi: i32, caption: HFONT) {
     crate::ui::panel_caption(dc, dpi, caption, "ui.check_missing_paths");
 }
 
-fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
+fn open(owner: HWND, findings: Vec<Finding>, summary: impl Fn() -> String + 'static) {
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         let class = wide(CLASS);
@@ -336,6 +368,7 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             return;
         }
 
+        crate::ui::language::caption(hwnd, "ui.check_missing_paths");
         let dpi = crate::ui::window_frame::fit(hwnd, WIDTH, HEIGHT);
         state.dpi = dpi;
         state.font = make_font(14, 400, "Microsoft YaHei UI", dpi);
@@ -365,8 +398,16 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             CAPTION_CLOSE,
             (WIDTH - 47, 1, 46, CAPTION - 1),
         );
+        crate::ui::language::caption(caption_close, "ui.close");
         crate::ui::style_caption_close(caption_close);
-        control("STATIC", summary, 0, 0, (17, CAPTION + 14, WIDTH - 34, 23));
+        let label = control(
+            "STATIC",
+            &summary(),
+            0,
+            0,
+            (17, CAPTION + 14, WIDTH - 34, 23),
+        );
+        crate::ui::language::dynamic_caption(label, summary);
         let list = control(
             "SysListView32",
             "",
@@ -391,13 +432,14 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
             (REMOVE, "ui.remove_missing_items", WIDTH - 311, 142),
             (REPAIR, "ui.repair_missing_path", WIDTH - 160, 143),
         ] {
-            control(
+            let button = control(
                 "BUTTON",
                 &crate::localization::tr(key),
                 WS_TABSTOP | BS_OWNERDRAW as u32,
                 id,
                 (x, FOOTER + 12, width, 36),
             );
+            crate::ui::language::caption(button, key);
         }
         let modal_owner = crate::ui::dialogs::ModalOwner::disable(owner);
         ShowWindow(hwnd, SW_SHOW);

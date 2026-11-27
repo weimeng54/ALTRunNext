@@ -7,6 +7,8 @@ pub(super) fn show_page(page: usize) {
     let Some(design) = PAGES.get(page) else {
         return;
     };
+    let window = EDITOR.with(|c| c.borrow().as_ref().unwrap().hwnd);
+    form::finish_edit(window);
     cancel_capture();
     let (window, tabs, title, sections, extras, preview, more_colors, dpi, height) =
         EDITOR.with(|c| {
@@ -32,6 +34,7 @@ pub(super) fn show_page(page: usize) {
             SendMessageW(tabs, LB_SETCURSEL, page, 0);
         }
         SetWindowTextW(title, ui(design.name).as_ptr());
+        ui::language::caption(title, design.name);
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visible = field.page == page
                 && !hidden_field(spec.key)
@@ -66,7 +69,6 @@ pub(super) fn show_page(page: usize) {
             show_without_redraw(hwnd, showing_preview);
         }
     }
-    sync_save_button(window);
     if showing_preview {
         update_preview();
         align_preview();

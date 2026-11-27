@@ -195,6 +195,16 @@ pub fn install(preference: &str) {
     WINDOW_LANGUAGE.with(|slot| *slot.borrow_mut() = Some(resolve(preference)));
 }
 
+pub fn is_key(key: &str) -> bool {
+    MESSAGES
+        .binary_search_by_key(&key, |(key, _, _)| *key)
+        .is_ok()
+}
+
+pub fn follow_active() {
+    WINDOW_LANGUAGE.with(|slot| *slot.borrow_mut() = None);
+}
+
 pub fn current() -> Language {
     WINDOW_LANGUAGE
         .with(|slot| slot.borrow().clone())

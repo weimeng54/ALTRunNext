@@ -99,6 +99,7 @@ pub fn style_edit_with_colours(hwnd: HWND, dpi: i32, colours: fn() -> (u32, u32)
 }
 
 pub fn style_search(hwnd: HWND, dpi: i32, cue: &'static str, colours: fn() -> (u32, u32)) {
+    super::language::cue(hwnd, cue, 0);
     unsafe {
         SendMessageW(hwnd, EM_SETCUEBANNER, 0, super::ui(cue).as_ptr() as LPARAM);
     }

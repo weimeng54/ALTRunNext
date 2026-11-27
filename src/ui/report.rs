@@ -55,6 +55,18 @@ pub(crate) unsafe fn configure_pixels(list: HWND, dpi: i32, columns: &[(&str, i3
             };
             SendMessageW(list, LVM_INSERTCOLUMNW, column, &data as *const _ as LPARAM);
         }
+        let titles: Vec<_> = columns.iter().map(|(key, _)| (*key).to_owned()).collect();
+        ui::language::bind(list, move |list| {
+            for (index, key) in titles.iter().enumerate() {
+                let mut text = ui(key);
+                let column = LVCOLUMNW {
+                    mask: LVCF_TEXT,
+                    pszText: text.as_mut_ptr(),
+                    ..Default::default()
+                };
+                SendMessageW(list, LVM_SETCOLUMNW, index, &raw const column as LPARAM);
+            }
+        });
         SetWindowSubclass(list, Some(table_proc), 3, dpi as usize);
         let header = SendMessageW(list, LVM_GETHEADER, 0, 0) as HWND;
         let style = GetWindowLongW(header, GWL_STYLE);
