@@ -8,7 +8,47 @@ mod review_native_support;
 
 use review_native_support::*;
 use std::{fs, process::Command, ptr::null_mut};
-use windows_sys::Win32::UI::WindowsAndMessaging::*;
+use windows_sys::Win32::{
+    Foundation::{HWND, RECT},
+    Graphics::Gdi::*,
+    UI::WindowsAndMessaging::*,
+};
+
+// Compare the presented frame with one clean native draw at the same DPI.
+fn assert_single_draw(control: HWND) {
+    unsafe {
+        assert!(!control.is_null());
+        let actual = native_snapshot::capture(control, None);
+        let dc = GetDC(control);
+        let mut bounds = RECT::default();
+        GetClientRect(control, &mut bounds);
+        let background = GetPixel(dc, bounds.right - 1, 0);
+        let brush = CreateSolidBrush(background);
+        FillRect(dc, &bounds, brush);
+        GdiFlush();
+        DeleteObject(brush);
+        ReleaseDC(control, dc);
+        RedrawWindow(
+            control,
+            std::ptr::null(),
+            null_mut(),
+            RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE,
+        );
+        let reference = native_snapshot::capture(control, None);
+        let differences = actual
+            .bgra
+            .chunks_exact(4)
+            .zip(reference.bgra.chunks_exact(4))
+            .filter(|(a, b)| a[..3] != b[..3])
+            .count();
+        assert_eq!(
+            differences,
+            0,
+            "extra or misaligned pixels on {}",
+            text(control)
+        );
+    }
+}
 
 #[test]
 fn portable_language_pack_is_used_by_settings_and_presets() {
@@ -72,10 +112,12 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
             .iter()
             .position(|spec| spec.key == "Lang")
             .unwrap();
+        let original_choice;
         unsafe {
             let combo = GetDlgItem(settings, (2400 + language) as i32);
             assert_eq!(SendMessageW(combo, CB_GETCOUNT, 0, 0), 9);
             let selected = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+            original_choice = selected as usize;
             let mut label = [0u16; 64];
             let length = SendMessageW(
                 combo,
@@ -95,6 +137,39 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
                     _ => "Español",
                 },
             );
+        }
+        if code == "ja" {
+            unsafe {
+                let id = 2400 + language;
+                let combo = GetDlgItem(settings, id as i32);
+                SendMessageW(combo, CB_SETCURSEL, 1, 0);
+                SendMessageW(
+                    settings,
+                    WM_COMMAND,
+                    id | ((CBN_SELENDOK as usize) << 16),
+                    combo as isize,
+                );
+                wait(|| text(settings) == "ALTRunNext · Settings");
+                // The title changes during translation. Wait for the paint to finish.
+                SendMessageW(settings, WM_NULL, 0, 0);
+                for label in ["General", "Startup and tray"] {
+                    let child = FindWindowExW(
+                        settings,
+                        null_mut(),
+                        wide("Static").as_ptr(),
+                        wide(label).as_ptr(),
+                    );
+                    assert_single_draw(child);
+                }
+                SendMessageW(combo, CB_SETCURSEL, original_choice, 0);
+                SendMessageW(
+                    settings,
+                    WM_COMMAND,
+                    id | ((CBN_SELENDOK as usize) << 16),
+                    combo as isize,
+                );
+                wait(|| text(settings) == title);
+            }
         }
         native_snapshot::save(settings, &format!("language-{code}-{scale}-settings"));
         command(launcher, 18007);

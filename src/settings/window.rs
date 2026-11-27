@@ -41,22 +41,10 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             0
         }
         WM_ERASEBKGND => 1,
-        WM_PAINT => unsafe {
-            let mut paint = PAINTSTRUCT::default();
-            let dc = BeginPaint(hwnd, &mut paint);
-            // Transparent labels and native controls share the page background.
-            // Present them together, clipped to the region invalidated by this change.
-            ui::buffered(dc, paint.rcPaint, |target| {
-                SendMessageW(
-                    hwnd,
-                    WM_PRINT,
-                    target as WPARAM,
-                    (PRF_CLIENT | PRF_CHILDREN) as LPARAM,
-                );
-            });
-            EndPaint(hwnd, &paint);
+        WM_PAINT => {
+            paint::present(hwnd);
             0
-        },
+        }
         WM_PRINTCLIENT => {
             paint_settings(hwnd, w as HDC);
             1

@@ -369,6 +369,45 @@ fn draw_button_text(item: &DRAWITEMSTRUCT, rect: RECT, color: u32, flags: u32) {
     }
 }
 
+pub(super) fn present(hwnd: HWND) {
+    unsafe {
+        let dirty = CreateRectRgn(0, 0, 0, 0);
+        let has_damage = !dirty.is_null() && GetUpdateRgn(hwnd, dirty, 0) > NULLREGION;
+        let mut paint = PAINTSTRUCT::default();
+        let dc = BeginPaint(hwnd, &mut paint);
+        if has_damage && !dc.is_null() {
+            // This frame includes the children. Consume only their damage inside
+            // the area we will present, before painting can queue fresh updates.
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                dirty,
+                RDW_VALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+            );
+        }
+        if !dirty.is_null() {
+            DeleteObject(dirty);
+        }
+        ui::buffered(dc, paint.rcPaint, |target| {
+            paint_settings(hwnd, target);
+            // WM_PRINT locates child windows from the outer frame. BeginPaint
+            // uses client coordinates, which exclude the native window border.
+            let mut frame = RECT::default();
+            GetWindowRect(hwnd, &mut frame);
+            let mut origin = POINT {
+                x: frame.left,
+                y: frame.top,
+            };
+            ScreenToClient(hwnd, &mut origin);
+            let mut previous = POINT::default();
+            OffsetViewportOrgEx(target, origin.x, origin.y, &mut previous);
+            SendMessageW(hwnd, WM_PRINT, target as WPARAM, PRF_CHILDREN as LPARAM);
+            SetViewportOrgEx(target, previous.x, previous.y, std::ptr::null_mut());
+        });
+        EndPaint(hwnd, &paint);
+    }
+}
+
 pub(super) fn paint_settings(hwnd: HWND, dc: HDC) {
     let state = EDITOR.with(|c| {
         c.borrow().as_ref().map(|s| {
