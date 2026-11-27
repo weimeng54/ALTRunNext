@@ -45,7 +45,12 @@ fn draw_button(
 ) {
     let dc = item.hDC;
     let rect = item.rcItem;
-    let pressed = item.itemState & ODS_SELECTED != 0;
+    let menu_direction = if matches!(content, ButtonContent::Dropdown) {
+        super::menu_style::button_direction(item.hwndItem)
+    } else {
+        None
+    };
+    let pressed = item.itemState & ODS_SELECTED != 0 || menu_direction.is_some();
     let disabled = item.itemState & ODS_DISABLED != 0;
     let (colour, text) = if disabled && primary {
         theme::disabled_primary()
@@ -85,20 +90,29 @@ fn draw_button(
         let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HFONT;
         let old = SelectObject(dc, font);
         let mut label = rect;
+        let caption = window_text(item.hwndItem);
         if matches!(content, ButtonContent::Dropdown) {
-            label.right -= scaled(16, dpi);
+            let icon_and_gap = scaled(16, dpi);
+            let width = super::text_width(dc, &super::wide(&caption))
+                .min((rect.right - rect.left - scaled(12, dpi) - icon_and_gap).max(1));
+            label.left += (rect.right - rect.left - width - icon_and_gap) / 2;
+            label.right = label.left + width;
             chevron(
                 dc,
                 POINT {
-                    x: rect.right - scaled(13, dpi),
+                    x: label.right + scaled(12, dpi),
                     y: (rect.top + rect.bottom) / 2,
                 },
-                Chevron::Down,
+                if menu_direction == Some(true) {
+                    Chevron::Up
+                } else {
+                    Chevron::Down
+                },
                 dpi,
                 text,
             );
         }
-        line_text(dc, label, &window_text(item.hwndItem), text, DT_CENTER);
+        line_text(dc, label, &caption, text, DT_CENTER);
         SelectObject(dc, old);
     }
 }

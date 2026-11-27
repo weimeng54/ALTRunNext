@@ -6,6 +6,9 @@
 
 ## [未发布 / Unreleased]
 
+- 设置中的「备份与恢复」采用紧凑按钮，两个菜单项连续排列。备份、新增和工具菜单会按按钮与内容宽度展开，按钮的底色和箭头提示当前展开方向。\
+  The backup button is more compact and groups both actions together. Backup, Add and Tools menus fit their button and contents. The active button stays highlighted and its arrow follows the menu.
+
 - 修复弹出菜单圆角边框缺边。菜单采用更紧凑的默认字号，可在「字体与颜色」中单独调整菜单字体和字号。\
   Fixed gaps in popup menu borders. Menus use a smaller default text size. Their font and size can be changed independently in Fonts and Colors.
 - 选择主题会立即预览整个设置窗口。「保存并应用」后，其他窗口同步切换；放弃修改会保留原主题。\

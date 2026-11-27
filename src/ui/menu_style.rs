@@ -21,7 +21,7 @@ use windows_sys::Win32::{
 pub(crate) enum Anchor {
     Pointer(POINT),
     Below(RECT),
-    Above(RECT),
+    Button { hwnd: HWND, above: bool },
 }
 
 #[derive(Default)]
@@ -54,6 +54,7 @@ pub(crate) struct PopupStyle {
     columns: HashMap<HMENU, Columns>,
     items: HashMap<usize, Item>,
     max_width: Cell<i32>,
+    button_width: Cell<Option<(i32, i32)>>,
 }
 
 impl PopupStyle {
@@ -85,6 +86,7 @@ impl PopupStyle {
                 columns: HashMap::new(),
                 items: HashMap::new(),
                 max_width: Cell::new(i32::MAX),
+                button_width: Cell::new(None),
             })
         }
     }
@@ -130,12 +132,7 @@ impl PopupStyle {
     }
 
     fn text_width(&self, value: &str) -> i32 {
-        let value = wide(value);
-        let mut size = SIZE::default();
-        unsafe {
-            GetTextExtentPoint32W(self.dc, value.as_ptr(), (value.len() - 1) as i32, &mut size)
-        };
-        size.cx
+        ui::text_width(self.dc, &wide(value))
     }
 
     fn insert(
@@ -218,3 +215,4 @@ mod painting;
 #[cfg(test)]
 mod tests;
 mod tracking;
+pub(super) use tracking::button_direction;

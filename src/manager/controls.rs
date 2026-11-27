@@ -30,6 +30,10 @@ pub(super) fn create(
             instance,
             font,
         };
+        let menu_width = |key| (crate::ui::caption_width(hwnd, font, dpi, key) + 40).clamp(78, 135);
+        let tools_width = menu_width("ui.tools");
+        let add_width = menu_width("ui.add");
+        let tools_x = RAIL - 16 - tools_width;
         let control = |class: &str, label: &str, style: u32, x, y, width, height, id: usize| {
             let id = if class == "STATIC" && id == 0 {
                 match label {
@@ -51,8 +55,8 @@ pub(super) fn create(
             };
             let (x, y, width, height) = match id {
                 CAPTION_CLOSE => (WIDTH - 47, 1, 46, CAPTION - 1),
-                NEW_MENU => (RAIL - 180, 62, 78, 32),
-                TOOLS_MENU => (RAIL - 94, 62, 78, 32),
+                NEW_MENU => (tools_x - 8 - add_width, 62, add_width, 32),
+                TOOLS_MENU => (tools_x, 62, tools_width, 32),
                 FILTER => (17, 103, RAIL - 34, 35),
                 FILTER_HINT => (
                     FORM_LEFT,

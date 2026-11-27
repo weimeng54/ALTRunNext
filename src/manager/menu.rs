@@ -71,9 +71,10 @@ pub(super) fn popup(hwnd: HWND, group: usize, position: Option<LPARAM>) {
                 sort_mode != SORT_ORIGINAL || selected + 1 >= row_count,
             );
         } else {
-            let mut rect: RECT = zeroed();
-            GetWindowRect(GetDlgItem(hwnd, group as i32), &mut rect);
-            anchor = menu_style::Anchor::Below(rect);
+            anchor = menu_style::Anchor::Button {
+                hwnd: GetDlgItem(hwnd, group as i32),
+                above: false,
+            };
             if group == NEW_MENU {
                 for (id, label) in [
                     (ADD, "ui.add_manually"),

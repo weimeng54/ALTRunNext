@@ -3,13 +3,35 @@
 
 use super::*;
 use std::{cell::RefCell, ptr::null};
+use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
+
+thread_local! {
+    static OPEN_BUTTON: Cell<Option<(HWND, bool)>> = const { Cell::new(None) };
+}
+
+pub(in crate::ui) fn button_direction(button: HWND) -> Option<bool> {
+    OPEN_BUTTON
+        .get()
+        .filter(|&(hwnd, _)| hwnd == button)
+        .map(|(_, above)| above)
+}
+
+fn set_open_button(button: HWND, above: Option<bool>) {
+    let state = above.map(|above| (button, above));
+    if OPEN_BUTTON.replace(state) != state {
+        unsafe {
+            InvalidateRect(button, null(), 0);
+        }
+    }
+}
 
 impl PopupStyle {
     pub(crate) fn track(&self, hwnd: HWND, anchor: Anchor) -> usize {
         let gap = scaled(3, self.dpi);
-        let (point, exclude, above) = match anchor {
-            Anchor::Pointer(point) => (point, None, false),
+        self.button_width.set(None);
+        let (point, exclude, above, button) = match anchor {
+            Anchor::Pointer(point) => (point, None, false, None),
             Anchor::Below(r) => (
                 POINT {
                     x: r.left,
@@ -17,15 +39,33 @@ impl PopupStyle {
                 },
                 Some(r),
                 false,
+                None,
             ),
-            Anchor::Above(r) => (
-                POINT {
-                    x: r.left,
-                    y: r.top - gap,
-                },
-                Some(r),
-                true,
-            ),
+            Anchor::Button {
+                hwnd: button,
+                above,
+            } => {
+                let mut r = RECT::default();
+                if unsafe { GetWindowRect(button, &mut r) } == 0 {
+                    return 0;
+                }
+                // USER32 adds its submenu-arrow slot and nonclient frame after WM_MEASUREITEM.
+                // Their size follows the physical monitor even when the UI uses a custom scale.
+                let dpi = unsafe { GetDpiForWindow(button) }.max(96);
+                let frame = 2 * unsafe { GetSystemMetricsForDpi(SM_CXDLGFRAME, dpi) };
+                let gutter = scaled(14, dpi as i32);
+                self.button_width
+                    .set(Some((r.right - r.left - frame, gutter)));
+                (
+                    POINT {
+                        x: r.left,
+                        y: if above { r.top - gap } else { r.bottom + gap },
+                    },
+                    Some(r),
+                    above,
+                    Some(button),
+                )
+            }
         };
         unsafe {
             let mut work = MONITORINFO {
@@ -45,6 +85,7 @@ impl PopupStyle {
             SetMenuInfo(self.root, &info);
             let tracking = Tracking {
                 owner: hwnd,
+                button,
                 popup: self,
                 windows: RefCell::new(Vec::new()),
                 shaping: Cell::new(false),
@@ -61,6 +102,9 @@ impl PopupStyle {
                     rcExclude: rc,
                 }
             });
+            if let Some(button) = tracking.button {
+                set_open_button(button, Some(above));
+            }
             let result = TrackPopupMenuEx(
                 self.root,
                 TPM_RETURNCMD
@@ -72,6 +116,9 @@ impl PopupStyle {
                 hwnd,
                 params.as_ref().map_or(null(), |p| p),
             );
+            if let Some(button) = tracking.button {
+                set_open_button(button, None);
+            }
             KillTimer(hwnd, data);
             for (_, window) in tracking.windows.take() {
                 RemoveWindowSubclass(window, Some(frame_proc), data);
@@ -131,12 +178,25 @@ unsafe extern "system" fn owner_proc(
 
 struct Tracking<'a> {
     owner: HWND,
+    button: Option<HWND>,
     popup: &'a PopupStyle,
     windows: RefCell<Vec<(HMENU, HWND)>>,
     shaping: Cell<bool>,
 }
 
 impl Tracking<'_> {
+    fn sync_button(&self, window: HWND) {
+        if let Some(button) = self.button {
+            let mut popup = RECT::default();
+            let mut bounds = RECT::default();
+            unsafe {
+                if GetWindowRect(window, &mut popup) != 0 && GetWindowRect(button, &mut bounds) != 0
+                {
+                    set_open_button(button, Some(popup.bottom <= bounds.top));
+                }
+            }
+        }
+    }
     fn draw_item(&self, item: &DRAWITEMSTRUCT) -> bool {
         if item.CtlType != ODT_MENU {
             return false;
@@ -178,6 +238,9 @@ impl Tracking<'_> {
                 return;
             }
             self.windows.borrow_mut().push((menu, hwnd));
+            if menu == self.popup.root {
+                self.sync_button(hwnd);
+            }
             self.shape(hwnd);
             SetTimer(self.owner, data, USER_TIMER_MINIMUM, None);
         }
@@ -206,6 +269,13 @@ unsafe extern "system" fn frame_proc(
         match msg {
             WM_WINDOWPOSCHANGED => {
                 tracking.shape(hwnd);
+                if tracking
+                    .windows
+                    .borrow()
+                    .contains(&(tracking.popup.root, hwnd))
+                {
+                    tracking.sync_button(hwnd);
+                }
                 draw_window_frame(hwnd, tracking.popup.dpi);
             }
             WM_NCPAINT | WM_PAINT => draw_window_frame(hwnd, tracking.popup.dpi),

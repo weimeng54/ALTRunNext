@@ -41,6 +41,29 @@ pub(crate) fn scaled(value: i32, dpi: i32) -> i32 {
     (value * dpi + 48 * value.signum()) / 96
 }
 
+// The input is a NUL-terminated UTF-16 caption.
+fn text_width(dc: HDC, caption: &[u16]) -> i32 {
+    let mut size = windows_sys::Win32::Foundation::SIZE::default();
+    unsafe { GetTextExtentPoint32W(dc, caption.as_ptr(), caption.len() as i32 - 1, &mut size) };
+    size.cx
+}
+
+pub(crate) fn caption_width(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    font: HFONT,
+    dpi: i32,
+    key: &str,
+) -> i32 {
+    unsafe {
+        let dc = GetDC(hwnd);
+        let old = SelectObject(dc, font);
+        let pixels = text_width(dc, &ui(key));
+        SelectObject(dc, old);
+        ReleaseDC(hwnd, dc);
+        (pixels * 96 + dpi - 1) / dpi
+    }
+}
+
 pub fn show_error(message: &str) {
     dialogs::input::notice(null_mut(), "ALTRunNext", message);
 }

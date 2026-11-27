@@ -81,6 +81,23 @@ fn check_popup(owner: HWND, pid: u32, button: usize, capture: &str, theme: &str)
         wait(|| GetWindowRgn(popup, region) > 1);
         assert_eq!(PtInRegion(region, 0, 0), 0);
         assert_ne!(PtInRegion(region, 12, 12), 0);
+        if button == 2312 {
+            let menu = SendMessageW(popup, MN_GETHMENU, 0, 0) as HMENU;
+            assert_eq!(GetMenuItemCount(menu), 2);
+            let mut trigger = RECT::default();
+            let mut panel = RECT::default();
+            GetWindowRect(child(owner, button as i32), &mut trigger);
+            GetWindowRect(popup, &mut panel);
+            assert_eq!(panel.left, trigger.left);
+            assert!(
+                (panel.right - trigger.right).abs() <= 1,
+                "{capture}: button {}..{} menu {}..{}",
+                trigger.left,
+                trigger.right,
+                panel.left,
+                panel.right
+            );
+        }
         menu_frame::check(popup, region, theme);
         DeleteObject(region);
         native_snapshot::save(popup, capture);

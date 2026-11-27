@@ -125,13 +125,14 @@ pub(super) fn menu(hwnd: HWND) {
     };
     let menu = style.root();
     style.add(menu, CREATE_BACKUP, "backup.create", false, false);
-    style.separator(menu);
     style.add(menu, RESTORE_BACKUP, "backup.restore", false, false);
-    let mut rect = RECT::default();
-    unsafe {
-        GetWindowRect(GetDlgItem(hwnd, BACKUP_MENU as i32), &mut rect);
-    }
-    let id = style.track(hwnd, ui::menu_style::Anchor::Above(rect));
+    let id = style.track(
+        hwnd,
+        ui::menu_style::Anchor::Button {
+            hwnd: unsafe { GetDlgItem(hwnd, BACKUP_MENU as i32) },
+            above: true,
+        },
+    );
     if matches!(id, CREATE_BACKUP | RESTORE_BACKUP) {
         open(hwnd, id == RESTORE_BACKUP);
     }

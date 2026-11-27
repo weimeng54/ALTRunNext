@@ -73,13 +73,16 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         }
         let title = control("STATIC", "", 0, 214, 68, 859, 38, 0);
         SendMessageW(title, WM_SETFONT, heading_font as usize, 0);
+        let backup_width =
+            (ui::caption_width(hwnd, font, dpi, "backup.section") + 40).clamp(132, 360);
+        let status_left = 157 + backup_width + 9;
         let status_label = control(
             "STATIC",
             "",
             OWNER_STATIC,
-            398,
+            status_left,
             layout::FOOTER_BUTTON_Y,
-            456,
+            854 - status_left,
             layout::FOOTER_BUTTON_HEIGHT,
             STATUS,
         );
@@ -241,17 +244,10 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
             ]);
         }
         let family_labels = [("ui.panel_font", 189), ("settings.menu_font", 353)];
-        let dc = GetDC(hwnd);
-        let previous = SelectObject(dc, font);
         let mut label_width = 70;
         for (label, _) in family_labels {
-            let caption = ui(label);
-            let mut size = SIZE::default();
-            GetTextExtentPoint32W(dc, caption.as_ptr(), caption.len() as i32 - 1, &mut size);
-            label_width = label_width.max((size.cx * 96 + dpi - 1) / dpi);
+            label_width = label_width.max(ui::caption_width(hwnd, font, dpi, label));
         }
-        SelectObject(dc, previous);
-        ReleaseDC(hwnd, dc);
         let family_x = 228 + label_width.min(130) + 6;
         for (label, y) in family_labels {
             let caption = control("STATIC", label, 0, 228, y, family_x - 232, 24, 0);
@@ -332,7 +328,7 @@ pub(super) fn create(hwnd: HWND, instance: HINSTANCE, dpi: i32) -> Controls {
         let fields = create_fields(&control, dpi, hotkey_font, filename_font);
         for (label, id, x, width) in [
             ("ui.reset_defaults", 2311, 17, 132),
-            ("backup.section", BACKUP_MENU, 157, 232),
+            ("backup.section", BACKUP_MENU, 157, backup_width),
             ("ui.close", 2314, 862, 85),
             ("ui.save_and_apply", 2310, 955, 130),
         ] {

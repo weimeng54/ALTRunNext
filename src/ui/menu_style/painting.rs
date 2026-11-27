@@ -16,8 +16,14 @@ impl PopupStyle {
             + 14
             + if columns.shortcut != 0 { 18 } else { 0 }
             + if columns.cascade { 12 } else { 0 };
-        info.itemWidth = (columns.label + columns.shortcut + scaled(padding, self.dpi))
-            .min(self.max_width.get()) as u32;
+        let width = (columns.label + columns.shortcut + scaled(padding, self.dpi))
+            .min(self.max_width.get());
+        info.itemWidth = match self.button_width.get() {
+            Some((button, native_gutter)) if item.menu == self.root => {
+                (width.max(button).min(self.max_width.get()) - native_gutter).max(1)
+            }
+            _ => width,
+        } as u32;
         info.itemHeight = if item.rule {
             scaled(7, self.dpi)
         } else {
