@@ -35,6 +35,7 @@ pub(super) fn show_page(page: usize) {
         }
         SetWindowTextW(title, ui(design.name).as_ptr());
         ui::language::caption(title, design.name);
+        let mut controls = Vec::new();
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visible = field.page == page
                 && !hidden_field(spec.key)
@@ -46,28 +47,27 @@ pub(super) fn show_page(page: usize) {
                 let is_color_value = hwnd == field.value
                     && matches!(spec.kind, Kind::Text)
                     && spec.key.ends_with("Color");
-                show_without_redraw(
+                controls.push((
                     hwnd,
                     visible
                         && !is_color_value
                         && (page != 3
                             || shows_in_background_mode(GetDlgCtrlID(hwnd) as usize, image)),
-                );
+                ));
             }
         }
         for (group, hwnd) in sections {
-            show_without_redraw(hwnd, group == page);
+            controls.push((hwnd, group == page));
         }
         for (group, hwnd) in extras {
-            show_without_redraw(
+            controls.push((
                 hwnd,
                 group == page
                     && (page != 3 || shows_in_background_mode(GetDlgCtrlID(hwnd) as usize, image)),
-            );
+            ));
         }
-        for hwnd in preview {
-            show_without_redraw(hwnd, showing_preview);
-        }
+        controls.extend(preview.map(|hwnd| (hwnd, showing_preview)));
+        update_visibility(controls);
     }
     if showing_preview {
         update_preview();
@@ -84,7 +84,7 @@ pub(super) fn show_page(page: usize) {
             window,
             &content,
             null_mut(),
-            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_NOERASE | RDW_UPDATENOW,
+            RDW_INVALIDATE | RDW_NOCHILDREN | RDW_NOERASE | RDW_UPDATENOW,
         );
     }
 }

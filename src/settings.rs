@@ -49,8 +49,7 @@ mod appearance;
 use appearance::{
     adjust_number, align_preview, background_image, choose_colour, choose_font_family,
     chrome_colors, extra_color, preset, refresh_font_family, refresh_style, set_colour,
-    show_without_redraw, strength_label, toggle_extra_colors, update_background_mode,
-    update_preview,
+    strength_label, toggle_extra_colors, update_background_mode, update_preview, update_visibility,
 };
 mod apply;
 

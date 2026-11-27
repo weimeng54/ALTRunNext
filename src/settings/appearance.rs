@@ -84,38 +84,46 @@ pub(super) fn update_background_mode() {
         return;
     }
     let image = background_image();
-    for child in children {
+    update_visibility(children.into_iter().filter_map(|child| {
         let id = unsafe { GetDlgCtrlID(child) } as usize;
-        if image_control(id) || solid_control(id) {
-            show_without_redraw(child, shows_in_background_mode(id, image));
-        }
-    }
+        (image_control(id) || solid_control(id))
+            .then(|| (child, shows_in_background_mode(id, image)))
+    }));
     repaint_section(window, BoxRect::new(layout::CONTENT, 284, 290, 227), dpi);
 }
 
-pub(super) fn show_without_redraw(hwnd: HWND, visible: bool) {
-    if !hwnd.is_null()
-        && unsafe { (GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_VISIBLE != 0) != visible }
-    {
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                null_mut(),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOACTIVATE
-                    | SWP_NOZORDER
-                    | SWP_NOREDRAW
-                    | if visible {
-                        SWP_SHOWWINDOW
-                    } else {
-                        SWP_HIDEWINDOW
-                    },
-            );
+// Apply sibling visibility together so switching pages requires one layout pass.
+pub(super) fn update_visibility(items: impl IntoIterator<Item = (HWND, bool)>) {
+    let mut changes = Vec::new();
+    for (child, show) in items {
+        if child.is_null()
+            || (unsafe { GetWindowLongW(child, GWL_STYLE) } as u32 & WS_VISIBLE != 0) == show
+        {
+            continue;
+        }
+        let flags = SWP_NOMOVE
+            | SWP_NOSIZE
+            | SWP_NOACTIVATE
+            | SWP_NOZORDER
+            | SWP_NOREDRAW
+            | if show { SWP_SHOWWINDOW } else { SWP_HIDEWINDOW };
+        changes.push((child, flags));
+    }
+    if changes.is_empty() {
+        return;
+    }
+    unsafe {
+        let mut batch = BeginDeferWindowPos(changes.len() as i32);
+        for &(child, flags) in &changes {
+            if batch.is_null() {
+                break;
+            }
+            batch = DeferWindowPos(batch, child, null_mut(), 0, 0, 0, 0, flags);
+        }
+        if batch.is_null() || EndDeferWindowPos(batch) == 0 {
+            for (child, flags) in changes {
+                SetWindowPos(child, null_mut(), 0, 0, 0, 0, flags);
+            }
         }
     }
 }
@@ -138,12 +146,13 @@ pub(super) fn toggle_extra_colors(window: HWND) {
         s.more_colors = !s.more_colors;
         (s.more_colors, s.dpi)
     });
-    for (spec, field) in SPECS.iter().zip(fields()) {
-        if extra_color(spec.key) {
-            show_without_redraw(field.label, expanded);
-            show_without_redraw(field.pick, expanded);
-        }
-    }
+    update_visibility(
+        SPECS
+            .iter()
+            .zip(fields())
+            .filter(|(spec, _)| extra_color(spec.key))
+            .flat_map(|(_, field)| [(field.label, expanded), (field.pick, expanded)]),
+    );
     repaint_section(window, layout::EXTRA_COLORS, dpi);
     unsafe {
         InvalidateRect(GetDlgItem(window, MORE_COLORS as i32), std::ptr::null(), 0);

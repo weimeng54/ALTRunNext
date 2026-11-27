@@ -44,7 +44,16 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         WM_PAINT => unsafe {
             let mut paint = PAINTSTRUCT::default();
             let dc = BeginPaint(hwnd, &mut paint);
-            ui::buffered(dc, paint.rcPaint, |target| paint_settings(hwnd, target));
+            // Transparent labels and native controls share the page background.
+            // Present them together, clipped to the region invalidated by this change.
+            ui::buffered(dc, paint.rcPaint, |target| {
+                SendMessageW(
+                    hwnd,
+                    WM_PRINT,
+                    target as WPARAM,
+                    (PRF_CLIENT | PRF_CHILDREN) as LPARAM,
+                );
+            });
             EndPaint(hwnd, &paint);
             0
         },
@@ -311,7 +320,7 @@ pub(crate) fn open(
                 wc.hbrBackground = null_mut();
                 RegisterClassW(&wc);
                 let hwnd = CreateWindowExW(
-                    WS_EX_COMPOSITED,
+                    0,
                     class.as_ptr(),
                     ui("settings.window_title").as_ptr(),
                     crate::ui::window_frame::STYLE,
