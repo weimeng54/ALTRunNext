@@ -390,21 +390,41 @@ pub(super) fn present(hwnd: HWND) {
         }
         ui::buffered(dc, paint.rcPaint, |target| {
             paint_settings(hwnd, target);
-            // WM_PRINT locates child windows from the outer frame. BeginPaint
-            // uses client coordinates, which exclude the native window border.
-            let mut frame = RECT::default();
-            GetWindowRect(hwnd, &mut frame);
-            let mut origin = POINT {
-                x: frame.left,
-                y: frame.top,
-            };
-            ScreenToClient(hwnd, &mut origin);
-            let mut previous = POINT::default();
-            OffsetViewportOrgEx(target, origin.x, origin.y, &mut previous);
-            SendMessageW(hwnd, WM_PRINT, target as WPARAM, PRF_CHILDREN as LPARAM);
-            SetViewportOrgEx(target, previous.x, previous.y, std::ptr::null_mut());
+            paint_children(hwnd, target);
         });
         EndPaint(hwnd, &paint);
+    }
+}
+
+// Compose siblings back to front in the same client coordinates they use for
+// WM_PAINT. Printing the top-level frame here includes its non-client offset.
+fn paint_children(parent: HWND, dc: HDC) {
+    unsafe {
+        let mut child = GetWindow(parent, GW_CHILD);
+        if !child.is_null() {
+            child = GetWindow(child, GW_HWNDLAST);
+        }
+        while !child.is_null() {
+            let mut bounds = RECT::default();
+            if IsWindowVisible(child) != 0 && GetWindowRect(child, &mut bounds) != 0 {
+                MapWindowPoints(null_mut(), parent, (&raw mut bounds).cast(), 2);
+                if RectVisible(dc, &bounds) != 0 {
+                    let saved = SaveDC(dc);
+                    if saved != 0 {
+                        IntersectClipRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
+                        OffsetViewportOrgEx(dc, bounds.left, bounds.top, std::ptr::null_mut());
+                        SendMessageW(
+                            child,
+                            WM_PRINT,
+                            dc as WPARAM,
+                            (PRF_NONCLIENT | PRF_CLIENT | PRF_ERASEBKGND | PRF_CHILDREN) as LPARAM,
+                        );
+                        RestoreDC(dc, saved);
+                    }
+                }
+            }
+            child = GetWindow(child, GW_HWNDPREV);
+        }
     }
 }
 

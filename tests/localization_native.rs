@@ -37,8 +37,10 @@ fn assert_single_draw(control: HWND) {
         let reference = native_snapshot::capture(control, None);
         let differences = actual
             .bgra
-            .chunks_exact(4)
-            .zip(reference.bgra.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(reference.bgra.as_chunks::<4>().0)
             .filter(|(a, b)| a[..3] != b[..3])
             .count();
         assert_eq!(
