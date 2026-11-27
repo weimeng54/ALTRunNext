@@ -73,7 +73,7 @@ impl PopupStyle {
                 params.as_ref().map_or(null(), |p| p),
             );
             KillTimer(hwnd, data);
-            for window in tracking.windows.take() {
+            for (_, window) in tracking.windows.take() {
                 RemoveWindowSubclass(window, Some(frame_proc), data);
             }
             RemoveWindowSubclass(hwnd, Some(owner_proc), data);
@@ -98,11 +98,7 @@ unsafe extern "system" fn owner_proc(
             {
                 1
             }
-            WM_DRAWITEM if l != 0 && tracking.popup.draw(&*(l as *const DRAWITEMSTRUCT)) => {
-                let item = &*(l as *const DRAWITEMSTRUCT);
-                tracking.attach(WindowFromDC(item.hDC));
-                1
-            }
+            WM_DRAWITEM if l != 0 && tracking.draw_item(&*(l as *const DRAWITEMSTRUCT)) => 1,
             // USER32 can dispatch built-in menu messages entirely in the system window
             // procedure, bypassing thread call-window hooks. WM_ENTERIDLE supplies
             // the actual popup HWND once the native tracking loop has displayed it.
@@ -116,7 +112,7 @@ unsafe extern "system" fn owner_proc(
                 // Force a real paint after USER32 has presented the menu. A
                 // posted WM_NCPAINT alone doesn't invalidate its cached frame.
                 let windows = tracking.windows.borrow().clone();
-                for window in windows {
+                for (_, window) in windows {
                     if IsWindowVisible(window) != 0 {
                         RedrawWindow(
                             window,
@@ -136,11 +132,27 @@ unsafe extern "system" fn owner_proc(
 struct Tracking<'a> {
     owner: HWND,
     popup: &'a PopupStyle,
-    windows: RefCell<Vec<HWND>>,
+    windows: RefCell<Vec<(HMENU, HWND)>>,
     shaping: Cell<bool>,
 }
 
 impl Tracking<'_> {
+    fn draw_item(&self, item: &DRAWITEMSTRUCT) -> bool {
+        if item.CtlType != ODT_MENU {
+            return false;
+        }
+        self.attach(unsafe { WindowFromDC(item.hDC) });
+        // A buffered item DC can have no associated HWND. Match the item's
+        // HMENU to its tracked popup, including when a cascade is open.
+        let window = self
+            .windows
+            .borrow()
+            .iter()
+            .find(|(menu, _)| *menu == item.hwndItem)
+            .map_or(null_mut(), |&(_, hwnd)| hwnd);
+        self.popup.draw(item, window)
+    }
+
     fn shape(&self, hwnd: HWND) {
         // SetWindowRgn synchronously sends WM_WINDOWPOSCHANGED.
         if !self.shaping.replace(true) {
@@ -150,7 +162,7 @@ impl Tracking<'_> {
     }
 
     fn attach(&self, hwnd: HWND) {
-        if hwnd.is_null() || self.windows.borrow().contains(&hwnd) {
+        if hwnd.is_null() || self.windows.borrow().iter().any(|&(_, w)| w == hwnd) {
             return;
         }
         unsafe {
@@ -165,7 +177,7 @@ impl Tracking<'_> {
             if SetWindowSubclass(hwnd, Some(frame_proc), data, data) == 0 {
                 return;
             }
-            self.windows.borrow_mut().push(hwnd);
+            self.windows.borrow_mut().push((menu, hwnd));
             self.shape(hwnd);
             SetTimer(self.owner, data, USER_TIMER_MINIMUM, None);
         }
@@ -186,7 +198,7 @@ unsafe extern "system" fn frame_proc(
             tracking
                 .windows
                 .borrow_mut()
-                .retain(|&window| window != hwnd);
+                .retain(|&(_, window)| window != hwnd);
             RemoveWindowSubclass(hwnd, Some(frame_proc), id);
             return DefSubclassProc(hwnd, msg, w, l);
         }

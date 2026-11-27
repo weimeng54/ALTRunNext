@@ -77,14 +77,25 @@ pub(super) fn check(hwnd: HWND, region: HRGN, theme: &str) {
     unsafe {
         let mut previous = POINT::default();
         assert_ne!(GetCursorPos(&mut previous), 0);
-        let mut bounds = RECT::default();
-        assert_ne!(GetWindowRect(hwnd, &mut bounds), 0);
-        let center_x = (bounds.left + bounds.right) / 2;
-        assert_ne!(SetCursorPos(center_x, bounds.top + 12), 0);
-        thread::sleep(Duration::from_millis(150));
-        let hover = first_gap(hwnd, region, expected);
+        let menu = SendMessageW(hwnd, MN_GETHMENU, 0, 0) as HMENU;
+        let last = GetMenuItemCount(menu) - 1;
+        assert!(last > 0);
+        let hover = [0, last as u32].map(|position| {
+            let mut row = RECT::default();
+            assert_ne!(GetMenuItemRect(null_mut(), menu, position, &mut row), 0);
+            assert_ne!(
+                SetCursorPos((row.left + row.right) / 2, (row.top + row.bottom) / 2),
+                0
+            );
+            thread::sleep(Duration::from_millis(150));
+            first_gap(hwnd, region, expected)
+        });
         SetCursorPos(previous.x, previous.y);
-        assert_eq!(hover, None, "hovering {theme}");
+        assert_eq!(
+            hover,
+            [None, None],
+            "hovering first and last rows in {theme}"
+        );
         RedrawWindow(
             hwnd,
             std::ptr::null(),

@@ -38,13 +38,16 @@ fn cascade_arrow_is_a_single_shape_inside_each_scaled_row() {
                 x: rect.right - scaled(14, dpi),
                 y: rect.bottom / 2,
             };
-            assert!(style.draw(&DRAWITEMSTRUCT {
-                CtlType: ODT_MENU,
-                hDC: dc,
-                rcItem: rect,
-                itemData: *style.items.keys().next().unwrap(),
-                ..Default::default()
-            }));
+            assert!(style.draw(
+                &DRAWITEMSTRUCT {
+                    CtlType: ODT_MENU,
+                    hDC: dc,
+                    rcItem: rect,
+                    itemData: *style.items.keys().next().unwrap(),
+                    ..Default::default()
+                },
+                null_mut()
+            ));
             assert_eq!(PtVisible(dc, rect.right - scaled(5, dpi), center.y), 0);
             assert_ne!(
                 PtVisible(dc, rect.right - scaled(5, dpi), rect.bottom + 1),

@@ -26,7 +26,7 @@ impl PopupStyle {
         true
     }
 
-    pub(super) fn draw(&self, info: &DRAWITEMSTRUCT) -> bool {
+    pub(super) fn draw(&self, info: &DRAWITEMSTRUCT, window: HWND) -> bool {
         if info.CtlType != ODT_MENU {
             return false;
         }
@@ -49,6 +49,7 @@ impl PopupStyle {
                 },
                 theme::divider(),
             );
+            ui::popup_frame::draw_row(window, dc, self.dpi, rect);
             return true;
         }
         let disabled = info.itemState & (ODS_GRAYED | ODS_DISABLED) != 0;
@@ -130,6 +131,7 @@ impl PopupStyle {
                 );
             }
             RestoreDC(dc, saved);
+            ui::popup_frame::draw_row(window, dc, self.dpi, rect);
             if item.child {
                 // USER32 draws another cascade glyph after this callback.
                 ExcludeClipRect(
