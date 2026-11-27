@@ -76,6 +76,10 @@ pub(super) fn slow_writes_and_conflict() {
         assert_eq!(std::fs::read_to_string(&ini).unwrap(), original);
         command(dialog, 2314);
         assert_eq!(IsWindowVisible(dialog), 0);
+        command(launcher, 18005);
+        wait(|| IsWindowVisible(dialog) != 0);
+        assert_eq!(text(row), "32");
+        command(dialog, 2314);
         wait(|| IsWindow(dialog) == 0);
         wait(|| {
             std::fs::read_to_string(&ini)
@@ -92,7 +96,7 @@ pub(super) fn slow_writes_and_conflict() {
         notify_control(dialog, row, EN_KILLFOCUS);
         wait(|| text(GetDlgItem(dialog, 2303)).contains("外部修改"));
         assert_eq!(text(row), "32");
-        assert_eq!(SendMessageW(results, LB_GETITEMHEIGHT, 0, 0), row_height);
+        wait(|| SendMessageW(results, LB_GETITEMHEIGHT, 0, 0) == row_height);
         assert_eq!(std::fs::read_to_string(&ini).unwrap(), external);
         command(dialog, 2314);
         wait(|| IsWindow(dialog) == 0);

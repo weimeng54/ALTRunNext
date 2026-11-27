@@ -210,9 +210,11 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
             }
         }
         OPEN_PAGE => {
+            let requested = WINDOW.lock().unwrap().requested_page.take();
+            let Some(page) = requested else { return 0 };
             apply::reopen();
-            if w < PAGES.len() {
-                show_page(w);
+            if page < PAGES.len() {
+                show_page(page);
             }
             unsafe {
                 ShowWindow(hwnd, SW_SHOW);
@@ -264,17 +266,21 @@ pub(crate) fn open(
     page: Option<usize>,
     safe_mode: bool,
 ) {
-    if WINDOW
-        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
     {
-        let h = WINDOW.load(Ordering::Acquire);
-        if h > 1 {
-            unsafe {
-                PostMessageW(h as HWND, OPEN_PAGE, page.unwrap_or(usize::MAX), 0);
-            }
+        let mut slot = WINDOW.lock().unwrap();
+        if slot.exiting {
+            return;
         }
-        return;
+        if slot.handle != 0 {
+            slot.requested_page = Some(page.unwrap_or(usize::MAX));
+            if slot.handle > 1 {
+                unsafe {
+                    PostMessageW(slot.handle as HWND, OPEN_PAGE, 0, 0);
+                }
+            }
+            return;
+        }
+        slot.handle = 1;
     }
     let owner = owner as usize;
     std::thread::spawn(move || {
@@ -396,9 +402,14 @@ pub(crate) fn open(
                 load_form(&prefs);
                 report_language_packs(&prefs);
                 show_page(page.unwrap_or(0));
-                WINDOW.store(hwnd as usize, Ordering::Release);
-                if EXIT_REQUESTED.load(Ordering::Acquire) {
-                    PostMessageW(hwnd, apply::EXIT, 0, 0);
+                {
+                    let mut slot = WINDOW.lock().unwrap();
+                    slot.handle = hwnd as usize;
+                    if slot.exiting {
+                        PostMessageW(hwnd, apply::EXIT, 0, 0);
+                    } else if slot.requested_page.is_some() {
+                        PostMessageW(hwnd, OPEN_PAGE, 0, 0);
+                    }
                 }
                 ShowWindow(hwnd, SW_SHOW);
                 SetFocus(tabs);
@@ -472,9 +483,18 @@ pub(crate) fn open(
         if let Err(e) = result {
             crate::ui::show_error(&e);
         }
-        WINDOW.store(0, Ordering::Release);
-        if EXIT_REQUESTED.swap(false, Ordering::AcqRel) {
-            let _ = exit_sender.send(Change::ExitForRecovery);
+        let followup = {
+            let mut slot = WINDOW.lock().unwrap();
+            slot.handle = 0;
+            let page = slot.requested_page.take();
+            if slot.exiting {
+                Some(Change::ExitForRecovery)
+            } else {
+                page.map(|index| Change::Reopen((index < PAGES.len()).then_some(index)))
+            }
+        };
+        if let Some(change) = followup {
+            let _ = exit_sender.send(change);
             unsafe {
                 PostMessageW(owner as HWND, UPDATED, 0, 0);
             }

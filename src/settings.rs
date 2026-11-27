@@ -123,6 +123,7 @@ const PROJECT_LINKS: [(usize, &str, &str, &str); 3] = [
 ];
 
 pub enum Change {
+    Reopen(Option<usize>),
     Live(Vec<(&'static str, String)>),
     Prepare(u64, Preferences, mpsc::Sender<Result<(), String>>),
     Finish(u64, bool, mpsc::Sender<()>),
@@ -207,7 +208,19 @@ const PAGES: &[Page] = &[
     },
 ];
 
-static WINDOW: AtomicUsize = AtomicUsize::new(0);
+// Keep an open request until an editor actually handles it. The HWND may
+// already be closing when the launcher posts the request.
+struct WindowSlot {
+    handle: usize,
+    requested_page: Option<usize>,
+    exiting: bool,
+}
+
+static WINDOW: std::sync::Mutex<WindowSlot> = std::sync::Mutex::new(WindowSlot {
+    handle: 0,
+    requested_page: None,
+    exiting: false,
+});
 #[derive(Clone, Copy)]
 struct Field {
     page: usize,
@@ -286,22 +299,16 @@ const PRESETS: [(&str, &str, &str); 3] = [
 ];
 
 pub fn is_open() -> bool {
-    match WINDOW.load(Ordering::Acquire) {
-        0 => false,
-        1 => true,
-        hwnd => unsafe { IsWindow(hwnd as HWND) != 0 },
-    }
+    WINDOW.lock().unwrap().handle != 0
 }
 
-static EXIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 pub(crate) fn finish_before_exit() -> bool {
-    EXIT_REQUESTED.store(true, Ordering::Release);
-    let hwnd = WINDOW.load(Ordering::Acquire);
-    if hwnd > 1 {
+    let mut slot = WINDOW.lock().unwrap();
+    slot.exiting = true;
+    if slot.handle > 1 {
         unsafe {
-            PostMessageW(hwnd as HWND, apply::EXIT, 0, 0);
+            PostMessageW(slot.handle as HWND, apply::EXIT, 0, 0);
         }
     }
-    hwnd != 0
+    slot.handle != 0
 }
