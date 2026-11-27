@@ -27,7 +27,7 @@ pub(crate) use fields::{
 };
 pub(crate) use painting::{
     Chevron, ResultDividers, STATIC_CENTER_IMAGE, app_icon, buffered, chevron, draw_app_icon, fill,
-    launcher_title, line_text, panel_caption, rounded, row_focus, window_text,
+    launcher_title, line_text, paint_with_children, panel_caption, rounded, row_focus, window_text,
 };
 pub(crate) use scrollbars::{style_list_scrollbar, style_report_scrollbars, style_text_scrollbar};
 

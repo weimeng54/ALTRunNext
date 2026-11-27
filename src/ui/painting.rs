@@ -67,6 +67,66 @@ pub(crate) fn buffered(dc: HDC, rect: RECT, draw: impl FnOnce(HDC)) {
     }
 }
 
+/// Present a form and its visible child controls in a single buffered paint.
+pub(crate) fn paint_with_children(hwnd: HWND, background: impl FnOnce(HDC)) {
+    unsafe {
+        let dirty = CreateRectRgn(0, 0, 0, 0);
+        let has_damage = !dirty.is_null() && GetUpdateRgn(hwnd, dirty, 0) > NULLREGION;
+        let mut paint = PAINTSTRUCT::default();
+        let dc = BeginPaint(hwnd, &mut paint);
+        if has_damage && !dc.is_null() {
+            // This frame includes the children. Consume only their damage inside
+            // the area we will present, before painting can queue fresh updates.
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                dirty,
+                RDW_VALIDATE | RDW_ALLCHILDREN | RDW_NOERASE,
+            );
+        }
+        if !dirty.is_null() {
+            DeleteObject(dirty);
+        }
+        buffered(dc, paint.rcPaint, |target| {
+            background(target);
+            paint_children(hwnd, target);
+        });
+        EndPaint(hwnd, &paint);
+    }
+}
+
+// Compose siblings back to front in the same client coordinates they use for
+// WM_PAINT. Printing the top-level frame here includes its non-client offset.
+fn paint_children(parent: HWND, dc: HDC) {
+    unsafe {
+        let mut child = GetWindow(parent, GW_CHILD);
+        if !child.is_null() {
+            child = GetWindow(child, GW_HWNDLAST);
+        }
+        while !child.is_null() {
+            let mut bounds = RECT::default();
+            if IsWindowVisible(child) != 0 && GetWindowRect(child, &mut bounds) != 0 {
+                MapWindowPoints(std::ptr::null_mut(), parent, (&raw mut bounds).cast(), 2);
+                if RectVisible(dc, &bounds) != 0 {
+                    let saved = SaveDC(dc);
+                    if saved != 0 {
+                        IntersectClipRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
+                        OffsetViewportOrgEx(dc, bounds.left, bounds.top, std::ptr::null_mut());
+                        SendMessageW(
+                            child,
+                            WM_PRINT,
+                            dc as WPARAM,
+                            (PRF_NONCLIENT | PRF_CLIENT | PRF_ERASEBKGND | PRF_CHILDREN) as LPARAM,
+                        );
+                        RestoreDC(dc, saved);
+                    }
+                }
+            }
+            child = GetWindow(child, GW_HWNDPREV);
+        }
+    }
+}
+
 pub fn fill(dc: HDC, rect: &RECT, colour: u32) {
     unsafe {
         let brush = CreateSolidBrush(colour);

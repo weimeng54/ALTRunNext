@@ -163,6 +163,21 @@ fn portable_language_pack_is_used_by_settings_and_presets() {
                     );
                     assert_single_draw(child);
                 }
+                let tabs = GetDlgItem(settings, 2301);
+                let select_page = |page| {
+                    SendMessageW(tabs, LB_SETCURSEL, page, 0);
+                    SendMessageW(
+                        settings,
+                        WM_COMMAND,
+                        2301 | ((LBN_SELCHANGE as usize) << 16),
+                        tabs as isize,
+                    );
+                };
+                select_page(3);
+                for id in [2331, 2333, 2350, 2354] {
+                    assert_single_draw(GetDlgItem(settings, id));
+                }
+                select_page(0);
                 SendMessageW(combo, CB_SETCURSEL, original_choice, 0);
                 SendMessageW(
                     settings,

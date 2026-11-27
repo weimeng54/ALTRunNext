@@ -42,7 +42,7 @@ unsafe extern "system" fn procedure(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         }
         WM_ERASEBKGND => 1,
         WM_PAINT => {
-            paint::present(hwnd);
+            ui::paint_with_children(hwnd, |dc| paint_settings(hwnd, dc));
             0
         }
         WM_PRINTCLIENT => {
