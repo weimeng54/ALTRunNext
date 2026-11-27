@@ -33,8 +33,6 @@ pub(super) fn show_page(page: usize) {
         if SendMessageW(tabs, LB_GETCURSEL, 0, 0) != page as isize {
             SendMessageW(tabs, LB_SETCURSEL, page, 0);
         }
-        SetWindowTextW(title, ui(design.name).as_ptr());
-        ui::language::caption(title, design.name);
         let mut controls = Vec::new();
         for (spec, field) in SPECS.iter().zip(fields()) {
             let visible = field.page == page
@@ -79,6 +77,11 @@ pub(super) fn show_page(page: usize) {
         content.left = scaled(layout::RAIL, dpi);
         content.top = scaled(layout::CAPTION, dpi) + 1;
         content.bottom = height - scaled(layout::FOOTER, dpi);
+        // STATIC otherwise draws the new title onto the old page from WM_SETTEXT.
+        SendMessageW(title, WM_SETREDRAW, 0, 0);
+        SetWindowTextW(title, ui(design.name).as_ptr());
+        ui::language::caption(title, design.name);
+        SendMessageW(title, WM_SETREDRAW, 1, 0);
         // The sidebar, caption and footer own their repaint independently.
         RedrawWindow(
             window,
