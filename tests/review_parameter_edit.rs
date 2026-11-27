@@ -58,7 +58,9 @@ fn parameter_edit_keeps_apostrophes_semicolons_delete_and_frozen_target() {
             popup = window("#32768", process.0.id());
             !popup.is_null() && IsWindowVisible(popup) != 0
         });
-        for key in [VK_HOME, VK_DOWN, VK_RETURN] {
+        // A menu opened with TrackPopupMenuEx starts without a highlighted item.
+        // The first Down highlights the first row and the next Down selects the second.
+        for key in [VK_DOWN, VK_DOWN, VK_RETURN] {
             PostMessageW(dialog, WM_KEYDOWN, key as usize, 1);
         }
         wait(|| IsWindowVisible(popup) == 0 && text(edit) == second);

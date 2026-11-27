@@ -22,7 +22,7 @@ pub(super) struct Visual {
 impl Visual {
     pub(super) fn draw(self, dc: HDC, bounds: RECT, axis: Axis, dpi: i32) {
         let (idle, active, track) = if theme::high_contrast() {
-            (theme::text(), theme::accent(), theme::selection())
+            (theme::text(), theme::selection_text(), theme::selection())
         } else if theme::is_dark() {
             (
                 theme::rgb(116, 134, 154),

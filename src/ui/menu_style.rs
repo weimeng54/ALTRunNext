@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 //! USER32 tracks the real HMENU, including its keyboard, accessibility and cascade behavior.
-//! A thread-local hook frames only the #32768 windows belonging to this tracking call.
+//! A scoped subclass frames the native popup windows belonging to this tracking call.
 use crate::{
     theme,
     ui::{self, scaled, wide},

@@ -70,6 +70,7 @@ jobs:
         env:
           RUST_BACKTRACE: '1'
           RUST_TEST_THREADS: '1'
+          ALTRUN_CONTRAST_DESKTOP: ${{ runner.environment }}
         run: |
           $env:ALTRUN_RELEASE_SMOKE_EXE = (Resolve-Path target/x86_64-pc-windows-msvc/release/ALTRunNext.exe).Path
           cargo test --locked --test review_startup_hotkeys --test complete_native --test native --test manager --test localization_native --test review_send_to --test review_031 --test review_parameter_edit --test review_parameter_ime
@@ -126,3 +127,11 @@ jobs:
             target/ui/
             target/test-progress.log
           retention-days: 3
+      - name: Retain executable for failed native UI checks
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-diagnostics-${{ github.sha }}
+          path: target/debug/ALTRunNext.exe
+          retention-days: 1
+          if-no-files-found: ignore

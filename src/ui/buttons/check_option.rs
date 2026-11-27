@@ -126,7 +126,7 @@ pub(crate) fn check_option(
             let mark_colour = if !active {
                 theme::disabled_text()
             } else if high_contrast {
-                theme::accent()
+                theme::selection_text()
             } else {
                 theme::on_accent()
             };

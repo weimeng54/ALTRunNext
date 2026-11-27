@@ -3,10 +3,7 @@
 
 use super::*;
 use std::{cell::RefCell, ptr::null};
-use windows_sys::Win32::{
-    System::Threading::GetCurrentThreadId,
-    UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
-};
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 
 impl PopupStyle {
     pub(crate) fn track(&self, hwnd: HWND, anchor: Anchor) -> usize {
@@ -46,29 +43,15 @@ impl PopupStyle {
                 ..Default::default()
             };
             SetMenuInfo(self.root, &info);
-            let data = self as *const Self as usize;
+            let tracking = Tracking {
+                popup: self,
+                windows: RefCell::new(Vec::new()),
+                shaping: Cell::new(false),
+            };
+            let data = &tracking as *const Tracking<'_> as usize;
             if SetWindowSubclass(hwnd, Some(owner_proc), data, data) == 0 {
                 return 0;
             }
-            let first = ACTIVE.with(|s| {
-                let mut s = s.borrow_mut();
-                let first = s.is_empty();
-                s.push(TrackingMenus {
-                    menus: self.columns.keys().copied().collect(),
-                    dpi: self.dpi,
-                });
-                first
-            });
-            let hook = if first {
-                SetWindowsHookExW(
-                    WH_CALLWNDPROCRET,
-                    Some(after_message),
-                    null_mut(),
-                    GetCurrentThreadId(),
-                )
-            } else {
-                null_mut()
-            };
             let params = exclude.map(|mut rc| {
                 rc.top -= gap;
                 rc.bottom += gap;
@@ -87,10 +70,9 @@ impl PopupStyle {
                 hwnd,
                 params.as_ref().map_or(null(), |p| p),
             );
-            if !hook.is_null() {
-                UnhookWindowsHookEx(hook);
+            for window in tracking.windows.take() {
+                RemoveWindowSubclass(window, Some(frame_proc), data);
             }
-            ACTIVE.with(|s| s.borrow_mut().pop());
             RemoveWindowSubclass(hwnd, Some(owner_proc), data);
             result as usize
         }
@@ -106,62 +88,107 @@ unsafe extern "system" fn owner_proc(
     data: usize,
 ) -> LRESULT {
     unsafe {
-        let popup = &*(data as *const PopupStyle);
+        let tracking = &*(data as *const Tracking<'_>);
         match msg {
-            WM_MEASUREITEM if l != 0 && popup.measure(&mut *(l as *mut MEASUREITEMSTRUCT)) => 1,
-            WM_DRAWITEM if l != 0 && popup.draw(&*(l as *const DRAWITEMSTRUCT)) => 1,
+            WM_MEASUREITEM
+                if l != 0 && tracking.popup.measure(&mut *(l as *mut MEASUREITEMSTRUCT)) =>
+            {
+                1
+            }
+            WM_DRAWITEM if l != 0 && tracking.popup.draw(&*(l as *const DRAWITEMSTRUCT)) => {
+                let item = &*(l as *const DRAWITEMSTRUCT);
+                tracking.attach(WindowFromDC(item.hDC));
+                1
+            }
+            // USER32 can dispatch built-in menu messages entirely in the system window
+            // procedure, bypassing thread call-window hooks. WM_ENTERIDLE supplies
+            // the actual popup HWND once the native tracking loop has displayed it.
+            WM_ENTERIDLE if w == MSGF_MENU as usize => {
+                tracking.attach(l as HWND);
+                DefSubclassProc(hwnd, msg, w, l)
+            }
             _ => DefSubclassProc(hwnd, msg, w, l),
         }
     }
 }
 
-struct TrackingMenus {
-    menus: Vec<HMENU>,
-    dpi: i32,
+struct Tracking<'a> {
+    popup: &'a PopupStyle,
+    windows: RefCell<Vec<HWND>>,
+    shaping: Cell<bool>,
 }
 
-thread_local! {
-    static ACTIVE: RefCell<Vec<TrackingMenus>> = const { RefCell::new(Vec::new()) };
-    static FRAMING: Cell<bool> = const { Cell::new(false) };
-}
-
-unsafe extern "system" fn after_message(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
-    unsafe {
-        if code >= 0 && l != 0 {
-            let msg = &*(l as *const CWPRETSTRUCT);
-            if matches!(
-                msg.message,
-                WM_WINDOWPOSCHANGED | WM_NCPAINT | WM_PAINT | WM_PRINT
-            ) && GetClassLongW(msg.hwnd, GCW_ATOM) == 32768
-                && !FRAMING.replace(true)
-            {
-                let menu = SendMessageW(msg.hwnd, MN_GETHMENU, 0, 0) as HMENU;
-                let dpi = ACTIVE.with(|s| {
-                    s.borrow()
-                        .iter()
-                        .rev()
-                        .find(|tracking| tracking.menus.contains(&menu))
-                        .map(|tracking| tracking.dpi)
-                });
-                if let Some(dpi) = dpi {
-                    ui::popup_frame::shape(msg.hwnd, dpi);
-                    let printing = msg.message == WM_PRINT;
-                    let dc = if printing {
-                        msg.wParam as HDC
-                    } else {
-                        GetWindowDC(msg.hwnd)
-                    };
-                    if !dc.is_null() {
-                        paint_frame(msg.hwnd, dc, dpi);
-                        if !printing {
-                            ReleaseDC(msg.hwnd, dc);
-                        }
-                    }
-                }
-                FRAMING.set(false);
-            }
+impl Tracking<'_> {
+    fn shape(&self, hwnd: HWND) {
+        // SetWindowRgn synchronously sends WM_WINDOWPOSCHANGED.
+        if !self.shaping.replace(true) {
+            ui::popup_frame::shape(hwnd, self.popup.dpi);
+            self.shaping.set(false);
         }
-        CallNextHookEx(null_mut(), code, w, l)
+    }
+
+    fn attach(&self, hwnd: HWND) {
+        if hwnd.is_null() || self.windows.borrow().contains(&hwnd) {
+            return;
+        }
+        unsafe {
+            if GetClassLongW(hwnd, GCW_ATOM) != 32768 {
+                return;
+            }
+            let menu = SendMessageW(hwnd, MN_GETHMENU, 0, 0) as HMENU;
+            if !self.popup.columns.contains_key(&menu) {
+                return;
+            }
+            let data = self as *const Self as usize;
+            if SetWindowSubclass(hwnd, Some(frame_proc), data, data) == 0 {
+                return;
+            }
+            self.windows.borrow_mut().push(hwnd);
+            self.shape(hwnd);
+            draw_window_frame(hwnd, self.popup.dpi);
+        }
+    }
+}
+
+unsafe extern "system" fn frame_proc(
+    hwnd: HWND,
+    msg: u32,
+    w: WPARAM,
+    l: LPARAM,
+    id: usize,
+    data: usize,
+) -> LRESULT {
+    unsafe {
+        let tracking = &*(data as *const Tracking<'_>);
+        if msg == WM_NCDESTROY {
+            tracking
+                .windows
+                .borrow_mut()
+                .retain(|&window| window != hwnd);
+            RemoveWindowSubclass(hwnd, Some(frame_proc), id);
+            return DefSubclassProc(hwnd, msg, w, l);
+        }
+        let result = DefSubclassProc(hwnd, msg, w, l);
+        match msg {
+            WM_WINDOWPOSCHANGED => {
+                tracking.shape(hwnd);
+                draw_window_frame(hwnd, tracking.popup.dpi);
+            }
+            WM_NCPAINT | WM_PAINT => draw_window_frame(hwnd, tracking.popup.dpi),
+            WM_PRINT if w != 0 => paint_frame(hwnd, w as HDC, tracking.popup.dpi),
+            _ => {}
+        }
+        result
+    }
+}
+
+fn draw_window_frame(hwnd: HWND, dpi: i32) {
+    unsafe {
+        let dc = GetWindowDC(hwnd);
+        if !dc.is_null() {
+            paint_frame(hwnd, dc, dpi);
+            ReleaseDC(hwnd, dc);
+        }
     }
 }
 

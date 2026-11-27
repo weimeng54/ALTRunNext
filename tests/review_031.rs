@@ -73,8 +73,10 @@ fn check_popup(owner: HWND, pid: u32, button: usize, capture: &str) {
         assert!(!region.is_null());
         wait(|| {
             popup = window("#32768", pid);
-            !popup.is_null() && IsWindowVisible(popup) != 0 && GetWindowRgn(popup, region) > 1
+            !popup.is_null() && IsWindowVisible(popup) != 0
         });
+        eprintln!("Checking the window region of {capture}");
+        wait(|| GetWindowRgn(popup, region) > 1);
         assert_eq!(PtInRegion(region, 0, 0), 0);
         assert_ne!(PtInRegion(region, 12, 12), 0);
         DeleteObject(region);
@@ -342,6 +344,65 @@ fn child(hwnd: HWND, id: i32) -> HWND {
     let control = unsafe { GetDlgItem(hwnd, id) };
     assert!(!control.is_null(), "missing control {id}");
     control
+}
+
+// Run only on the disposable workflow desktop, where changing a system preference is safe.
+fn check_system_contrast(data: &Path) {
+    use windows_sys::Win32::{
+        Graphics::Gdi::{COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor},
+        UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW},
+    };
+    if std::env::var("ALTRUN_CONTRAST_DESKTOP").as_deref() != Ok("github-hosted") {
+        return;
+    }
+    let size = size_of::<HIGHCONTRASTW>() as u32;
+    let mut previous = HIGHCONTRASTW {
+        cbSize: size,
+        ..Default::default()
+    };
+    unsafe {
+        assert_ne!(
+            SystemParametersInfoW(
+                SPI_GETHIGHCONTRAST,
+                size,
+                (&mut previous as *mut HIGHCONTRASTW).cast(),
+                0
+            ),
+            0
+        );
+    }
+    let (running, launcher) = start(data, "dark", "100");
+    let pid = running.0.id();
+    command(launcher, 18003);
+    let manager = ready_window(pid, "ALTRun.Native.ShortcutManager", 2101);
+    let list = child(manager, 2101);
+    let set = |flags| unsafe {
+        let mut state = HIGHCONTRASTW {
+            cbSize: size,
+            dwFlags: flags,
+            lpszDefaultScheme: null_mut(),
+        };
+        SystemParametersInfoW(
+            SPI_SETHIGHCONTRAST,
+            size,
+            (&mut state as *mut HIGHCONTRASTW).cast(),
+            SPIF_SENDCHANGE,
+        )
+    };
+    assert_ne!(set(previous.dwFlags | HCF_HIGHCONTRASTON), 0);
+    let result = std::panic::catch_unwind(|| unsafe {
+        wait(|| {
+            SendMessageW(list, LVM_GETBKCOLOR, 0, 0) == GetSysColor(COLOR_WINDOW) as isize
+                && SendMessageW(list, LVM_GETTEXTCOLOR, 0, 0)
+                    == GetSysColor(COLOR_WINDOWTEXT) as isize
+        });
+        native_snapshot::save(manager, "manager-system-contrast");
+        check_popup(manager, pid, 2140, "menu-new-system-contrast");
+    });
+    assert_ne!(set(previous.dwFlags), 0);
+    if let Err(failure) = result {
+        std::panic::resume_unwind(failure);
+    }
 }
 
 fn count(list: HWND) -> isize {
@@ -671,4 +732,5 @@ fn windows_031_management_and_import_previews() {
             wait(|| running.0.try_wait().unwrap().is_some());
         }
     }
+    check_system_contrast(&data);
 }

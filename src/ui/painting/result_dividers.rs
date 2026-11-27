@@ -42,7 +42,7 @@ impl ResultDividers {
         let line = |default: u32, weight: u32| {
             if theme::high_contrast() {
                 return if selected {
-                    theme::accent()
+                    theme::selection_text()
                 } else {
                     theme::divider()
                 };

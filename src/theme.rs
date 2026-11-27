@@ -26,10 +26,11 @@ struct Palette {
     text: u32,
     muted: u32,
     selection: u32,
+    highlight_text: Option<u32>,
     accent: u32,
     border: u32,
 }
-thread_local! {static PALETTE:std::cell::Cell<Palette>=const{std::cell::Cell::new(Palette{surface:SURFACE,paper:PAPER,text:TEXT,muted:MUTED,selection:SELECTION,accent:ACCENT,border:BORDER})};}
+thread_local! {static PALETTE:std::cell::Cell<Palette>=const{std::cell::Cell::new(Palette{surface:SURFACE,paper:PAPER,text:TEXT,muted:MUTED,selection:SELECTION,highlight_text:None,accent:ACCENT,border:BORDER})};}
 pub fn surface() -> u32 {
     PALETTE.with(|p| p.get().surface)
 }
@@ -47,7 +48,10 @@ pub fn selection() -> u32 {
 }
 /// Text painted onto a selected surface must use the system highlight pair in high contrast.
 pub(crate) fn selection_text() -> u32 {
-    if high_contrast() { accent() } else { text() }
+    PALETTE.with(|p| {
+        let palette = p.get();
+        palette.highlight_text.unwrap_or(palette.text)
+    })
 }
 
 pub(crate) fn row_ink(selected: bool, normal: u32) -> u32 {
@@ -191,7 +195,7 @@ pub fn divider() -> u32 {
 }
 pub fn on_accent() -> u32 {
     if high_contrast() {
-        selection()
+        paper()
     } else if DARK.with(std::cell::Cell::get) {
         rgb(19, 41, 65)
     } else {
@@ -236,7 +240,8 @@ fn install_palette(prefs: &altrun_probe::preferences::Preferences, custom: bool)
                     text: GetSysColor(COLOR_WINDOWTEXT),
                     muted: GetSysColor(COLOR_WINDOWTEXT),
                     selection: GetSysColor(COLOR_HIGHLIGHT),
-                    accent: GetSysColor(COLOR_HIGHLIGHTTEXT),
+                    highlight_text: Some(GetSysColor(COLOR_HIGHLIGHTTEXT)),
+                    accent: GetSysColor(COLOR_WINDOWTEXT),
                     border: GetSysColor(COLOR_WINDOWTEXT),
                 })
             });
@@ -276,6 +281,7 @@ fn install_palette(prefs: &altrun_probe::preferences::Preferences, custom: bool)
             text: rgb(240, 244, 248),
             muted: rgb(180, 192, 206),
             selection: rgb(40, 61, 85),
+            highlight_text: None,
             accent: rgb(154, 199, 255),
             border: rgb(101, 119, 138),
         }
@@ -286,6 +292,7 @@ fn install_palette(prefs: &altrun_probe::preferences::Preferences, custom: bool)
             text: TEXT,
             muted: MUTED,
             selection: SELECTION,
+            highlight_text: None,
             accent: ACCENT,
             border: BORDER,
         }
