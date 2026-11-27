@@ -181,7 +181,7 @@ fn check_backup(launcher: HWND, pid: u32, data: &Path, theme: &str, scale: &str)
     }
     let original = std::fs::read(data).unwrap();
     assert_eq!(text(child(launcher, 18003)), "管理启动项");
-    assert_eq!(text(child(launcher, 18005)), "设置…");
+    assert_eq!(text(child(launcher, 18005)), "设置");
     assert_eq!(text(child(launcher, 18001)), "隐藏");
     command(launcher, 18005);
     let settings = ready_window(pid, "ALTRun.Native.Settings", 2312);

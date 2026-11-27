@@ -72,7 +72,7 @@ pub(super) fn inspect(owner: HWND, rows: &[Entry], base: &Path) {
         );
         crate::ui::dialogs::input::report(
             owner,
-            "ui.check_missing_paths_2",
+            "ui.check_missing_paths",
             crate::ui::dialogs::input::Report {
                 summary,
                 rows: Vec::new(),
@@ -300,7 +300,7 @@ fn paint_report(dc: HDC, dpi: i32, caption: HFONT) {
     for top in [CAPTION - 1, FOOTER] {
         crate::ui::fill(dc, &rect(top, 1), theme::divider());
     }
-    crate::ui::panel_caption(dc, dpi, caption, "ui.check_missing_paths_2");
+    crate::ui::panel_caption(dc, dpi, caption, "ui.check_missing_paths");
 }
 
 fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
@@ -324,7 +324,7 @@ fn open(owner: HWND, findings: Vec<Finding>, summary: &str) {
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            ui("ui.check_missing_paths_2").as_ptr(),
+            ui("ui.check_missing_paths").as_ptr(),
             crate::ui::window_frame::STYLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
